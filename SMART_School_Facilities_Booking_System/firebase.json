@@ -1,0 +1,32 @@
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "schoolfacilitiesbookingsystem",
+          "configurations": {
+            "ios": "1:999888332644:ios:eff96bfc45b145ea78bc71",
+            "web": "1:999888332644:web:aadbf00cf2cc5b5a78bc71",
+            "windows": "1:999888332644:web:cd4aaacdd364f93a78bc71"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
+}
