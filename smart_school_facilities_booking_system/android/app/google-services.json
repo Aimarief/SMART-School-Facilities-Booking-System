@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "999888332644",
+    "project_id": "schoolfacilitiesbookingsystem",
+    "storage_bucket": "schoolfacilitiesbookingsystem.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:999888332644:android:c217965cffadb03778bc71",
+        "android_client_info": {
+          "package_name": "com.example.smart_school_facilities_booking_system"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVL2d4D5aq5jYXmLTFMny70Q0N99_qstA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
