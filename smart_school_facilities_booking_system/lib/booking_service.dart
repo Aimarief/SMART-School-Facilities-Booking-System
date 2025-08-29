@@ -229,6 +229,9 @@ class BookingService {
       bookingBase['approval'] = 'pending';
     }
 
+    // NEW: mark unseen on create
+    bookingBase['seen'] = false;
+
     final FirebaseFirestore db = FirebaseFirestore.instance;
     final bookingRef = db.collection(_bookingsCol).doc();
     await bookingRef.set(bookingBase);
@@ -255,12 +258,20 @@ class BookingService {
         String facilityId = '';
         if (bookingBase.containsKey('facilityId')) {
           final dynamic f = bookingBase['facilityId'];
-          if (f is String) facilityId = f; else if (f != null) facilityId = f.toString();
+          if (f is String) {
+            facilityId = f;
+          } else if (f != null) {
+            facilityId = f.toString();
+          }
         }
         String dateYMD = '';
         if (bookingBase.containsKey('bookingDate')) {
           final dynamic d = bookingBase['bookingDate'];
-          if (d is String) dateYMD = d; else if (d != null) dateYMD = d.toString();
+          if (d is String) {
+            dateYMD = d;
+          } else if (d != null) {
+            dateYMD = d.toString();
+          }
         }
 
         if (facilityId.isNotEmpty && dateYMD.isNotEmpty) {
@@ -271,10 +282,14 @@ class BookingService {
           );
           if (seatIdx >= 1 && seatIdx <= capacity) {
             final seatRef = db
-                .collection('Facilities').doc(facilityId)
-                .collection('Days').doc(dateYMD)
-                .collection('Slots').doc(slotKey)
-                .collection('Seats').doc(seatIdx.toString());
+                .collection('Facilities')
+                .doc(facilityId)
+                .collection('Days')
+                .doc(dateYMD)
+                .collection('Slots')
+                .doc(slotKey)
+                .collection('Seats')
+                .doc(seatIdx.toString());
             await seatRef.set(
               {
                 'taken': false,
@@ -306,8 +321,10 @@ class BookingService {
     await db.runTransaction((txn) async {
       final facRef = db.collection('Facilities').doc(facilityId);
       final slotRef = facRef
-          .collection('Days').doc(dateYMD)
-          .collection('Slots').doc(key);
+          .collection('Days')
+          .doc(dateYMD)
+          .collection('Slots')
+          .doc(key);
 
       // ---- READS (all before writes) ----
       final int capacity = await _txReadCapacity(
@@ -351,6 +368,8 @@ class BookingService {
       data['seatIndex'] = chosen;
       data['approval'] = 'accepted';
       data['status'] = 'upcoming';
+      // NEW: mark unseen on create
+      data['seen'] = false;
       txn.set(bookingRef, data);
     });
   }
@@ -374,8 +393,10 @@ class BookingService {
     await db.runTransaction((txn) async {
       final facRef = db.collection('Facilities').doc(facilityId);
       final slotRef = facRef
-          .collection('Days').doc(dateYMD)
-          .collection('Slots').doc(key);
+          .collection('Days')
+          .doc(dateYMD)
+          .collection('Slots')
+          .doc(key);
       final seatRef = slotRef.collection('Seats').doc(seatIndex.toString());
 
       // ---- READS ----
@@ -413,6 +434,8 @@ class BookingService {
       data['seatIndex'] = seatIndex;
       data['approval'] = 'accepted';
       data['status'] = 'upcoming';
+      // NEW: mark unseen on create
+      data['seen'] = false;
       txn.set(bookingRef, data);
     });
   }
@@ -737,4 +760,157 @@ class BookingService {
       txn.delete(bookingRef);
     });
   }
+
+  // -------- Move/Reschedule accepted booking (by id) --------
+  /// Move an ACCEPTED + UPCOMING booking to a new (facilityId/date/slot/seat).
+  /// - If slot/date/facility are the same and only seat changes, booked counter stays the same.
+  /// - Otherwise: old.booked -= 1, new.booked += 1.
+  /// - Flips Seats/{seat}.taken accordingly.
+  /// - All reads happen before any writes inside the transaction.
+  // -------- Move/Reschedule accepted booking (by id) --------
+  /// Move an ACCEPTED + UPCOMING booking to a new (facilityId/date/slot/seat).
+  /// Also updates Bookings/{bookingId}.start and .end (if provided).
+  static Future<void> moveAcceptedBookingByIdTx({
+    required String bookingId,
+    required String newFacilityId,
+    required String newDateYMD,
+    required String newSlotKey,
+    required int newSeatIndex,       // 1-based
+    String? newStartStr,             // optional "HH:MM" from UI
+    String? newEndStr,               // optional "HH:MM" from UI
+  }) async {
+    final db = FirebaseFirestore.instance;
+    final String newKey = _normalizeSlotKey(newSlotKey);
+
+    await db.runTransaction((txn) async {
+      final bookingRef = db.collection(_bookingsCol).doc(bookingId);
+
+      // ---- READ booking first ----
+      final bSnap = await txn.get(bookingRef);
+      if (!bSnap.exists) throw Exception('Booking not found');
+      final b = bSnap.data() as Map<String, dynamic>?;
+
+      final approval = _pickStr(b, ['approval']).toLowerCase();
+      final status   = _pickStr(b, ['status']).toLowerCase();
+      if (approval != 'accepted' && approval != 'approved') {
+        throw Exception('Only accepted bookings can be edited.');
+      }
+      if (status != 'upcoming') {
+        throw Exception('Only upcoming bookings can be edited.');
+      }
+
+      final oldFacilityId = _pickStr(b, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final oldDateYMD    = _toYMD(b?['bookingDate'] ?? _pickStr(b, ['dateYMD','date','day']));
+      final oldSlotKey    = _normalizeSlotKey(_pickStr(b, ['slotKey','slot','start']));
+      final int oldSeatIndex = _pickInt(b, ['seatIndex','seat','seatNumber']) ?? -1;
+
+      if (oldFacilityId.isEmpty || oldDateYMD.isEmpty || oldSlotKey.isEmpty || oldSeatIndex < 1) {
+        throw Exception('Booking missing old facility/date/slot/seat.');
+      }
+      if (newSeatIndex < 1) {
+        throw Exception('Seat index out of range.');
+      }
+
+      // If nothing actually changes, just update start/end if provided and return
+      final sameFacility = (oldFacilityId == newFacilityId);
+      final sameDate     = (oldDateYMD == newDateYMD);
+      final sameSlot     = (oldSlotKey == newKey);
+      final sameSeat     = (oldSeatIndex == newSeatIndex);
+
+      if (sameFacility && sameDate && sameSlot && sameSeat) {
+        final Map<String, dynamic> patch = {
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (newStartStr != null && newStartStr.trim().isNotEmpty) {
+          patch['start'] = newStartStr.trim();
+        } else {
+          // ensure at least start matches slot key
+          patch['start'] = _hhmmFromKey(newKey); // "HH:MM"
+        }
+        if (newEndStr != null && newEndStr.trim().isNotEmpty) {
+          patch['end'] = newEndStr.trim();
+        }
+        txn.set(bookingRef, patch, SetOptions(merge: true));
+        return;
+      }
+
+      // Build refs
+      final oldFacRef   = db.collection('Facilities').doc(oldFacilityId);
+      final oldSlotRef  = oldFacRef.collection('Days').doc(oldDateYMD).collection('Slots').doc(oldSlotKey);
+      final oldSeatRef  = oldSlotRef.collection('Seats').doc(oldSeatIndex.toString());
+
+      final newFacRef   = db.collection('Facilities').doc(newFacilityId);
+      final newSlotRef  = newFacRef.collection('Days').doc(newDateYMD).collection('Slots').doc(newKey);
+      final newSeatRef  = newSlotRef.collection('Seats').doc(newSeatIndex.toString());
+
+      // ---- READS (all before writes) ----
+      final int oldBooked = await _txReadBooked(txn, oldSlotRef);
+
+      final int newCapacity = await _txReadCapacity(txn, slotRef: newSlotRef, facRef: newFacRef);
+      if (!(newSeatIndex >= 1 && newSeatIndex <= newCapacity)) {
+        throw Exception('Seat index out of range');
+      }
+      final int newBooked = await _txReadBooked(txn, newSlotRef);
+      final bool newFree = await _txSeatIsFree(txn, newSeatRef);
+      if (!newFree) throw Exception('Seat already taken');
+
+      final bool movingWithinSameSlot = (sameFacility && sameDate && sameSlot);
+      if (!movingWithinSameSlot) {
+        if (newBooked >= newCapacity) throw Exception('Slot is full');
+      }
+
+      // ---- WRITES ----
+      // 1) Free old seat
+      _txSetSeatTaken(txn, oldSeatRef, false);
+
+      // 2) If slot is different, decrement old booked
+      if (!movingWithinSameSlot) {
+        _txSetBooked(txn, oldSlotRef, oldBooked - 1);
+      }
+
+      // 3) Take new seat
+      _txSetSeatTaken(txn, newSeatRef, true);
+
+      // 4) If slot is different, increment new booked
+      if (!movingWithinSameSlot) {
+        int next = newBooked + 1;
+        if (next > newCapacity) next = newCapacity;
+        _txSetBooked(txn, newSlotRef, next);
+      }
+
+      // 5) Update booking doc (also start/end)
+      final Map<String, dynamic> patch = {
+        'facilityId': newFacilityId,
+        'bookingDate': newDateYMD,
+        'slotKey': newKey,
+        'seatIndex': newSeatIndex,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Start: prefer provided; else derive from key
+      if (newStartStr != null && newStartStr.trim().isNotEmpty) {
+        patch['start'] = newStartStr.trim();
+      } else {
+        patch['start'] = _hhmmFromKey(newKey); // "HH:MM"
+      }
+
+      // End: only set if provided (we cannot reliably infer end)
+      if (newEndStr != null && newEndStr.trim().isNotEmpty) {
+        patch['end'] = newEndStr.trim();
+      }
+
+      txn.set(bookingRef, patch, SetOptions(merge: true));
+    });
+  }
+
+// Convert "HHmm" -> "HH:MM"
+  static String _hhmmFromKey(String key) {
+    String k = key;
+    if (k.contains(':')) k = k.replaceAll(':', '');
+    if (k.length < 4) k = k.padLeft(4, '0');
+    final String hh = k.substring(0, 2);
+    final String mm = k.substring(2, 4);
+    return hh + ':' + mm;
+  }
+
 }

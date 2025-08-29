@@ -133,9 +133,20 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   }
                 }
 
-                final double avg = (count > 0) ? (total / count) : 0.0;
+                double avg;
+                if (count > 0) {
+                  avg = total / count;
+                } else {
+                  avg = 0.0;
+                }
                 final String avgText = avg.toStringAsFixed(1);
-                final String countLabel = (count == 1) ? '1 rating' : '$count ratings';
+
+                String countLabel = '';
+                if (count == 1) {
+                  countLabel = '1 rating';
+                } else {
+                  countLabel = '$count ratings';
+                }
 
                 return Container(
                   width: double.infinity,
@@ -207,45 +218,53 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
 
                     // read rating fields safely
                     String userId = '';
-                    if (m['userId'] is String) userId = m['userId'];
-
-                    String username = '';
-                    if (m['username'] is String) username = m['username'];
+                    if (m['userId'] is String) {
+                      userId = m['userId'];
+                    }
 
                     String review = '';
-                    if (m['review'] is String) review = m['review'];
+                    if (m['review'] is String) {
+                      review = m['review'];
+                    }
 
                     double rating = 0.0;
                     if (m['rating'] is int) {
                       rating = (m['rating'] as int).toDouble();
-                    } else if (m['rating'] is double) {
-                      rating = m['rating'] as double;
-                    } else if (m['rating'] is String) {
-                      final p = double.tryParse(m['rating'] as String);
-                      if (p != null) rating = p;
+                    } else {
+                      if (m['rating'] is double) {
+                        rating = m['rating'] as double;
+                      } else {
+                        if (m['rating'] is String) {
+                          final double? p = double.tryParse(m['rating'] as String);
+                          if (p != null) { rating = p; }
+                        }
+                      }
                     }
-                    if (rating < 0) rating = 0;
-                    if (rating > 5) rating = 5;
+                    if (rating < 0) { rating = 0; } else { if (rating > 5) { rating = 5; } }
 
-                    // extract createdAt safely
+// extract createdAt safely
                     DateTime? createdAt;
-                    final ca = m['createdAt'];
+                    final dynamic ca = m['createdAt'];
                     if (ca is Timestamp) {
                       createdAt = ca.toDate().toLocal();
-                    } else if (ca is int) {
-                      createdAt = DateTime.fromMillisecondsSinceEpoch(ca).toLocal();
-                    } else if (ca is String) {
-                      try { createdAt = DateTime.parse(ca).toLocal(); } catch (_) {}
+                    } else {
+                      if (ca is int) {
+                        createdAt = DateTime.fromMillisecondsSinceEpoch(ca).toLocal();
+                      } else {
+                        if (ca is String) {
+                          try { createdAt = DateTime.parse(ca).toLocal(); } catch (_) {}
+                        }
+                      }
                     }
 
-                    // now build the tile ONCE
+// now build the tile ONCE (we will lookup the name using userId inside the tile)
                     return _reviewTile(
                       userId: userId,
-                      username: username,
                       rating: rating,
                       review: review,
-                      createdAt: createdAt, // shows "20 Jan 2025" bottom-right
+                      createdAt: createdAt,
                     );
+
                   },
                 );
 
@@ -264,75 +283,121 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
   }
 
   // One review card: avatar, username, stars, review text
-Widget _reviewTile({
-  required String userId,
-  required String username,
-  required double rating,
-  required String review,
-  DateTime? createdAt,
-}) {
-  final String dateText = (createdAt == null) ? '-' : _fmtDate(createdAt);
+// One review card: avatar, username (looked up by userId), stars, review text
+  Widget _reviewTile({
+    required String userId,
+    required double rating,
+    required String review,
+    DateTime? createdAt,
+  }) {
+    String dateText = '-';
+    if (createdAt != null) {
+      dateText = _fmtDate(createdAt);
+    }
 
-  return Container(
-    width: double.infinity,
-    padding: EdgeInsets.all(12.w),
-    decoration: BoxDecoration(
-      color: Colors.grey.shade200,
-      borderRadius: BorderRadius.circular(12.r),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Row: avatar | (name, stars)
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(40.r),
-              child: _userAvatar(userId),
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: Column(
+    // Stream to read user's display name by userId
+    Stream<DocumentSnapshot<Map<String, dynamic>>>? userStream;
+    if (userId.isNotEmpty == true) {
+      userStream = FirebaseFirestore.instance
+          .collection('UserInformation')
+          .doc(userId)
+          .snapshots();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: userStream,
+        builder: (context, snap) {
+          // default display name
+          String displayName = 'Anonymous';
+
+          if (userStream == null) {
+            displayName = 'Anonymous';
+          } else {
+            if (snap.connectionState == ConnectionState.waiting) {
+              // keep placeholder name while loading
+              displayName = 'Anonymous';
+            } else {
+              if (snap.hasData && snap.data != null && snap.data!.exists) {
+                final Map<String, dynamic>? um = snap.data!.data();
+                if (um != null) {
+                  // prefer 'username'
+                  if (um.containsKey('username')) {
+                    if (um['username'] != null) {
+                      final String v = um['username'].toString();
+                      if (v.isNotEmpty == true) {
+                        displayName = v;
+                      }
+                    }
+                  }
+
+                }
+              }
+            }
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Row: avatar | (name, stars)
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    (username.isEmpty ? 'Anonymous' : username),
-                    style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(40.r),
+                    child: _userAvatar(userId),
                   ),
-                  SizedBox(height: 4.h),
-                  _buildStars(rating), // left-aligned stars under the name
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 4.h),
+                        _buildStars(rating), // left-aligned stars under the name
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
-        ),
 
-        SizedBox(height: 8.h),
+              SizedBox(height: 8.h),
 
-        // Review text under the row
-        Text(
-          review,
-          style: TextStyle(fontSize: 13.sp, color: Colors.black87),
-          softWrap: true,
-        ),
+              // Review text under the row
+              Text(
+                review,
+                style: TextStyle(fontSize: 13.sp, color: Colors.black87),
+                softWrap: true,
+              ),
 
-        SizedBox(height: 6.h),
+              SizedBox(height: 6.h),
 
-        // Date bottom-right
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            dateText,
-            style: TextStyle(fontSize: 12.sp, color: Colors.black54),
-          ),
-        ),
-      ],
-    ),
-  );
-}
+              // Date bottom-right
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  dateText,
+                  style: TextStyle(fontSize: 12.sp, color: Colors.black54),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
 
 
 

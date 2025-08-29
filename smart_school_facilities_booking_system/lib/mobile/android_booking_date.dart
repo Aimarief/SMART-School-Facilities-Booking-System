@@ -82,10 +82,12 @@ class _Booking_DateState extends State<Booking_Date> {
   }
 
   Future<void> _bootstrap() async {
-    await _loadWeekdayRules();   // May change _selected to first open day
-    await _loadFacilityOnce();   // Reads availableSlots + customTimeSlots
-    if (mounted) _startSlotsListenerForSelectedDay(); // Start live listener AFTER both above
+    await _loadWeekdayRules();   // working-day booleans
+    await _loadOffDays();        // holidays
+    await _loadFacilityOnce();   // capacity + template
+    if (mounted) _startSlotsListenerForSelectedDay();
   }
+
 
   @override
   void dispose() {
@@ -113,13 +115,13 @@ class _Booking_DateState extends State<Booking_Date> {
   // ------------------------------------------------------
   Future<void> _loadWeekdayRules() async {
     try {
-      final qs = await FirebaseFirestore.instance
+      final snap = await FirebaseFirestore.instance
           .collection('SystemInformation')
-          .limit(1)
+          .doc('Setting')
           .get();
 
-      if (qs.docs.isNotEmpty) {
-        final m = qs.docs.first.data();
+      if (snap.exists) {
+        final m = snap.data() ?? {};
 
         bool toBool(dynamic v) {
           if (v is bool) return v;
@@ -128,35 +130,26 @@ class _Booking_DateState extends State<Booking_Date> {
           return false;
         }
 
-        bool? read(Map<String, dynamic> map, String titleCase) {
-          final lower = titleCase.toLowerCase();
-          if (map.containsKey(titleCase)) return toBool(map[titleCase]);
-          if (map.containsKey(lower)) return toBool(map[lower]);
-          return null;
+        bool read(String key) {
+          final lower = key.toLowerCase();
+          if (m.containsKey(key)) return toBool(m[key]);
+          if (m.containsKey(lower)) return toBool(m[lower]);
+          return false;
         }
 
-        final s  = read(m, 'Sunday');    if (s  != null) _allowSun = s;
-        final mo = read(m, 'Monday');    if (mo != null) _allowMon = mo;
-        final tu = read(m, 'Tuesday');   if (tu != null) _allowTue = tu;
-        final we = read(m, 'Wednesday'); if (we != null) _allowWed = we;
-        final th = read(m, 'Thursday');  if (th != null) _allowThu = th;
-        final fr = read(m, 'Friday');    if (fr != null) _allowFri = fr;
-        final sa = read(m, 'Saturday');  if (sa != null) _allowSat = sa;
-
-        // If selected day is closed, jump to first open in the 7-day window
-        if (!_isWeekdayAllowed(_selected)) {
-          for (final d in _next7) {
-            if (_isWeekdayAllowed(d)) {
-              _selected = d;
-              break;
-            }
-          }
-        }
+        _allowSun = read('Sunday');
+        _allowMon = read('Monday');
+        _allowTue = read('Tuesday');
+        _allowWed = read('Wednesday');
+        _allowThu = read('Thursday');
+        _allowFri = read('Friday');
+        _allowSat = read('Saturday');
       }
     } catch (_) {}
 
     if (mounted) setState(() {});
   }
+
 
   // ------------------------------------------------------
   // Read facility doc ONCE (capacity + template)
@@ -317,14 +310,21 @@ class _Booking_DateState extends State<Booking_Date> {
 
   // Is this date allowed to book?
   bool _isWeekdayAllowed(DateTime d) {
-    if (d.weekday == DateTime.monday) return _allowMon;
-    if (d.weekday == DateTime.tuesday) return _allowTue;
-    if (d.weekday == DateTime.wednesday) return _allowWed;
-    if (d.weekday == DateTime.thursday) return _allowThu;
-    if (d.weekday == DateTime.friday) return _allowFri;
-    if (d.weekday == DateTime.saturday) return _allowSat;
-    return _allowSun; // Sunday
+    final int wd = d.weekday;
+    final bool byWeekday =
+        (wd == DateTime.monday    && _allowMon) ||
+            (wd == DateTime.tuesday   && _allowTue) ||
+            (wd == DateTime.wednesday && _allowWed) ||
+            (wd == DateTime.thursday  && _allowThu) ||
+            (wd == DateTime.friday    && _allowFri) ||
+            (wd == DateTime.saturday  && _allowSat) ||
+            (wd == DateTime.sunday    && _allowSun);
+
+    if (!byWeekday) return false;
+    if (_isOffDay(d)) return false;   // <-- Off Days disable the date
+    return true;
   }
+
 
   // Open calendar dialog (block closed days and out-of-range)
   Future<void> _pickDateWithCalendar() async {
@@ -429,6 +429,47 @@ class _Booking_DateState extends State<Booking_Date> {
     }
     return null;
   }
+
+  final Set<String> _offDaysYMD = <String>{};
+
+  String _ymd(DateTime d) {
+    final mo = d.month.toString().padLeft(2, '0');
+    final da = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$mo-$da';
+  }
+
+  bool _isOffDay(DateTime d) => _offDaysYMD.contains(_ymd(d));
+
+  Future<void> _loadOffDays() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('SystemInformation')
+          .doc('OffDays')
+          .get();
+
+      final next = <String>{};
+      if (doc.exists) {
+        final data = doc.data();
+        if (data != null && data['offDays'] is List) {
+          for (final v in (data['offDays'] as List)) {
+            final s = v?.toString().trim();
+            if (s != null && s.isNotEmpty) next.add(s);
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _offDaysYMD
+            ..clear()
+            ..addAll(next);
+        });
+      }
+    } catch (_) {
+      // keep empty set on failure
+    }
+  }
+
 
   // ------------------------------------------------------
   // UI

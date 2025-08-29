@@ -546,28 +546,46 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
   /// Read working window (start/end minutes) from SystemInformation.
   Future<Map<String, int>?> _getWorkingMinutes() async {
     try {
-      final CollectionReference<Map<String, dynamic>> col =
-      FirebaseFirestore.instance.collection('SystemInformation');
+      final col = FirebaseFirestore.instance.collection('SystemInformation');
 
-      DocumentSnapshot<Map<String, dynamic>> doc = await col.doc('settings').get();
+      // Correct doc id (capital S)
+      DocumentSnapshot<Map<String, dynamic>> doc = await col.doc('Setting').get();
+
+      // Optional legacy fallback (lowercase) if you really need it:
       if (!doc.exists) {
-        final QuerySnapshot<Map<String, dynamic>> qs = await col.limit(1).get();
-        if (qs.docs.isEmpty) return null;
-        doc = qs.docs.first;
+        final lower = await col.doc('settings').get();
+        if (lower.exists) doc = lower;
       }
 
-      final Map<String, dynamic>? data = doc.data();
+      // Last-resort fallback: find any doc that has start/end (without returning null in orElse)
+      if (!doc.exists) {
+        final qs = await col.get();
+        QueryDocumentSnapshot<Map<String, dynamic>>? hit;
+        for (final d in qs.docs) {
+          final m = d.data();
+          if (m.containsKey('start') && m.containsKey('end')) {
+            hit = d;
+            break;
+          }
+        }
+        if (hit == null) return null;
+        doc = hit; // QueryDocumentSnapshot extends DocumentSnapshot, so this is fine
+      }
+
+      final data = doc.data();
       if (data == null) return null;
 
-      final int start = _parseToMinutes(data['start']);
-      final int end = _parseToMinutes(data['end']);
+      final start = _parseToMinutes(data['start']);
+      final end   = _parseToMinutes(data['end']);
       if (start < 0 || end < 0) return null;
 
-      return <String, int>{'start': start, 'end': end};
+      return {'start': start, 'end': end};
     } catch (_) {
       return null;
     }
   }
+
+
 
   DateTime _toEndOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 23, 59, 59, 999);
 

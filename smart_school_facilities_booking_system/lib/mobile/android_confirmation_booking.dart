@@ -693,6 +693,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         bookingBase['bookingDate'] = widget.dateYMD; // "YYYY-MM-DD"
         bookingBase['slotKey'] = slotKey;           // "0800"
         bookingBase['start'] = start;               // "HH:mm"
+        bookingBase['rated'] = false;
         if (end.isNotEmpty) {
           bookingBase['end'] = end;
         }

@@ -2,22 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:go_router/go_router.dart';
 import 'package:file_picker/file_picker.dart';
 import 'web_top_bar.dart';
-import 'package:flutter/services.dart'
-    show rootBundle;
-
-
+import 'package:flutter/services.dart' show rootBundle;
 
 /// ---------------------------------------------------------------------------
 /// WebAccount
-/// A simple account + system setting page for Admin/Manager.
 /// - Left: Account info, edit profile, reset password, logout
-/// - Middle: System settings (Admin: working hours/days, Everyone: time format
-///           + notification switches)
-/// - Right: Quick menu (Admin sees more)
-/// All code below uses basic "if / else" and explicit null checks.
+/// - Middle: System settings (Admin: working hours/days + Off Days calendar)
+///           Instant save: working hours & working days update Firestore immediately.
+///           Warning: only facilities are checked for conflicts; bookings ignored.
+/// - Right: Notification settings (moved here from System settings)
 /// ---------------------------------------------------------------------------
 class WebAccount extends StatefulWidget {
   const WebAccount({Key? key}) : super(key: key);
@@ -30,33 +25,28 @@ class _AdminWebAccountState extends State<WebAccount> {
   // -------------------------------------------------------------------------
   // FIREBASE REFERENCES
   // -------------------------------------------------------------------------
-  // We keep the Auth and Firestore instances here.
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Logged-in user + the Firestore doc id in UserInformation
   User? user;
   String? userDocId;
 
   // -------------------------------------------------------------------------
   // SIMPLE UI STATE FLAGS
   // -------------------------------------------------------------------------
-  bool isLoading = true;          // true while we are loading from Firestore
-  bool isEditing = false;         // true when editing profile fields
-  bool isApplyingSystem = false;  // true while saving system settings
+  bool isLoading = true;
+  bool isEditing = false;
 
   // -------------------------------------------------------------------------
-  // ACCOUNT INFO (Controllers and local values)
+  // ACCOUNT INFO
   // -------------------------------------------------------------------------
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
   final TextEditingController _imageNameController = TextEditingController();
   final GlobalKey<FormState> _editFormKey = GlobalKey<FormState>();
 
-
-
-  String profileImage = '';        // (not used for asset loading; kept for clarity)
-  String profileImageName = '';    // file name stored in Firestore (asset/image/<name>)
+  String profileImage = '';
+  String profileImageName = '';
   String username = 'Loading...';
   String contact = 'Loading...';
   String role = 'Loading...';
@@ -68,7 +58,6 @@ class _AdminWebAccountState extends State<WebAccount> {
 
   // -------------------------------------------------------------------------
   // WORKING TIME & DAYS (SystemInformation/Setting)
-  // Only Admin changes these.
   // -------------------------------------------------------------------------
   TimeOfDay? startTime;
   TimeOfDay? endTime;
@@ -83,33 +72,32 @@ class _AdminWebAccountState extends State<WebAccount> {
   };
 
   // -------------------------------------------------------------------------
-  // NOTIFICATION PREFERENCES (flat fields on user doc)
+  // OFF DAYS (SystemInformation/OffDays.offDays = ["YYYY-MM-DD", ...])
+  // Calendar UI states mirror Booking List calendar.
   // -------------------------------------------------------------------------
+  DateTime _offCalVisibleMonthFirst =
+  DateTime(DateTime.now().year, DateTime.now().month, 1);
+  final Set<String> _offDaysYMD = <String>{};
+  bool _loadingOffDays = true;
+
+  // ---- Notification toggles (right column)
   bool notifAll = true;
   bool notifNewBooking = true;
   bool notifPending = true;
   bool notifIssue = true;
 
-  // -------------------------------------------------------------------------
-  // LIFECYCLE: INIT
-  // We get the current user and load both user + system settings.
-  // -------------------------------------------------------------------------
   @override
   void initState() {
     super.initState();
     user = _auth.currentUser;
-    _loadAll(); // load everything on start
+    _loadAll();
   }
 
   // =========================================================================
-  // LOADERS (READ FROM FIRESTORE)
+  // LOADERS
   // =========================================================================
-
-  /// Load both user info and system settings.
-  /// If no user (or user has no email), we just stop and show N/A text.
   Future<void> _loadAll() async {
-    if (user == null) {
-      // No logged-in user
+    if (user == null || user!.email == null) {
       setState(() {
         isLoading = false;
         username = 'N/A';
@@ -119,31 +107,15 @@ class _AdminWebAccountState extends State<WebAccount> {
       return;
     }
 
-    // Extra safety: make sure email is not null
-    if (user!.email == null) {
-      setState(() {
-        isLoading = false;
-        username = 'N/A';
-        contact = 'N/A';
-        role = 'N/A';
-      });
-      return;
-    }
-
-    // Load user info (name/contact/role/profile image, time format, notif flags)
     await _loadUserInfo(user!.email!);
-
-    // Load system settings (working hours + days)
     await _loadSystemSettings();
+    await _loadOffDays();
 
-    // We finished loading
     setState(() {
       isLoading = false;
     });
   }
 
-  /// Load one user doc by email from "UserInformation".
-  /// Save basic fields + UI switches to local state.
   Future<void> _loadUserInfo(String email) async {
     final QuerySnapshot<Map<String, dynamic>> qs = await _firestore
         .collection('UserInformation')
@@ -151,7 +123,6 @@ class _AdminWebAccountState extends State<WebAccount> {
         .limit(1)
         .get();
 
-    // If not found, show N/A and clear image name input.
     if (qs.docs.isEmpty) {
       setState(() {
         username = 'N/A';
@@ -163,62 +134,22 @@ class _AdminWebAccountState extends State<WebAccount> {
       return;
     }
 
-    // We got the doc -> read fields carefully (no "??")
-    final QueryDocumentSnapshot<Map<String, dynamic>> doc = qs.docs.first;
-    final Map<String, dynamic> data = doc.data();
+    final doc = qs.docs.first;
+    final data = doc.data();
     userDocId = doc.id;
 
-    // Prepare each field with simple null checks
-    String newUsername = 'N/A';
-    if (data.containsKey('username') && data['username'] != null) {
-      newUsername = data['username'].toString();
-    }
+    String newUsername = (data['username'] ?? 'N/A').toString();
+    String newContact = (data['contact'] ?? 'N/A').toString();
+    String newRole = (data['role'] ?? 'N/A').toString();
+    String newImageName = (data['profileImageName'] ?? '').toString();
 
-    String newContact = 'N/A';
-    if (data.containsKey('contact') && data['contact'] != null) {
-      newContact = data['contact'].toString();
-    }
+    bool newUse24 = data['timeFormat24'] is bool ? (data['timeFormat24'] as bool) : true;
 
-    String newRole = 'N/A';
-    if (data.containsKey('role') && data['role'] != null) {
-      newRole = data['role'].toString();
-    }
+    bool newNotifAll = data['notifAll'] is bool ? (data['notifAll'] as bool) : true;
+    bool newNotifNewBooking = data['notifNewBooking'] is bool ? (data['notifNewBooking'] as bool) : true;
+    bool newNotifPending = data['notifPending'] is bool ? (data['notifPending'] as bool) : true;
+    bool newNotifIssue = data['notifIssue'] is bool ? (data['notifIssue'] as bool) : true;
 
-    String newImageName = '';
-    if (data.containsKey('profileImageName') && data['profileImageName'] != null) {
-      newImageName = data['profileImageName'].toString();
-    }
-
-    bool newUse24 = true;
-    if (data.containsKey('timeFormat24') && data['timeFormat24'] is bool) {
-      newUse24 = data['timeFormat24'] as bool;
-    }
-
-    bool newNotifAll = true;
-    if (data.containsKey('notifAll') && data['notifAll'] is bool) {
-      newNotifAll = data['notifAll'] as bool;
-    }
-
-    bool newNotifNewBooking = true;
-    if (data.containsKey('notifNewBooking') && data['notifNewBooking'] is bool) {
-      newNotifNewBooking = data['notifNewBooking'] as bool;
-    }
-
-    bool newNotifPending = true;
-    if (data.containsKey('notifPending') && data['notifPending'] is bool) {
-      newNotifPending = data['notifPending'] as bool;
-    }
-
-    bool newNotifIssue = true;
-    if (data.containsKey('notifIssue') && data['notifIssue'] is bool) {
-      newNotifIssue = data['notifIssue'] as bool;
-    }
-
-
-
-
-
-    // Save to state and to controllers
     setState(() {
       username = newUsername;
       contact = newContact;
@@ -239,73 +170,26 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
-  /// Load system settings from "SystemInformation/Setting".
-  /// We read start/end working time and 7 day booleans.
   Future<void> _loadSystemSettings() async {
-    final DocumentSnapshot<Map<String, dynamic>> snap = await _firestore
-        .collection('SystemInformation')
-        .doc('Setting')
-        .get();
+    final snap = await _firestore.collection('SystemInformation').doc('Setting').get();
+    if (!snap.exists) return;
 
-    // If no Setting doc yet, we just skip.
-    if (!snap.exists) {
-      return;
-    }
+    final data = snap.data()!;
 
-    final Map<String, dynamic> data = snap.data()!;
+    final s = data['start'] is String ? data['start'] as String : null;
+    final e = data['end'] is String ? data['end'] as String : null;
 
-    // Parse "start"/"end" like "08:00"
-    String? s = null;
-    if (data.containsKey('start') && data['start'] is String) {
-      s = data['start'] as String;
-    }
-
-    String? e = null;
-    if (data.containsKey('end') && data['end'] is String) {
-      e = data['end'] as String;
-    }
-
-    // Days (default false when not present)
-    bool sun = false;
-    if (data.containsKey('Sunday') && data['Sunday'] is bool) {
-      sun = data['Sunday'] as bool;
-    }
-    bool mon = false;
-    if (data.containsKey('Monday') && data['Monday'] is bool) {
-      mon = data['Monday'] as bool;
-    }
-    bool tue = false;
-    if (data.containsKey('Tuesday') && data['Tuesday'] is bool) {
-      tue = data['Tuesday'] as bool;
-    }
-    bool wed = false;
-    if (data.containsKey('Wednesday') && data['Wednesday'] is bool) {
-      wed = data['Wednesday'] as bool;
-    }
-    bool thu = false;
-    if (data.containsKey('Thursday') && data['Thursday'] is bool) {
-      thu = data['Thursday'] as bool;
-    }
-    bool fri = false;
-    if (data.containsKey('Friday') && data['Friday'] is bool) {
-      fri = data['Friday'] as bool;
-    }
-    bool sat = false;
-    if (data.containsKey('Saturday') && data['Saturday'] is bool) {
-      sat = data['Saturday'] as bool;
-    }
+    bool sun = data['Sunday'] is bool ? data['Sunday'] as bool : false;
+    bool mon = data['Monday'] is bool ? data['Monday'] as bool : false;
+    bool tue = data['Tuesday'] is bool ? data['Tuesday'] as bool : false;
+    bool wed = data['Wednesday'] is bool ? data['Wednesday'] as bool : false;
+    bool thu = data['Thursday'] is bool ? data['Thursday'] as bool : false;
+    bool fri = data['Friday'] is bool ? data['Friday'] as bool : false;
+    bool sat = data['Saturday'] is bool ? data['Saturday'] as bool : false;
 
     setState(() {
-      if (s != null) {
-        startTime = _parseTime(s);
-      } else {
-        startTime = null;
-      }
-      if (e != null) {
-        endTime = _parseTime(e);
-      } else {
-        endTime = null;
-      }
+      startTime = (s != null) ? _parseTime(s) : null;
+      endTime = (e != null) ? _parseTime(e) : null;
 
       workingDays = <String, bool>{
         'Sunday': sun,
@@ -319,24 +203,38 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
-  // =========================================================================
-  // SAVERS (WRITE TO FIRESTORE)
-  // =========================================================================
-
-  /// Save profile info (username, contact, profile image name) to user doc.
-  /// Also verifies the chosen image file name is inside assets (asset/image/).
-  Future<void> _saveAccountInfo() async {
-    if (userDocId == null) {
-      return;
+  Future<void> _loadOffDays() async {
+    setState(() => _loadingOffDays = true);
+    try {
+      final doc = await _firestore.collection('SystemInformation').doc('OffDays').get();
+      _offDaysYMD.clear();
+      if (doc.exists) {
+        final data = doc.data();
+        if (data != null && data['offDays'] is List) {
+          for (final v in (data['offDays'] as List)) {
+            final s = v?.toString().trim();
+            if (s != null && s.isNotEmpty) _offDaysYMD.add(s);
+          }
+        }
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _loadingOffDays = false);
     }
+  }
+
+  // =========================================================================
+  // SAVERS
+  // =========================================================================
+  Future<void> _saveAccountInfo() async {
+    if (userDocId == null) return;
 
     final String fname = _imageNameController.text.trim();
 
-    // Check if file exists in the built assets folder asset/image/
     if (fname.isNotEmpty) {
       final bool exists = await _assetExistsInBundle(fname);
       if (!exists) {
-        // If not found, warn and stop saving so preview won't break
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Image not found in asset/image/. Add it and restart the app.'),
@@ -346,7 +244,6 @@ class _AdminWebAccountState extends State<WebAccount> {
       }
     }
 
-    // Build a map with the values we want to save
     final Map<String, dynamic> payload = <String, dynamic>{
       'username': _usernameController.text.trim(),
       'contact': _contactController.text.trim(),
@@ -358,7 +255,6 @@ class _AdminWebAccountState extends State<WebAccount> {
         .doc(userDocId)
         .set(payload, SetOptions(merge: true));
 
-    // Update local state so UI shows latest info
     setState(() {
       username = _usernameController.text.trim();
       contact = _contactController.text.trim();
@@ -371,53 +267,33 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-  /// Helper to check if an asset exists inside the app bundle.
-  /// We try to load the bytes. If it fails, it's not bundled.
   Future<bool> _assetExistsInBundle(String name) async {
-    if (name.isEmpty) {
-      return false; // empty means "no image"
-    }
+    if (name.isEmpty) return false;
     try {
       await rootBundle.load('asset/image/$name');
-      return true; // success
+      return true;
     } catch (_) {
-      return false; // failed to load
+      return false;
     }
   }
 
-  /// Open a file dialog and keep only the chosen file name (no upload here).
-  /// On the web platform, we only get the file's name, not a path.
   Future<void> _pickImageFileName() async {
     final FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: <String>['png', 'jpg', 'jpeg'],
-      withData: false, // we only need the name
+      withData: false,
     );
 
-    if (result == null) {
-      return; // user canceled
-    }
-    if (result.files.isEmpty) {
-      return;
-    }
+    if (result == null || result.files.isEmpty) return;
 
     final String fileName = result.files.single.name;
-
     setState(() {
-      _imageNameController.text = fileName; // we save just the file name
+      _imageNameController.text = fileName;
     });
-
-    // NOTE: To preview this image from assets, a file with the SAME NAME
-    // must already exist at asset/image/<fileName> and be declared in pubspec.
-    // Otherwise the preview will show "empty" until you add it and rebuild.
   }
 
-  /// Save time format preference (checkbox) to user doc.
-  /// We also set local state so switch updates immediately.
   Future<void> _saveTimeFormat(bool value) async {
-    if (userDocId == null) {
-      return;
-    }
+    if (userDocId == null) return;
 
     setState(() {
       use24HourFormat = value;
@@ -429,236 +305,113 @@ class _AdminWebAccountState extends State<WebAccount> {
         .set(<String, dynamic>{'timeFormat24': value}, SetOptions(merge: true));
   }
 
-  /// Save system settings (Admin):
-  /// - Start / End working time
-  /// - Working days (Sun..Sat)
-  Future<void> _applySystemSettings() async {
-    // both times required
-    if (startTime == null || endTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please choose both start and end time.')),
-      );
-      return;
-    }
-
-    // validate order: start < end
-    final int newStartMin = _timeToMinutes(_formatTime(startTime!));
-    final int newEndMin = _timeToMinutes(_formatTime(endTime!));
-    if (newEndMin <= newStartMin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End time must be later than start time.')),
-      );
-      return;
-    }
-
+  Future<void> _updateWorkingDay(String day, bool value) async {
+    // Update immediately (admin only section)
     setState(() {
-      isApplyingSystem = true;
+      workingDays[day] = value;
     });
-
-    // 1) run validation against facilities and bookings
-    final String newStartStr = _formatTime(startTime!);
-    final String newEndStr = _formatTime(endTime!);
-
-    final List<String> facConflicts = await _findFacilityConflicts(newStartStr, newEndStr);
-    final List<String> bookingConflicts = await _findBookingConflicts(newStartStr, newEndStr);
-
-    // 2) if any conflicts, show a dialog and abort saving
-    if (facConflicts.isNotEmpty || bookingConflicts.isNotEmpty) {
-      if (mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (BuildContext ctx) {
-            return AlertDialog(
-              title: const Text('Cannot Apply – Conflicts Found'),
-              content: SizedBox(
-                width: 520.w,
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      if (facConflicts.isNotEmpty) ...<Widget>[
-                        Text('Facilities outside new hours ($newStartStr – $newEndStr):',
-                            style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700)),
-                        SizedBox(height: 6.h),
-                        ...facConflicts.map((e) => Padding(
-                          padding: EdgeInsets.only(bottom: 4.h),
-                          child: Text('• $e', style: TextStyle(fontSize: 13.sp)),
-                        )),
-                        SizedBox(height: 10.h),
-                      ],
-                      if (bookingConflicts.isNotEmpty) ...<Widget>[
-                        Text('Bookings outside new hours ($newStartStr – $newEndStr):',
-                            style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700)),
-                        SizedBox(height: 6.h),
-                        ...bookingConflicts.map((e) => Padding(
-                          padding: EdgeInsets.only(bottom: 4.h),
-                          child: Text('• $e', style: TextStyle(fontSize: 13.sp)),
-                        )),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-              ],
-            );
-          },
-        );
-      }
-      if (mounted) {
-        setState(() {
-          isApplyingSystem = false;
-        });
-      }
-      return; // stop here; do not save
-    }
-
-    // 3) save to SystemInformation since no conflicts
-    final Map<String, dynamic> payload = <String, dynamic>{
-      'start': newStartStr,
-      'end': newEndStr,
-      'Sunday': workingDays['Sunday'] == true,
-      'Monday': workingDays['Monday'] == true,
-      'Tuesday': workingDays['Tuesday'] == true,
-      'Wednesday': workingDays['Wednesday'] == true,
-      'Thursday': workingDays['Thursday'] == true,
-      'Friday': workingDays['Friday'] == true,
-      'Saturday': workingDays['Saturday'] == true,
-    };
-
     await _firestore
         .collection('SystemInformation')
         .doc('Setting')
-        .set(payload, SetOptions(merge: true));
-
-    if (mounted) {
-      setState(() {
-        isApplyingSystem = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('System settings saved')),
-      );
-    }
-  }
-
-
-  /// Toggle any one notification field (by field name) and save it.
-  /// We also update local state first so the switch feels snappy.
-  Future<void> _updateNotif(String field, bool value) async {
-    if (userDocId == null) {
-      return;
-    }
-
-    // Update local booleans
-    setState(() {
-      if (field == 'notifAll') {
-        notifAll = value;
-      }
-      if (field == 'notifNewBooking') {
-        notifNewBooking = value;
-      }
-      if (field == 'notifPending') {
-        notifPending = value;
-      }
-      if (field == 'notifIssue') {
-        notifIssue = value;
-      }
-    });
-
-    // Save to Firestore
-    await _firestore
-        .collection('UserInformation')
-        .doc(userDocId)
-        .set(<String, dynamic>{field: value}, SetOptions(merge: true));
+        .set(<String, dynamic>{day: value}, SetOptions(merge: true));
   }
 
   // =========================================================================
   // AUTH / MISC
   // =========================================================================
-
-  /// Send a password reset email to the current user's email.
   Future<void> _sendPasswordReset() async {
-    if (user == null) {
-      return;
-    }
-    if (user!.email == null) {
-      return;
-    }
+    if (user == null || user!.email == null) return;
     await _auth.sendPasswordResetEmail(email: user!.email!);
-
-    // Show feedback
-    final String emailText = user!.email!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Reset email sent to $emailText')),
+      SnackBar(content: Text('Reset email sent to ${user!.email!}')),
     );
   }
 
-  /// Log out and go to /login route.
   Future<void> _logout() async {
     await _auth.signOut();
-    if (!mounted) {
-      return;
-    }
-    // You used Navigator here (kept the same)
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
 
   // =========================================================================
   // HELPERS
   // =========================================================================
-
-  /// Convert "HH:MM" string to TimeOfDay.
   TimeOfDay _parseTime(String hhmm) {
-    final List<String> p = hhmm.split(':');
-    final int h = int.parse(p[0]);
-    final int m = int.parse(p[1]);
-    return TimeOfDay(hour: h, minute: m);
+    final p = hhmm.split(':');
+    return TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
   }
 
-  /// Convert TimeOfDay to "HH:MM" string (24h).
   String _formatTime(TimeOfDay t) {
-    final String h = t.hour.toString().padLeft(2, '0');
-    final String m = t.minute.toString().padLeft(2, '0');
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
 
-  /// Pick a time for "start" or "end".
-  /// We force 24-hour display inside the picker UI for clarity.
+
+  /// Pick a time and save only if facility hours fit the new window.
+  /// If conflicts exist, show a SnackBar and DO NOT change state or DB.
   Future<void> _pickTime({required bool isStart}) async {
-    // Decide initial time for the picker
-    TimeOfDay initial;
-    if (isStart) {
-      if (startTime == null) {
-        initial = const TimeOfDay(hour: 9, minute: 0);
-      } else {
-        initial = startTime!;
-      }
-    } else {
-      if (endTime == null) {
-        initial = const TimeOfDay(hour: 17, minute: 0);
-      } else {
-        initial = endTime!;
-      }
-    }
+    final TimeOfDay initial = isStart
+        ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
+        : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
 
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: initial,
-      builder: (BuildContext context, Widget? child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-          child: child!,
-        );
-      },
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
     );
+    if (picked == null) return;
 
-    // If user canceled, do nothing
-    if (picked == null) {
+    // Build candidate pair (what the times WOULD be if this change is applied)
+    final TimeOfDay? candStart = isStart ? picked : startTime;
+    final TimeOfDay? candEnd   = isStart ? endTime  : picked;
+
+    // If we have both, validate order and check facility conflicts
+    if (candStart != null && candEnd != null) {
+      final int sMin = _timeToMinutes(_formatTime(candStart));
+      final int eMin = _timeToMinutes(_formatTime(candEnd));
+      if (eMin <= sMin) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('End time must be later than start time.')),
+        );
+        return; // reject change
+      }
+
+      final String newStartStr = _formatTime(candStart);
+      final String newEndStr   = _formatTime(candEnd);
+
+      final conflicts = await _findFacilityConflicts(newStartStr, newEndStr);
+      if (conflicts.isNotEmpty) {
+        // Reject change and keep old values in UI and DB
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Some facilities have available time that does not fit the system start/end time. Reverting change.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      // No conflicts -> apply to UI and save to Firestore
+      setState(() {
+        if (isStart) {
+          startTime = picked;
+        } else {
+          endTime = picked;
+        }
+      });
+      await _saveSystemTimes(); // writes {start,end}
       return;
     }
 
-    // Save picked time
+    // If we only have one side (start or end) so far, just set state.
+    // We will validate + save when both are available.
     setState(() {
       if (isStart) {
         startTime = picked;
@@ -668,7 +421,22 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
-  /// Simple row to show a label and a value in the Account view.
+
+  Future<void> _saveSystemTimes() async {
+    if (startTime == null || endTime == null) return;
+    await _firestore
+        .collection('SystemInformation')
+        .doc('Setting')
+        .set(
+      <String, dynamic>{
+        'start': _formatTime(startTime!),
+        'end': _formatTime(endTime!),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+
   Widget _detailRow(String label, String value) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 10.h),
@@ -688,303 +456,188 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-  /// convert "HH:MM" to minutes since midnight
   int _timeToMinutes(String hhmm) {
     try {
-      final List<String> p = hhmm.split(':');
-      final int h = int.parse(p[0]);
-      final int m = int.parse(p[1]);
+      final p = hhmm.split(':');
+      final h = int.parse(p[0]);
+      final m = int.parse(p[1]);
       return (h * 60) + m;
     } catch (_) {
       return 0;
     }
   }
 
-  /// read facility available start/end from either a nested map or flat fields
+  // Read facility available time from nested/flat fields
   Map<String, String> _readFacilityAvailableTimes(Map<String, dynamic> data) {
     String s = '';
     String e = '';
 
-    if (data.containsKey('availableTime') && data['availableTime'] is Map<String, dynamic>) {
-      final Map<String, dynamic> at = data['availableTime'] as Map<String, dynamic>;
-      if (at.containsKey('start') && at['start'] is String) {
-        s = at['start'] as String;
-      }
-      if (at.containsKey('end') && at['end'] is String) {
-        e = at['end'] as String;
-      }
+    if (data.containsKey('availableTime') &&
+        data['availableTime'] is Map<String, dynamic>) {
+      final at = data['availableTime'] as Map<String, dynamic>;
+      if (at['start'] is String) s = (at['start'] as String).trim();
+      if (at['end'] is String) e = (at['end'] as String).trim();
     }
 
-    // support alternative flat fields too
-    if (s.isEmpty && data.containsKey('availableTimeStart') && data['availableTimeStart'] is String) {
-      s = data['availableTimeStart'] as String;
+    if (s.isEmpty && data['availableTimeStart'] is String) {
+      s = (data['availableTimeStart'] as String).trim();
     }
-    if (e.isEmpty && data.containsKey('availableTimeEnd') && data['availableTimeEnd'] is String) {
-      e = data['availableTimeEnd'] as String;
+    if (e.isEmpty && data['availableTimeEnd'] is String) {
+      e = (data['availableTimeEnd'] as String).trim();
     }
 
     return <String, String>{'start': s, 'end': e};
   }
 
-  /// validate ALL facilities (ignoring deleted == true)
+  // Check only facilities against new system hours; return list of conflicts
   Future<List<String>> _findFacilityConflicts(String newStart, String newEnd) async {
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
 
-    final QuerySnapshot<Map<String, dynamic>> qs =
-    await _firestore.collection('Facilities').get();
-
+    final qs = await _firestore.collection('Facilities').get();
     final List<String> conflicts = <String>[];
 
-    int i = 0;
-    while (i < qs.docs.length) {
-      final QueryDocumentSnapshot<Map<String, dynamic>> d = qs.docs[i];
-      final Map<String, dynamic> m = d.data();
+    for (final d in qs.docs) {
+      final m = d.data();
 
-      bool deleted = false;
-      if (m.containsKey('deleted') && m['deleted'] is bool) {
-        deleted = m['deleted'] as bool;
-      }
-      if (deleted) {
-        i = i + 1;
-        continue;
-      }
+      if (m['deleted'] is bool && m['deleted'] == true) continue;
 
       String name = d.id;
-      if (m.containsKey('name') && m['name'] is String) {
-        name = (m['name'] as String).trim().isEmpty ? d.id : (m['name'] as String);
+      if (m['name'] is String && (m['name'] as String).trim().isNotEmpty) {
+        name = (m['name'] as String).trim();
       }
 
-      final Map<String, String> at = _readFacilityAvailableTimes(m);
-      final String fs = at['start'] ?? '';
-      final String fe = at['end'] ?? '';
+      final at = _readFacilityAvailableTimes(m);
+      final fs = (at['start'] ?? '').trim();
+      final fe = (at['end'] ?? '').trim();
+      if (fs.isEmpty || fe.isEmpty) continue;
 
-      if (fs.isEmpty || fe.isEmpty) {
-        i = i + 1;
-        continue;
+      final facStart = _timeToMinutes(fs);
+      final facEnd = _timeToMinutes(fe);
+
+      if (facStart < sysStart || facEnd > sysEnd) {
+        conflicts.add(name);
       }
-
-      final int facStart = _timeToMinutes(fs);
-      final int facEnd = _timeToMinutes(fe);
-
-      bool early = false;
-      bool late = false;
-
-      if (facStart < sysStart) {
-        early = true;
-      }
-      if (facEnd > sysEnd) {
-        late = true;
-      }
-
-      if (early || late) {
-        String msg = '$name has $fs–$fe';
-        msg = '$msg (outside $newStart–$newEnd)';
-        conflicts.add(msg);
-      }
-
-      i = i + 1;
     }
 
     return conflicts;
   }
-
-  /// validate ALL bookings (ignore status == 'ended' and approval == 'rejected')
-  Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
-    final int sysStart = _timeToMinutes(newStart);
-    final int sysEnd = _timeToMinutes(newEnd);
-
-    // to reduce reads a bit, pick only approval in ['pending','accepted'] and filter status locally
-    final QuerySnapshot<Map<String, dynamic>> qs = await _firestore
-        .collection('Bookings')
-        .where('approval', whereIn: <String>['pending', 'accepted'])
-        .get();
-
-    final List<String> conflicts = <String>[];
-    int shown = 0; // avoid flooding the dialog
-    const int maxShow = 100;
-
-    int i = 0;
-    while (i < qs.docs.length) {
-      final QueryDocumentSnapshot<Map<String, dynamic>> d = qs.docs[i];
-      final Map<String, dynamic> b = d.data();
-
-      // skip ended
-      if (b.containsKey('status') && b['status'] is String) {
-        final String st = (b['status'] as String).toLowerCase();
-        if (st == 'ended') {
-          i = i + 1;
-          continue;
-        }
-      }
-
-      // skip rejected – already filtered by query, but keep defensive
-      if (b.containsKey('approval') && b['approval'] is String) {
-        final String ap = (b['approval'] as String).toLowerCase();
-        if (ap == 'rejected') {
-          i = i + 1;
-          continue;
-        }
-      }
-
-      String start = '';
-      if (b.containsKey('start') && b['start'] is String) {
-        start = b['start'] as String;
-      }
-      String end = '';
-      if (b.containsKey('end') && b['end'] is String) {
-        end = b['end'] as String;
-      }
-
-      // if end missing, treat as same as start
-      if (end.isEmpty) {
-        end = start;
-      }
-
-      if (start.isEmpty) {
-        i = i + 1;
-        continue;
-      }
-
-      final int sMin = _timeToMinutes(start);
-      final int eMin = _timeToMinutes(end);
-
-      bool out = false;
-      if (sMin < sysStart) {
-        out = true;
-      } else {
-        if (eMin > sysEnd) {
-          out = true;
-        }
-      }
-
-      if (out) {
-        // build a short label: date + time + user or email if present
-        String date = '';
-        if (b.containsKey('bookingDate') && b['bookingDate'] is String) {
-          date = b['bookingDate'] as String;
-        }
-        String who = '';
-        if (b.containsKey('userName') && b['userName'] is String) {
-          who = b['userName'] as String;
-        } else {
-          if (b.containsKey('userEmail') && b['userEmail'] is String) {
-            who = b['userEmail'] as String;
-          }
-        }
-
-        String label = '';
-        if (date.isNotEmpty) {
-          label = '$date ';
-        }
-        label = '$label$start–$end';
-        if (who.isNotEmpty) {
-          label = '$label ($who)';
-        }
-        label = '$label is outside $newStart–$newEnd';
-
-        conflicts.add(label);
-        shown = shown + 1;
-        if (shown >= maxShow) {
-          conflicts.add('…and more. Please narrow the window or adjust bookings.');
-          break;
-        }
-      }
-
-      i = i + 1;
-    }
-
-    return conflicts;
-  }
-
-
-
-
-
-  /// Round profile avatar that tries to load from an asset path.
-  /// If path is empty or load fails, we show a circle with "empty".
-  Widget _profileAvatar(String path, {double size = 90}) {
-    if (path.isEmpty) {
-      // Empty state
-      return CircleAvatar(
-        radius: size,
-        backgroundColor: Colors.grey.shade300,
-        child: const Text('empty'),
-      );
-    }
-
-    // Try to load the asset
-    return CircleAvatar(
-      radius: size,
-      backgroundColor: Colors.grey.shade200,
-      child: ClipOval(
-        child: Image.asset(
-          path,
-          width: size * 2,  // CircleAvatar uses diameter
-          height: size * 2,
-          fit: BoxFit.cover,
-          errorBuilder: (BuildContext context, Object error, StackTrace? stack) {
-            return const Center(child: Text('empty'));
-          },
-        ),
-      ),
-    );
-  }
-
-  /// Build an asset path from a file name. If name is empty, return empty string.
-  String _assetFromName(String name) {
-    if (name.isEmpty) {
-      return '';
-    }
-    return 'asset/image/$name';
-  }
-
-  /// Round profile avatar using only the file NAME (we convert to asset path).
-  /// If the image is missing in assets, we show "empty".
-  Widget _profileAvatarFromName(String name, {double size = 60}) {
-    final String path = _assetFromName(name);
-
-    // If no path (empty name), show an empty circle
-    if (path.isEmpty) {
-      return Container(
-        width: size * 2,
-        height: size * 2,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.black12, width: 2),
-          color: Colors.grey.shade300,
-        ),
-        alignment: Alignment.center,
-        child: const Text('empty'),
-      );
-    }
-
-    // Try to load the asset
-    return Container(
-      width: size * 2,
-      height: size * 2,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.black12, width: 2),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.asset(
-        path,
-        fit: BoxFit.cover,
-        errorBuilder: (BuildContext _, Object __, StackTrace? ___) {
-          return const Center(child: Text('empty'));
-        },
-      ),
-    );
-  }
-
 
   // =========================================================================
-  // UI (BUILD)
+  // OFF DAYS (Calendar) Helpers + Actions
+  // =========================================================================
+  String _ymd(DateTime d) {
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final da = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$da';
+  }
+
+  int _daysInMonth(DateTime firstOfMonth) {
+    final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
+    final lastCurrent = firstNext.subtract(const Duration(days: 1));
+    return lastCurrent.day;
+  }
+
+  int _leadingEmptyCells(DateTime firstOfMonth) {
+    // Sunday=0 .. Saturday=6
+    return firstOfMonth.weekday % 7;
+  }
+
+  String _monthName(int m) {
+    const names = [
+      'January','February','March','April','May','June',
+      'July','August','September','October','November','December'
+    ];
+    return names[m - 1];
+  }
+
+  void _prevMonthOffCal() {
+    final f = _offCalVisibleMonthFirst;
+    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month - 1, 1));
+  }
+
+  void _nextMonthOffCal() {
+    final f = _offCalVisibleMonthFirst;
+    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month + 1, 1));
+  }
+
+  Future<void> _toggleOffDay(DateTime date) async {
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    final dateStart = DateTime(date.year, date.month, date.day);
+    if (dateStart.isBefore(todayStart)) {
+      // past days disabled
+      return;
+    }
+
+    final ymd = _ymd(date);
+    final bool willAdd = !_offDaysYMD.contains(ymd);
+
+    // Optimistic UI update
+    setState(() {
+      if (willAdd) {
+        _offDaysYMD.add(ymd);
+      } else {
+        _offDaysYMD.remove(ymd);
+      }
+    });
+
+    try {
+      final ref = _firestore.collection('SystemInformation').doc('OffDays');
+      if (willAdd) {
+        await ref.set({'offDays': FieldValue.arrayUnion([ymd])}, SetOptions(merge: true));
+      } else {
+        await ref.set({'offDays': FieldValue.arrayRemove([ymd])}, SetOptions(merge: true));
+      }
+    } catch (_) {
+      // revert on failure
+      setState(() {
+        if (willAdd) {
+          _offDaysYMD.remove(ymd);
+        } else {
+          _offDaysYMD.add(ymd);
+        }
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update off day. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _updateNotif(String field, bool value) async {
+    if (userDocId == null) return;
+
+    setState(() {
+      switch (field) {
+        case 'notifAll':
+          notifAll = value;
+          break;
+        case 'notifNewBooking':
+          notifNewBooking = value;
+          break;
+        case 'notifPending':
+          notifPending = value;
+          break;
+        case 'notifIssue':
+          notifIssue = value;
+          break;
+      }
+    });
+
+    await _firestore
+        .collection('UserInformation')
+        .doc(userDocId)
+        .set(<String, dynamic>{field: value}, SetOptions(merge: true));
+  }
+
+  // =========================================================================
+  // UI
   // =========================================================================
   @override
   Widget build(BuildContext context) {
-    // We keep some basic derived values here to avoid "?:"
     final double screenHeight = MediaQuery.of(context).size.height;
 
     bool isAdmin = false;
@@ -992,43 +645,29 @@ class _AdminWebAccountState extends State<WebAccount> {
       isAdmin = role.toLowerCase() == 'admin';
     }
 
-    // If you need manager check later; it's not used, but we keep the same style
-    bool isManager = false;
-    if (role.isNotEmpty) {
-      isManager = role.toLowerCase() == 'manager';
-    }
-
-    // Prepare email text safely (no "??")
     String emailStr = 'N/A';
     if (user != null && user!.email != null) {
       emailStr = user!.email!;
     }
 
-    // Prepare status text (logged in / out) without using "?:"
-    String statusText = 'Logged Out';
-    if (user != null) {
-      statusText = 'Logged In';
-    }
+    String statusText = (user != null) ? 'Logged In' : 'Logged Out';
 
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(70.h),
         child: WebCustomTopBar(use24HourFormat: use24HourFormat),
       ),
-
-      // If still loading -> show a loader. Else show content.
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         child: Row(
-          // don't force equal heights; avoid intrinsic sizing with scrollables
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             // -----------------------------------------------------------------
             // LEFT: ACCOUNT
             // -----------------------------------------------------------------
             Expanded(
-              child: Center( // clamp the whole column once
+              child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: 520.w),
                   child: Padding(
@@ -1037,9 +676,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         Text("Account Settings",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
-                        ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
                         SizedBox(height: 35.h),
 
                         Center(
@@ -1091,7 +729,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                                         final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
                                         if (digitsOnly != value) {
                                           _contactController.text = digitsOnly;
-                                          _contactController.selection = TextSelection.collapsed(offset: digitsOnly.length);
+                                          _contactController.selection =
+                                              TextSelection.collapsed(offset: digitsOnly.length);
                                         }
                                       },
                                     ),
@@ -1122,10 +761,10 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: <Widget>[
                                   _detailRow("Username:", username),
-                                  _detailRow("Email:", (user != null && user!.email != null) ? user!.email! : 'N/A'),
+                                  _detailRow("Email:", emailStr),
                                   _detailRow("Contact:", contact),
                                   _detailRow("Role:", role),
-                                  _detailRow("Status:", user != null ? 'Logged In' : 'Logged Out'),
+                                  _detailRow("Status:", statusText),
                                   SizedBox(height: 16.h),
                                   SizedBox(
                                     width: double.infinity,
@@ -1169,22 +808,21 @@ class _AdminWebAccountState extends State<WebAccount> {
               ),
             ),
 
-
-            // divider (won't stretch without IntrinsicHeight; optional)
+            // divider
             Container(width: 1.w, color: Colors.black12, margin: EdgeInsets.symmetric(vertical: 16.h)),
 
             // -----------------------------------------------------------------
-            // MIDDLE: SYSTEM SETTINGS (its own scroll)
+            // MIDDLE: SYSTEM SETTINGS (+ Off Days calendar)
             // -----------------------------------------------------------------
             Expanded(
-              child: Center( // clamp column width once
+              child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: 560.w),
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
                     child: SingleChildScrollView(
                       primary: false,
-                      padding: const EdgeInsets.only(bottom: 12), // guards tiny zoom overflow
+                      padding: const EdgeInsets.only(bottom: 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
@@ -1193,32 +831,50 @@ class _AdminWebAccountState extends State<WebAccount> {
                               style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
                           SizedBox(height: 35.h),
 
-                          // Admin-only
-                          if (role.toLowerCase() == 'admin') ...[
+                          // Admin-only block
+                          if (isAdmin) ...[
                             Text("Working Hour", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                            SizedBox(height: 25.h),
-
-                            const Text("Start:"),
-                            SizedBox(height: 6.h),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () => _pickTime(isStart: true),
-                                child: Text((startTime == null) ? "Select Start Time" : _formatTime(startTime!)),
-                              ),
-                            ),
                             SizedBox(height: 12.h),
 
-                            const Text("End:"),
-                            SizedBox(height: 6.h),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () => _pickTime(isStart: false),
-                                child: Text((endTime == null) ? "Select End Time" : _formatTime(endTime!)),
-                              ),
+                            // Start/End on ONE ROW (instant save)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text("Start"),
+                                      SizedBox(height: 6.h),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: () => _pickTime(isStart: true),
+                                          child: Text((startTime == null) ? "Select" : _formatTime(startTime!)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(width: 12.w),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text("End"),
+                                      SizedBox(height: 6.h),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: () => _pickTime(isStart: false),
+                                          child: Text((endTime == null) ? "Select" : _formatTime(endTime!)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            SizedBox(height: 25.h),
+                            SizedBox(height: 20.h),
 
                             Text("Working Days", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             Column(
@@ -1228,13 +884,27 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(day),
                                   value: v,
-                                  onChanged: (bool? nv) => setState(() => workingDays[day] = nv == true),
+                                  onChanged: (bool? nv) =>
+                                      _updateWorkingDay(day, nv == true),
                                 );
                               }).toList(),
                             ),
-                            SizedBox(height: 25.h),
+                            SizedBox(height: 20.h),
+
+                            // -------- Off Days (Holidays) Calendar --------
+                            Text("Pick Off Days (Holidays)",
+                                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                            SizedBox(height: 10.h),
+                            _buildOffDaysCalendarCard(),
+                            SizedBox(height: 6.h),
+                            Text(
+                              'Tip: Click a future day to toggle holiday. Blue = holiday. Past days are disabled.',
+                              style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280)),
+                            ),
+                            SizedBox(height: 12.h),
                           ],
 
+                          // Time format is for everyone
                           Text("Time Format", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                           CheckboxListTile(
                             contentPadding: EdgeInsets.zero,
@@ -1242,42 +912,6 @@ class _AdminWebAccountState extends State<WebAccount> {
                             value: use24HourFormat,
                             onChanged: (bool? v) => _saveTimeFormat(v ?? true),
                           ),
-                          SizedBox(height: 25.h),
-
-                          Text("Notification Settings", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                          SwitchListTile(
-                            title: const Text("Turn on sound for all notification"),
-                            value: notifAll,
-                            onChanged: (bool v) => _updateNotif('notifAll', v),
-                          ),
-                          SwitchListTile(
-                            title: const Text("Turn on sound for new booking"),
-                            value: notifNewBooking,
-                            onChanged: (bool v) => _updateNotif('notifNewBooking', v),
-                          ),
-                          SwitchListTile(
-                            title: const Text("Turn on sound for new pending booking"),
-                            value: notifPending,
-                            onChanged: (bool v) => _updateNotif('notifPending', v),
-                          ),
-                          SwitchListTile(
-                            title: const Text("Turn on sound for new reported issue"),
-                            value: notifIssue,
-                            onChanged: (bool v) => _updateNotif('notifIssue', v),
-                          ),
-                          SizedBox(height: 12.h),
-
-                          if (role.toLowerCase() == 'admin')
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48.h,
-                              child: ElevatedButton(
-                                onPressed: isApplyingSystem ? null : _applySystemSettings,
-                                child: isApplyingSystem
-                                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : const Text("Apply"),
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -1286,12 +920,11 @@ class _AdminWebAccountState extends State<WebAccount> {
               ),
             ),
 
-
-            // divider (optional)
+            // divider
             Container(width: 1.w, color: Colors.black12, margin: EdgeInsets.symmetric(vertical: 16.h)),
 
             // -----------------------------------------------------------------
-            // RIGHT: MENU
+            // RIGHT: NOTIFICATION SETTINGS (replaces the old Menu)
             // -----------------------------------------------------------------
             Expanded(
               child: Center(
@@ -1299,74 +932,309 @@ class _AdminWebAccountState extends State<WebAccount> {
                   constraints: BoxConstraints(maxWidth: 520.w),
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                    child: Builder(
-                      builder: (context) {
-                        // Local helper so you don't need a class method
-                        Widget menuButton(String title, String route) {
-                          return SizedBox(
-                            width: double.infinity,
-                            height: 60.h,
-                            child: ElevatedButton(
-                              onPressed: () => context.go(route),
-                              child: Text(
-                                title,
-                                style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          );
-                        }
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Text(
+                          "Notification Settings",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 35.h),
 
-                        final bool isAdmin = role.toLowerCase() == 'admin';
-
-                        final List<Widget> menuItems = isAdmin
-                            ? <Widget>[
-                          menuButton("Calendar", '/calendar'),
-                          SizedBox(height: 12.h),
-                          menuButton("Booking List", '/booking-list'),
-                          SizedBox(height: 12.h),
-                          menuButton("Facilities", '/facilities'),
-                          SizedBox(height: 12.h),
-                          menuButton("Manager List", '/manager-list'),
-                          SizedBox(height: 12.h),
-                          menuButton("Booking", '/booking'),
-                          SizedBox(height: 12.h),
-                          menuButton("Statistic", '/statistic'),
-                          SizedBox(height: 12.h),
-                          menuButton("Terms & Conditions", '/terms'),
-                        ]
-                            : <Widget>[
-                          menuButton("Calendar", '/calendar'),
-                          SizedBox(height: 12.h),
-                          menuButton("Booking List", '/booking-list'),
-                          SizedBox(height: 12.h),
-                          menuButton("Booking", '/booking'),
-                        ];
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            Text(
-                              "Menu",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
-                            ),
-                            SizedBox(height: 35.h),
-                            ...menuItems,
-                          ],
-                        );
-                      },
+                        SwitchListTile(
+                          title: const Text("Turn on sound for all notification"),
+                          value: notifAll,
+                          onChanged: (bool v) => _updateNotif('notifAll', v),
+                        ),
+                        SwitchListTile(
+                          title: const Text("Turn on sound for new booking"),
+                          value: notifNewBooking,
+                          onChanged: (bool v) => _updateNotif('notifNewBooking', v),
+                        ),
+                        SwitchListTile(
+                          title: const Text("Turn on sound for new pending booking"),
+                          value: notifPending,
+                          onChanged: (bool v) => _updateNotif('notifPending', v),
+                        ),
+                        SwitchListTile(
+                          title: const Text("Turn on sound for new reported issue"),
+                          value: notifIssue,
+                          onChanged: (bool v) => _updateNotif('notifIssue', v),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-            )
-
-
-
+            ),
           ],
         ),
       ),
+    );
+  }
 
+  // =========================================================================
+  // Profile avatar helpers (unchanged)
+  // =========================================================================
+  Widget _profileAvatar(String path, {double size = 90}) {
+    if (path.isEmpty) {
+      return CircleAvatar(
+        radius: size,
+        backgroundColor: Colors.grey.shade300,
+        child: const Text('empty'),
+      );
+    }
+
+    return CircleAvatar(
+      radius: size,
+      backgroundColor: Colors.grey.shade200,
+      child: ClipOval(
+        child: Image.asset(
+          path,
+          width: size * 2,
+          height: size * 2,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stack) => const Center(child: Text('empty')),
+        ),
+      ),
+    );
+  }
+
+  String _assetFromName(String name) {
+    if (name.isEmpty) return '';
+    return 'asset/image/$name';
+  }
+
+  Widget _profileAvatarFromName(String name, {double size = 60}) {
+    final String path = _assetFromName(name);
+
+    if (path.isEmpty) {
+      return Container(
+        width: size * 2,
+        height: size * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.black12, width: 2),
+          color: Colors.grey.shade300,
+        ),
+        alignment: Alignment.center,
+        child: const Text('empty'),
+      );
+    }
+
+    return Container(
+      width: size * 2,
+      height: size * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.black12, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.asset(
+        path,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stack) => const Center(child: Text('empty')),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // Off Days Calendar UI (matching Booking List style)
+  // =========================================================================
+  Widget _buildOffDaysCalendarCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        borderRadius: BorderRadius.circular(12.r),
+      ),
+      padding: EdgeInsets.all(12.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildOffDaysCalendarHeader(),
+          SizedBox(height: 8.h),
+          _buildWeekdayRow(),
+          SizedBox(height: 8.h),
+          _buildOffDaysCalendarGrid(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOffDaysCalendarHeader() {
+    final m = _offCalVisibleMonthFirst;
+    final label = '${_monthName(m.month)} ${m.year}';
+
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
+          ),
+        ),
+        TextButton(onPressed: _prevMonthOffCal, child: Text('Prev', style: TextStyle(fontSize: 12.sp))),
+        SizedBox(width: 4.w),
+        TextButton(onPressed: _nextMonthOffCal, child: Text('Next', style: TextStyle(fontSize: 12.sp))),
+      ],
+    );
+  }
+
+  Widget _buildWeekdayRow() {
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        final gap = 6.w;
+        final totalGaps = gap * 6;
+        double cellW = (c.maxWidth - totalGaps) / 7.0;
+        if (cellW < 10.w) cellW = 10.w;
+
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(7, (i) {
+            return SizedBox(
+              width: cellW,
+              child: Center(
+                child: Text(
+                  days[i],
+                  style: TextStyle(
+                    fontSize: 11.sp,
+                    color: const Color(0xFF6B7280),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  Widget _buildOffDaysCalendarGrid() {
+    if (_loadingOffDays) {
+      return SizedBox(
+        height: 160.h,
+        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
+    final f = _offCalVisibleMonthFirst;
+    final days = _daysInMonth(f);
+    final lead = _leadingEmptyCells(f);
+    final total = lead + days;
+
+    int rows = (total / 7.0).ceil();
+    if (rows < 6) rows = 6;
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        final gap = 6.w;
+        final totalGapW = gap * 6;
+        double cellW = (c.maxWidth - totalGapW) / 7.0;
+        if (cellW < 10.w) cellW = 10.w;
+        final gridH = (rows * cellW) + ((rows - 1) * gap);
+
+        return SizedBox(
+          height: gridH,
+          child: Column(
+            children: List.generate(rows, (r) {
+              return Padding(
+                padding: EdgeInsets.only(bottom: r == rows - 1 ? 0 : gap),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: List.generate(7, (cIdx) {
+                    final cellIndex = (r * 7) + cIdx;
+                    final dayNum = cellIndex - lead + 1;
+
+                    final inMonth = (dayNum >= 1 && dayNum <= days);
+                    final DateTime? cellDate =
+                    inMonth ? DateTime(f.year, f.month, dayNum) : null;
+
+                    final today = DateTime.now();
+                    final todayStart = DateTime(today.year, today.month, today.day);
+                    final isDisabled = cellDate == null
+                        ? true
+                        : DateTime(cellDate.year, cellDate.month, cellDate.day)
+                        .isBefore(todayStart);
+
+                    final String ymd = (cellDate != null) ? _ymd(cellDate) : '';
+                    final bool isHoliday =
+                        cellDate != null && _offDaysYMD.contains(ymd);
+
+                    return _offDayCell(
+                      width: cellW,
+                      height: cellW,
+                      label: inMonth ? '$dayNum' : '',
+                      inMonth: inMonth,
+                      isDisabled: isDisabled,
+                      isHoliday: isHoliday,
+                      date: cellDate,
+                    );
+                  }),
+                ),
+              );
+            }),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _offDayCell({
+    required double width,
+    required double height,
+    required String label,
+    required bool inMonth,
+    required bool isDisabled,
+    required bool isHoliday,
+    required DateTime? date,
+  }) {
+    Color border = const Color(0xFFE5E7EB);
+    Color bg = Colors.white;
+    Color text = const Color(0xFF111827);
+
+    if (!inMonth) text = const Color(0xFF9CA3AF);
+    if (isDisabled && inMonth) text = const Color(0xFF9CA3AF);
+
+    // Holiday = blue
+    if (isHoliday) {
+      bg = const Color(0xFFDBEAFE);        // light blue
+      border = const Color(0xFF1D4ED8);    // blue
+      text = const Color(0xFF1E3A8A);
+    }
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(8.r),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8.r),
+          onTap: (!inMonth || isDisabled || date == null)
+              ? null
+              : () => _toggleOffDay(date),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8.r),
+              border: Border.all(color: border),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w600,
+                color: text,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

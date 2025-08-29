@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'web_edit_booking.dart';
 
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 
@@ -18,10 +19,69 @@ class WebBookingDetails extends StatelessWidget {
   final Map<String, dynamic> booking;
   final bool use24HourFormat;
 
-  static const Color kLilacFill = Color(0xFFE2CCFF);
-  static const Color kBorder = Color(0xFFE5E7EB);
-  static const Color kMuted = Color(0xFF6B7280);
-  static const Color kText = Color(0xFF111827);
+  // Ask for a short reason. If `requiredInput` is true, empty is not allowed.
+  Future<String?> _askReasonDialog(
+      BuildContext context, {
+        required String title,
+      }) async {
+    final ctrl = TextEditingController();
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(title),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480, maxHeight: 220),
+            child: SizedBox(
+              width: 440,
+              child: TextFormField(
+                controller: ctrl,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                minLines: 3,          // fixed min height
+                maxLines: 6,          // becomes scrollable when longer
+                // wraps to next line when hitting the right edge
+                decoration: const InputDecoration(
+                  hintText: 'Write a short reason...',
+                  // keep hint top-left
+                  contentPadding: EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final raw = ctrl.text.trim();
+                final val = raw.isEmpty ? '-' : raw; // empty -> "-"
+                Navigator.of(ctx).pop(val);
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+// Save the reason to Bookings/{bookingId}.statusReason
+  Future<void> _saveStatusReason(String bookingId, String? reason) async {
+    final r = (reason ?? '').trim();
+    if (r.isEmpty) return;
+    await FirebaseFirestore.instance
+        .collection('Bookings') // <-- change if your collection name differs
+        .doc(bookingId)
+        .update({'statusReason': r});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,10 +95,10 @@ class WebBookingDetails extends StatelessWidget {
     final DateTime? bookDate = _readBookingDate(booking);
     final DateTime? tStart = _readTime(booking, ['start','startTime','timeStart']);
     final DateTime? tEnd   = _readTime(booking, ['end','endTime','timeEnd']);
-    final String dateStr   = bookDate != null ? _fmtDDMonYYYY(bookDate) : '—';
+    final String dateStr   = bookDate != null ? _fmtDDMonYYYY(bookDate) : '';
     final String timeFancy = (tStart != null && tEnd != null)
         ? '${_fmt24WithAmPm(tStart)} - ${_fmt24WithAmPm(tEnd)}'
-        : (tStart != null) ? _fmt24WithAmPm(tStart) : '—';
+        : (tStart != null) ? _fmt24WithAmPm(tStart) : '';
 
     final String reason = _readFirstStr(booking, ['approvalReason','reason','bookingReason','purpose','notes']);
 
@@ -47,8 +107,30 @@ class WebBookingDetails extends StatelessWidget {
     final String statusLc   = _readFirstStr(booking, ['status','bookingStatus','state']).trim().toLowerCase();
 
     final bool showApproveReject = !(approvalLc == 'accepted' || approvalLc == 'approved' || approvalLc == 'rejected');
-    final bool showDelete        = statusLc == 'upcoming' && (approvalLc == 'accepted' || approvalLc == 'approved');
-    final bool showEdit          = !(statusLc == 'ongoing' || statusLc == 'ended');
+
+    bool showDelete = false;
+    if (statusLc == 'upcoming') {
+      if (approvalLc == 'accepted' || approvalLc == 'approved') {
+        showDelete = true;
+      } else {
+        showDelete = false;
+      }
+    } else {
+      showDelete = false;
+    }
+
+// Only allow edit if already accepted/approved AND still upcoming.
+// (you said “only allowed to edit the facility that already accepted”)
+    bool showEdit = false;
+    if (statusLc == 'upcoming') {
+      if (approvalLc == 'accepted' || approvalLc == 'approved') {
+        showEdit = true;
+      } else {
+        showEdit = false;
+      }
+    } else {
+      showEdit = false;
+    }
 
     // Booking id (id-only booking logic kept intact)
     final String bookingId = _readFirstStr(booking, ['bookingId','booking_id','id','docId','bookingID','__id']);
@@ -73,14 +155,14 @@ class WebBookingDetails extends StatelessWidget {
                       // Facility name (LIVE)
                       _FacilityNameLive(
                         facilityId: facilityId,
-                        style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700, color: kText),
+                        style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827)),
                       ),
                       SizedBox(height: 12.h),
 
                       // Vertical summary list: slot, date, time
                       _summaryColumn(
                         children: [
-                          _summaryLine(icon: Icons.event_seat, labelLower: 'slot', value: seat.isEmpty ? '—' : seat),
+                          _summaryLine(icon: Icons.event_seat, labelLower: 'slot', value: seat),
                           _summaryLine(icon: Icons.calendar_today_outlined, labelLower: 'date', value: dateStr),
                           _summaryLine(icon: Icons.schedule, labelLower: 'time', value: timeFancy),
                         ],
@@ -101,7 +183,7 @@ class WebBookingDetails extends StatelessWidget {
             // ===== Reason of booking =====
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('Reason of booking', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: kText)),
+              child: Text('Reason of booking', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
             ),
             SizedBox(height: 6.h),
             Container(
@@ -110,9 +192,10 @@ class WebBookingDetails extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(10.r),
-                border: Border.all(color: kBorder),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              child: Text(reason.isEmpty ? '—' : reason, style: TextStyle(fontSize: 13.sp, color: kText)),
+              // keep fallback ONLY here
+              child: Text(reason.isEmpty ? '—' : reason, style: TextStyle(fontSize: 13.sp, color: const Color(0xFF111827))),
             ),
 
             SizedBox(height: 16.h),
@@ -120,12 +203,12 @@ class WebBookingDetails extends StatelessWidget {
             // ===== Booked by (LIVE from UserInformation/{uid}) =====
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('Booked by', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: kText)),
+              child: Text('Booked by', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
             ),
             SizedBox(height: 8.h),
             _PersonCard.fromUid(
               uid: bookedByUid,
-              fillColor: kLilacFill,
+              fillColor: const Color(0xFFE2CCFF),
               showStatusFromRole: true,
               photoMode: _PhotoMode.base64,
             ),
@@ -135,12 +218,12 @@ class WebBookingDetails extends StatelessWidget {
             // ===== Facility Manager (LIVE from UserInformation/{uid}) =====
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('Facility Manager', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: kText)),
+              child: Text('Facility Manager', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
             ),
             SizedBox(height: 8.h),
             _PersonCard.fromUid(
               uid: managerUid,
-              fillColor: kLilacFill,
+              fillColor: const Color(0xFFE2CCFF),
               showStatusFromRole: false,
               photoMode: _PhotoMode.asset,
             ),
@@ -188,7 +271,47 @@ class WebBookingDetails extends StatelessWidget {
                         icon: Icons.edit_outlined,
                         border: const Color(0xFF3B82F6),
                         foreground: const Color(0xFF1D4ED8),
-                        onPressed: () {},
+                        onPressed: () async {
+                          // ----- prepare strings we need to pass to the edit popup -----
+                          String ymd = '';
+                          if (bookDate != null) {
+                            final String y = bookDate.year.toString().padLeft(4, '0');
+                            final String m = bookDate.month.toString().padLeft(2, '0');
+                            final String d = bookDate.day.toString().padLeft(2, '0');
+                            ymd = y + '-' + m + '-' + d;
+                          }
+
+                          String startStr = '';
+                          String endStr = '';
+                          if (tStart != null) {
+                            startStr = _fmt24WithAmPm(tStart);
+                          }
+                          if (tEnd != null) {
+                            endStr = _fmt24WithAmPm(tEnd);
+                          }
+
+                          // ----- 1) close the DETAILS popup -----
+                          Navigator.of(context).pop();
+
+                          // ----- 2) open the EDIT popup (this looks like the popup "changes" to Edit) -----
+                          await openWebEditBookingDialog(
+                            context: context,
+                            booking: booking,                // raw map so we can reopen details later
+                            bookingId: bookingId,
+                            facilityId: facilityId,
+                            bookedByUid: bookedByUid,
+                            managerUid: managerUid,
+                            dateYMD: ymd,
+                            timeStart: startStr,
+                            timeEnd: endStr,
+                            seatIndex: seat,
+                            approval: approvalLc,
+                            status: statusLc,
+                            use24HourFormat: use24HourFormat,
+                          );
+                        },
+
+
                       ),
                     if (showDelete)
                       _pillButton(
@@ -214,9 +337,21 @@ class WebBookingDetails extends StatelessWidget {
       _toast(context, 'Missing booking id to approve.');
       return;
     }
-    await _busy(context, () async {
+
+    // Reason OPTIONAL for approve
+    final reason = await _askReasonDialog(
+      context,
+      title: 'Approve booking',
+
+    );
+    if (reason == null) return; // cancelled
+
+    final ok = await _busy(context, () async {
       await BookingService.approveBookingByIdTx(bookingId: bookingId);
+      await _saveStatusReason(bookingId, reason);
     });
+
+    if (!ok) return;
     _toast(context, 'Booking approved.');
     if (context.mounted) Navigator.of(context).pop();
   }
@@ -226,26 +361,40 @@ class WebBookingDetails extends StatelessWidget {
       _toast(context, 'Missing booking id to reject.');
       return;
     }
-    await _busy(context, () async {
+
+    // Reason REQUIRED for reject
+    final reason = await _askReasonDialog(
+      context,
+      title: 'Reject booking',
+    );
+    if (reason == null) return; // cancelled
+
+    final ok = await _busy(context, () async {
       await BookingService.rejectBookingByIdSimple(bookingId: bookingId);
+      await _saveStatusReason(bookingId, reason);
     });
+
+    if (!ok) return;
     _toast(context, 'Booking rejected.');
     if (context.mounted) Navigator.of(context).pop();
   }
+
 
   Future<void> _onDeleteAccepted(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to delete.');
       return;
     }
-    await _busy(context, () async {
+    final ok = await _busy(context, () async {
       await BookingService.deleteAcceptedBookingByIdTx(bookingId: bookingId);
     });
+    if (!ok) return;
     _toast(context, 'Booking deleted.');
     if (context.mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _busy(BuildContext context, Future<void> Function() task) async {
+// 1) Make _busy return success/failure
+  Future<bool> _busy(BuildContext context, Future<void> Function() task) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -253,12 +402,52 @@ class WebBookingDetails extends StatelessWidget {
     );
     try {
       await task();
+      return true; // <-- success
     } catch (e) {
-      _toast(context, e.toString());
+      _toast(context, _niceError(e));
+      return false; // <-- failed
     } finally {
       if (context.mounted) Navigator.of(context).pop();
     }
   }
+
+
+
+// 3) Friendlier error mapping (covers Firestore conflicts too)
+  String _niceError(Object e) {
+    final s = e.toString();
+
+    // direct messages from your service
+    if (s.contains('Slot is full') ||
+        s.contains('Seat already taken') ||
+        s.contains('No free seat found')) {
+      return 'This slot is taken.';
+    }
+
+    // Firestore transaction/contention messages that occur when the slot just got taken
+    if (s.contains('ABORTED') ||
+        s.contains('FAILED_PRECONDITION') ||
+        s.contains('has been modified') ||
+        s.contains('document version') ||
+        s.contains('requires all reads to be before writes') ||
+        s.contains('Transaction') && s.contains('conflict')) {
+      return 'This slot is taken.';
+    }
+
+    if (s.contains('Seat index out of range')) {
+      return 'That seat is not available for this slot.';
+    }
+    if (s.contains('Booking already processed')) {
+      return 'This booking was already processed.';
+    }
+    if (s.contains('Booking not found')) {
+      return 'Booking not found.';
+    }
+
+    return 'Slot is taken';
+  }
+
+
 
   void _toast(BuildContext context, String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -281,7 +470,7 @@ class WebBookingDetails extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       ),
       onPressed: onPressed,
-      icon: const Icon(Icons.check, size: 18),
+      icon: Icon(icon, size: 18),
       label: Text(label, style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600)),
     );
   }
@@ -330,18 +519,20 @@ class WebBookingDetails extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFFBFBFF),
         borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: kBorder),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: kMuted),
+          Icon(icon, size: 18, color: const Color(0xFF6B7280)),
           SizedBox(width: 10.w),
           Text('${labelLower.toLowerCase()}: ',
-              style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: kText)),
+              style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
           Expanded(
-            child: Text(value.isEmpty ? '—' : value,
-                style: TextStyle(fontSize: 12.sp, color: kText),
-                overflow: TextOverflow.ellipsis),
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -504,16 +695,15 @@ class _FacilityNameLive extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (facilityId.isEmpty) {
-      return Text('—', style: style, overflow: overflow);
+      return Text('', style: style, overflow: overflow);
     }
     final ref = FirebaseFirestore.instance.collection('Facilities').doc(facilityId);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ref.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data();
-        // prefer 'name', fallback 'facilityName'
         final name = (data?['name'] ?? data?['facilityName']) as String?;
-        final display = (name != null && name.trim().isNotEmpty) ? name.trim() : '—';
+        final display = (name != null && name.trim().isNotEmpty) ? name.trim() : '';
         return Text(display, style: style, overflow: overflow);
       },
     );
@@ -542,19 +732,16 @@ class _FacilityImageSmart extends StatelessWidget {
     final data = snap.data();
     if (data == null) return null;
 
-    // Prefer a full asset path if you store it (e.g. "asset/image/room.png")
     final imagePath = (data['imagePath'] as String?)?.trim() ?? '';
     if (imagePath.isNotEmpty) {
       return _ImageSrc.asset(imagePath);
     }
 
-    // Else support legacy imageName (we prefix with "asset/image/")
     final imageName = (data['imageName'] as String?)?.trim() ?? '';
     if (imageName.isNotEmpty) {
       return _ImageSrc.asset('asset/image/$imageName');
     }
 
-    // (Optional) network URL
     final url = (data['imageUrl'] as String?)?.trim() ?? '';
     if (url.startsWith('http')) {
       return _ImageSrc.network(url);
@@ -576,7 +763,7 @@ class _FacilityImageSmart extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              border: Border.all(color: WebBookingDetails.kBorder),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
               color: const Color(0xFFF9FAFB),
             ),
             child: _buildImage(src),
@@ -613,7 +800,7 @@ class _FacilityImageSmart extends StatelessWidget {
 }
 
 /* ===========================
-   Simple image source holder (no Dart 3 patterns)
+   Simple image source holder
    =========================== */
 class _ImageSrc {
   final String? assetPath;
@@ -626,16 +813,6 @@ class _ImageSrc {
 
   bool get isAsset => assetPath != null && assetPath!.isNotEmpty;
   bool get isNetwork => url != null && url!.isNotEmpty;
-}
-
-sealed class _ImageSource {}
-class _ImageSourceAssetPath extends _ImageSource { final String path; _ImageSourceAssetPath(this.path); }
-class _ImageSourceNetwork extends _ImageSource { final String url; _ImageSourceNetwork(this.url); }
-_ImageSource _ImageSource_assetPath(String p) => _ImageSourceAssetPath(p);
-_ImageSource _ImageSource_network(String u) => _ImageSourceNetwork(u);
-extension on _ImageSource {
-  static _ImageSource assetPath(String p) => _ImageSource_assetPath(p);
-  static _ImageSource network(String u) => _ImageSource_network(u);
 }
 
 /* ===========================
@@ -657,7 +834,7 @@ class _PersonCard extends StatelessWidget {
     this.url,
   }) : super(key: key);
 
-  // Factory: load from UserInformation with uid (no fallbacks from booking)
+  // Factory: load from UserInformation with uid
   static Widget fromUid({
     required String uid,
     required Color fillColor,
@@ -668,10 +845,10 @@ class _PersonCard extends StatelessWidget {
     if (uid.isEmpty) {
       return _PersonCard(
         title: title,
-        name: '—',
-        email: '—',
-        contact: '—',
-        status: showStatusFromRole ? '—' : null,
+        name: '',
+        email: '',
+        contact: '',
+        status: showStatusFromRole ? '' : null,
         fillColor: fillColor,
       );
     }
@@ -713,10 +890,10 @@ class _PersonCard extends StatelessWidget {
 
         return _PersonCard(
           title: title,
-          name: name.isEmpty ? '—' : name,
-          email: email.isEmpty ? '—' : email,
-          contact: phone.isEmpty ? '—' : phone,
-          status: showStatusFromRole ? (role.isEmpty ? '—' : role) : null,
+          name: name,
+          email: email,
+          contact: phone,
+          status: showStatusFromRole ? role : null,
           fillColor: fillColor,
           photoBytes: bytes,
           assetName: assetName,
@@ -739,7 +916,7 @@ class _PersonCard extends StatelessWidget {
 
   bool get _hasBytes => photoBytes != null && photoBytes!.isNotEmpty;
   bool get _hasAsset => assetName != null && assetName!.isNotEmpty;
-  bool get _hasUrl   => url != null && url!.startsWith('http');
+  bool get _hasUrl   => url != null && url!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -749,7 +926,7 @@ class _PersonCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: fillColor,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: WebBookingDetails.kBorder),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Row(
         children: [
@@ -768,7 +945,7 @@ class _PersonCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (title != null) ...[
-                  Text(title!, style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600, color: WebBookingDetails.kMuted)),
+                  Text(title!, style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600, color: const Color(0xFF6B7280))),
                   SizedBox(height: 4.h),
                 ],
                 _kv('Name', name),
@@ -778,7 +955,7 @@ class _PersonCard extends StatelessWidget {
                 _kv('Contact', contact),
                 if (status != null) ...[
                   SizedBox(height: 4.h),
-                  _kv('Status', status!.isEmpty ? '—' : status!),
+                  _kv('Status', status!),
                 ],
               ],
             ),
@@ -821,8 +998,14 @@ class _PersonCard extends StatelessWidget {
   Widget _kv(String k, String v) {
     return Row(
       children: [
-        Text('$k: ', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: WebBookingDetails.kText)),
-        Expanded(child: Text(v.isEmpty ? '—' : v, style: TextStyle(fontSize: 12.sp, color: WebBookingDetails.kText), overflow: TextOverflow.ellipsis)),
+        Text('$k: ', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
+        Expanded(
+          child: Text(
+            v,
+            style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
@@ -836,8 +1019,34 @@ class _PersonCard extends StatelessWidget {
 
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return '—';
+    if (parts.isEmpty) return ''; // no dash fallback
     if (parts.length == 1) return parts.first[0].toUpperCase();
     return (parts.first[0] + parts.last[0]).toUpperCase();
   }
 }
+
+// ⬇️ Put near the bottom of web_booking_details.dart (outside any class)
+
+// open the DETAILS popup (wrapper so we don't repeat code)
+Future<void> openWebBookingDetailsDialog({
+  required BuildContext context,
+  required Map<String, dynamic> booking,
+  bool use24HourFormat = false,
+}) async {
+  // show a centered dialog that contains WebBookingDetails
+  await showDialog(
+    context: context,
+    barrierDismissible: true, // allow clicking outside to close
+    builder: (_) {
+      // Dialog ensures it is a popup (not full screen)
+      return Dialog(
+        insetPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        child: WebBookingDetails(
+          booking: booking,
+          use24HourFormat: use24HourFormat,
+        ),
+      );
+    },
+  );
+}
+
