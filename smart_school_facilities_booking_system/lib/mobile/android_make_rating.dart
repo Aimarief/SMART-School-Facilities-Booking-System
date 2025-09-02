@@ -22,7 +22,7 @@ import 'package:intl/intl.dart';                                // Date formatti
 
 // Bottom bar + other pages (keep navigation consistent)
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
@@ -163,7 +163,7 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
   // Bottom bar tab change (same rules as other pages)
   void _onTabSelected(int i) {
     if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else {
       if (i == 1) {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));

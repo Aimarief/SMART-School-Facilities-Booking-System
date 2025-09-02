@@ -1,4 +1,3 @@
-// android_booking_date.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -6,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // bottom bar + other pages (unchanged)
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
@@ -15,12 +14,12 @@ import 'android_list_of_facilities.dart';
 // go to per-time slot picking page
 import 'android_select_slot.dart';
 
-// confirmation page (writes to DB there)
 import 'android_confirmation_booking.dart';
 
 class Booking_Date extends StatefulWidget {
-  final String facilityId;
-  final String facilityName;
+  // facility identity (must have)
+  final String facilityId;     // e.g., "fac_123"
+  final String facilityName;   // e.g., "Computer Lab 1"
 
   const Booking_Date({
     Key? key,
@@ -33,14 +32,15 @@ class Booking_Date extends StatefulWidget {
 }
 
 class _Booking_DateState extends State<Booking_Date> {
-  // ---------------- basic state ----------------
+  // ----- bottom bar -----
   int _currentIndex = 2;
 
-  late DateTime _today;
-  late DateTime _selected;
-  late List<DateTime> _next7;
+  // ----- dates -----
+  late DateTime _today;                  // today (00:00)
+  late DateTime _selected;               // user selected date (00:00)
+  late List<DateTime> _next7;            // today..today+6
 
-  // ---------------- weekday rules (SystemInformation) ----------------
+  // ----- weekday rules (SystemInformation) -----
   bool _allowMon = true;
   bool _allowTue = true;
   bool _allowWed = true;
@@ -49,38 +49,43 @@ class _Booking_DateState extends State<Booking_Date> {
   bool _allowSat = false;
   bool _allowSun = false;
 
-  // ---------------- facility static data (read ONCE) ----------------
+  // ----- facility static data (read ONCE) -----
   bool _loadingFacility = true;
   Map<String, dynamic> _facilityData = {};
   List<Map<String, dynamic>> _slotsTemplate = <Map<String, dynamic>>[];
   int _facilityCapacity = 1; // Facilities.availableSlots
 
-  // ---------------- per-day slot data (live) ----------------
+  // ----- per-day slot data (live) -----
   bool _loadingSlots = true;
   final Map<String, int> _bookedByKey = <String, int>{};   // HHmm -> booked
   final Map<String, int> _capByKey    = <String, int>{};   // HHmm -> slot.capacity (only if present)
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _slotsSub;
 
-  // ---------------- user picks ----------------
+  // ----- user picks -----
   final Set<String> _pickedStarts = <String>{}; // "08:00", "09:00"
   bool _autoAssign = true;
 
-  // ------------- debug -------------
-  bool _debugPanel = false; // set true to show counters & long-press slot info
+  // ----- debug panel flag -----
+  bool _debugPanel = false;
+
+  // ----- off-days cache -----
+  final Set<String> _offDaysYMD = <String>{};
 
   @override
   void initState() {
-    super.initState();
+    super.initState(); // call parent
 
-    final now = DateTime.now();
+    // set today's date + default selected + next 7 dates
+    final DateTime now = DateTime.now();
     _today = DateTime(now.year, now.month, now.day);
     _selected = _today;
     _next7 = List<DateTime>.generate(7, (i) => _today.add(Duration(days: i)));
 
-    // Serialized bootstrap so the first paint already knows capacity + date
+    // serialized bootstrap so first paint already knows capacity + rules
     _bootstrap();
   }
 
+  // do first-time data loads in order (no logic change)
   Future<void> _bootstrap() async {
     await _loadWeekdayRules();   // working-day booleans
     await _loadOffDays();        // holidays
@@ -88,21 +93,22 @@ class _Booking_DateState extends State<Booking_Date> {
     if (mounted) _startSlotsListenerForSelectedDay();
   }
 
-
   @override
   void dispose() {
+    // stop the live slots listener
     _slotsSub?.cancel();
     super.dispose();
   }
 
-  // ---------- helpers ----------
-  // "08:00" / "8:00" / "900" -> "0800" / "0900"
+
+  // make a 4-char key from "08:00"/"900" → "0800"/"0900" (used for map keys)
   String _slotKey4(String hhmmOrId) {
     String s = hhmmOrId.replaceAll(':', '');
     if (s.length < 4) s = s.padLeft(4, '0');
     return s;
   }
 
+  // safe int parser for dynamic
   int _asInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.toInt();
@@ -110,19 +116,131 @@ class _Booking_DateState extends State<Booking_Date> {
     return p ?? 0;
   }
 
-  // ------------------------------------------------------
-  // Read weekday booleans from SystemInformation (once)
-  // ------------------------------------------------------
+  // month + year text like "August 2025"
+  String _monthYearText(DateTime d) {
+    const List<String> months = <String>[
+      'January','February','March','April','May','June',
+      'July','August','September','October','November','December'
+    ];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
+  // "YYYY-MM-DD" for currently selected
+  String get _ymdSelected {
+    final String mo = _selected.month.toString().padLeft(2, '0');
+    final String da = _selected.day.toString().padLeft(2, '0');
+    return '${_selected.year}-$mo-$da';
+  }
+
+  // "YYYY-MM-DD" for any date
+  String _ymd(DateTime d) {
+    final String mo = d.month.toString().padLeft(2, '0');
+    final String da = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$mo-$da';
+  }
+
+  // convert "HH:MM" to minutes since midnight
+  int _timeToMinutes(String hhmm) {
+    final List<String> p = hhmm.split(':');
+    int h = 0;
+    int m = 0;
+    if (p.isNotEmpty) {
+      final int? hh = int.tryParse(p[0]);
+      if (hh != null) h = hh;
+    }
+    if (p.length > 1) {
+      final int? mm = int.tryParse(p[1]);
+      if (mm != null) m = mm;
+    }
+    return (h * 60) + m;
+  }
+
+  // is the selected day equal to today?
+  bool _isTodaySelected() {
+    return _selected.year == _today.year &&
+        _selected.month == _today.month &&
+        _selected.day == _today.day;
+  }
+
+  // check if a slot is already past (for today only)
+  bool _isSlotPastNow(String startHHMM) {
+    if (_isTodaySelected()) {
+      final DateTime now = DateTime.now();
+      final int nowMin = (now.hour * 60) + now.minute;
+      final int startMin = _timeToMinutes(startHHMM);
+      return nowMin >= startMin;
+    }
+    return false;
+  }
+
+  // "08:00" -> "8.00 am"
+  String _toAmPmDotStart(String hhmm) {
+    final List<String> parts = hhmm.split(':');
+    int hour = 0;
+    int minute = 0;
+
+    if (parts.isNotEmpty) {
+      final int? h = int.tryParse(parts[0]);
+      if (h != null) hour = h;
+    }
+    if (parts.length > 1) {
+      final int? m = int.tryParse(parts[1]);
+      if (m != null) minute = m;
+    }
+
+    String suffix = 'am';
+    if (hour >= 12) suffix = 'pm';
+
+    int h12 = hour % 12;
+    if (h12 == 0) h12 = 12;
+
+    final String m = minute.toString().padLeft(2, '0');
+    return '$h12.$m $suffix';
+  }
+
+  // one-letter weekday for header row
+  String _letterFor(DateTime d) {
+    if (d.weekday == DateTime.sunday) return 'S';
+    if (d.weekday == DateTime.monday) return 'M';
+    if (d.weekday == DateTime.tuesday) return 'T';
+    if (d.weekday == DateTime.wednesday) return 'W';
+    if (d.weekday == DateTime.thursday) return 'T';
+    if (d.weekday == DateTime.friday) return 'F';
+    return 'S'; // Saturday
+  }
+
+  // is this date in the OffDays set?
+  bool _isOffDay(DateTime d) => _offDaysYMD.contains(_ymd(d));
+
+  // is this date allowed to book (weekday rule + not OffDay)?
+  bool _isWeekdayAllowed(DateTime d) {
+    final int wd = d.weekday;
+    final bool byWeekday =
+        (wd == DateTime.monday    && _allowMon) ||
+            (wd == DateTime.tuesday   && _allowTue) ||
+            (wd == DateTime.wednesday && _allowWed) ||
+            (wd == DateTime.thursday  && _allowThu) ||
+            (wd == DateTime.friday    && _allowFri) ||
+            (wd == DateTime.saturday  && _allowSat) ||
+            (wd == DateTime.sunday    && _allowSun);
+
+    if (!byWeekday) return false;
+    if (_isOffDay(d)) return false;
+    return true;
+  }
+
+  // read weekday booleans from SystemInformation/Setting
   Future<void> _loadWeekdayRules() async {
     try {
-      final snap = await FirebaseFirestore.instance
+      final DocumentSnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance
           .collection('SystemInformation')
           .doc('Setting')
           .get();
 
       if (snap.exists) {
-        final m = snap.data() ?? {};
+        final Map<String, dynamic> m = snap.data() ?? <String, dynamic>{};
 
+        // convert any type to bool
         bool toBool(dynamic v) {
           if (v is bool) return v;
           if (v is num) return v != 0;
@@ -130,11 +248,10 @@ class _Booking_DateState extends State<Booking_Date> {
           return false;
         }
 
+        // read with fallback to lowercase key (short with ??)
         bool read(String key) {
-          final lower = key.toLowerCase();
-          if (m.containsKey(key)) return toBool(m[key]);
-          if (m.containsKey(lower)) return toBool(m[lower]);
-          return false;
+          final dynamic raw = m[key] ?? m[key.toLowerCase()];
+          return toBool(raw);
         }
 
         _allowSun = read('Sunday');
@@ -145,20 +262,19 @@ class _Booking_DateState extends State<Booking_Date> {
         _allowFri = read('Friday');
         _allowSat = read('Saturday');
       }
-    } catch (_) {}
+    } catch (_) {
+      // keep defaults on error
+    }
 
     if (mounted) setState(() {});
   }
 
-
-  // ------------------------------------------------------
-  // Read facility doc ONCE (capacity + template)
-  // ------------------------------------------------------
+  // read facility doc ONCE (capacity + slots template)
   Future<void> _loadFacilityOnce() async {
     setState(() => _loadingFacility = true);
 
     try {
-      final snap = await FirebaseFirestore.instance
+      final DocumentSnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance
           .collection('Facilities')
           .doc(widget.facilityId)
           .get();
@@ -169,7 +285,7 @@ class _Booking_DateState extends State<Booking_Date> {
       _slotsTemplate = <Map<String, dynamic>>[];
       final dynamic raw = _facilityData['customTimeSlots'];
       if (raw is List) {
-        for (final item in raw) {
+        for (final dynamic item in raw) {
           if (item is Map<String, dynamic>) {
             _slotsTemplate.add(item);
           }
@@ -189,21 +305,47 @@ class _Booking_DateState extends State<Booking_Date> {
     if (mounted) setState(() => _loadingFacility = false);
   }
 
-  // ------------------------------------------------------
-  // Realtime SLOTS for the selected day
-  // Facilities/{facility}/Days/{YYYY-MM-DD}/Slots/{HHmm}
-  // Fields we care about:
-  //  - booked (int)
-  //  - capacity (int)  <-- overrides facility capacity for that slot if present
-  // ------------------------------------------------------
+  // read OffDays (array of "YYYY-MM-DD")
+  Future<void> _loadOffDays() async {
+    try {
+      final DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance
+          .collection('SystemInformation')
+          .doc('OffDays')
+          .get();
+
+      final Set<String> next = <String>{};
+      final Map<String, dynamic>? data = doc.data();
+      if (doc.exists && data != null && data['offDays'] is List) {
+        for (final dynamic v in (data['offDays'] as List)) {
+          final String? s = v?.toString().trim();
+          if (s != null && s.isNotEmpty) next.add(s);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _offDaysYMD
+            ..clear()
+            ..addAll(next);
+        });
+      }
+    } catch (_) {
+      // keep empty set on failure
+    }
+  }
+
   void _startSlotsListenerForSelectedDay() {
+    // stop previous
     _slotsSub?.cancel();
+
+    // reset loading + maps
     setState(() {
       _loadingSlots = true;
       _bookedByKey.clear();
       _capByKey.clear();
     });
 
+    // subscribe to Slots collection for this day
     _slotsSub = FirebaseFirestore.instance
         .collection('Facilities')
         .doc(widget.facilityId)
@@ -211,39 +353,31 @@ class _Booking_DateState extends State<Booking_Date> {
         .doc(_ymdSelected)
         .collection('Slots')
         .snapshots()
-        .listen((qs) {
-      // Rebuild the maps from the snapshot
-      final Map<String, int> nextBooked = {};
-      final Map<String, int> nextCap = {};
+        .listen((QuerySnapshot<Map<String, dynamic>> qs) {
+      // build new maps from snapshot
+      final Map<String, int> nextBooked = <String, int>{};
+      final Map<String, int> nextCap = <String, int>{};
 
-      for (final d in qs.docs) {
-        final data = d.data();
+      for (final QueryDocumentSnapshot<Map<String, dynamic>> d in qs.docs) {
+        final Map<String, dynamic> data = d.data();
+
+        // 4-char slot key based on doc id
         final String key4 = _slotKey4(d.id);
 
-        int booked = 0;
-        if (data.containsKey('booked')) {
-          booked = _asInt(data['booked']);
-        } else if (data.containsKey('reserved')) {
-          booked = _asInt(data['reserved']); // legacy
-        } else if (data.containsKey('reserve')) {
-          booked = _asInt(data['reserve']);  // legacy
-        }
+        // booked can be in several legacy fields → pick the first non-null
+        int booked = _asInt(data['booked'] ?? data['reserved'] ?? data['reserve'] ?? 0);
         if (booked < 0) booked = 0;
         nextBooked[key4] = booked;
 
-        // Only store slot-level capacity if explicitly present; otherwise UI falls back to facility cap
-        if (data.containsKey('capacity')) {
-          final int c = _asInt(data['capacity']);
-          if (c > 0) {
-            nextCap[key4] = c;
-          }
+        // slot-level capacity overrides facility capacity only if present and > 0
+        final int slotCap = _asInt(data['capacity'] ?? 0);
+        if (slotCap > 0) {
+          nextCap[key4] = slotCap;
         }
 
         if (_debugPanel) {
           // ignore: avoid_print
-          print('[SLOTS] $_ymdSelected $key4 => booked=$booked '
-              'cap=${nextCap[key4] ?? _facilityCapacity} '
-              '(slotCap? ${data.containsKey('capacity')}) facCap=$_facilityCapacity');
+          print('[SLOTS] $_ymdSelected $key4 => booked=$booked cap=${nextCap[key4] ?? _facilityCapacity}');
         }
       }
 
@@ -273,14 +407,11 @@ class _Booking_DateState extends State<Booking_Date> {
     });
   }
 
-  // ------------------------------------------------------
-  // Bottom bar navigation
-  // ------------------------------------------------------
   void _onTabSelected(int i) {
     if (i == 2) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
     } else if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 3) {
@@ -290,59 +421,24 @@ class _Booking_DateState extends State<Booking_Date> {
     }
   }
 
-  // ------------------------------------------------------
-  // Month + Year text (e.g., "August 2025")
-  // ------------------------------------------------------
-  String _monthYearText(DateTime d) {
-    const months = [
-      'January','February','March','April','May','June',
-      'July','August','September','October','November','December'
-    ];
-    return '${months[d.month - 1]} ${d.year}';
-  }
-
-  // Selected date as "YYYY-MM-DD"
-  String get _ymdSelected {
-    final mo = _selected.month.toString().padLeft(2, '0');
-    final da = _selected.day.toString().padLeft(2, '0');
-    return '${_selected.year}-$mo-$da';
-  }
-
-  // Is this date allowed to book?
-  bool _isWeekdayAllowed(DateTime d) {
-    final int wd = d.weekday;
-    final bool byWeekday =
-        (wd == DateTime.monday    && _allowMon) ||
-            (wd == DateTime.tuesday   && _allowTue) ||
-            (wd == DateTime.wednesday && _allowWed) ||
-            (wd == DateTime.thursday  && _allowThu) ||
-            (wd == DateTime.friday    && _allowFri) ||
-            (wd == DateTime.saturday  && _allowSat) ||
-            (wd == DateTime.sunday    && _allowSun);
-
-    if (!byWeekday) return false;
-    if (_isOffDay(d)) return false;   // <-- Off Days disable the date
-    return true;
-  }
-
-
-  // Open calendar dialog (block closed days and out-of-range)
   Future<void> _pickDateWithCalendar() async {
     final DateTime first = _today;
     final DateTime last  = _today.add(const Duration(days: 6));
 
-    final picked = await showDatePicker(
+    // open calendar
+    final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selected,
       firstDate: first,
       lastDate: last,
       helpText: 'Select date',
-      selectableDayPredicate: (day) {
+      selectableDayPredicate: (DateTime day) {
         final bool inRange = !day.isBefore(first) && !day.isAfter(last);
         return inRange && _isWeekdayAllowed(day);
       },
     );
 
+    // apply picked date and refresh slots
     if (picked != null) {
       setState(() {
         _selected = DateTime(picked.year, picked.month, picked.day);
@@ -353,132 +449,13 @@ class _Booking_DateState extends State<Booking_Date> {
     }
   }
 
-  // convert "HH:MM" to minutes since midnight
-  int _timeToMinutes(String hhmm) {
-    final List<String> p = hhmm.split(':');
-    int h = 0;
-    int m = 0;
-    if (p.isNotEmpty) {
-      final int? hh = int.tryParse(p[0]);
-      if (hh != null) h = hh;
-    }
-    if (p.length > 1) {
-      final int? mm = int.tryParse(p[1]);
-      if (mm != null) m = mm;
-    }
-    return (h * 60) + m;
-  }
-
-  bool _isTodaySelected() {
-    return _selected.year == _today.year &&
-        _selected.month == _today.month &&
-        _selected.day == _today.day;
-  }
-
-  bool _isSlotPastNow(String startHHMM) {
-    if (_isTodaySelected()) {
-      final DateTime now = DateTime.now();
-      final int nowMin = (now.hour * 60) + now.minute;
-      final int startMin = _timeToMinutes(startHHMM);
-      return nowMin >= startMin;
-    }
-    return false;
-  }
-
-  // "08:00" -> "8.00 am"
-  String _toAmPmDotStart(String hhmm) {
-    final parts = hhmm.split(':');
-    int hour = 0;
-    int minute = 0;
-
-    if (parts.isNotEmpty) {
-      final h = int.tryParse(parts[0]);
-      if (h != null) hour = h;
-    }
-    if (parts.length > 1) {
-      final m = int.tryParse(parts[1]);
-      if (m != null) minute = m;
-    }
-
-    String suffix = 'am';
-    if (hour >= 12) suffix = 'pm';
-
-    int h12 = hour % 12;
-    if (h12 == 0) h12 = 12;
-
-    final m = minute.toString().padLeft(2, '0');
-    return '$h12.$m $suffix';
-  }
-
-  String _letterFor(DateTime d) {
-    if (d.weekday == DateTime.sunday) return 'S';
-    if (d.weekday == DateTime.monday) return 'M';
-    if (d.weekday == DateTime.tuesday) return 'T';
-    if (d.weekday == DateTime.wednesday) return 'W';
-    if (d.weekday == DateTime.thursday) return 'T';
-    if (d.weekday == DateTime.friday) return 'F';
-    return 'S'; // Saturday
-  }
-
-  String? _endForStart(String start) {
-    for (final m in _slotsTemplate) {
-      final String s = (m['start'] ?? '').toString();
-      if (s == start) {
-        return (m['end'] ?? '').toString();
-      }
-    }
-    return null;
-  }
-
-  final Set<String> _offDaysYMD = <String>{};
-
-  String _ymd(DateTime d) {
-    final mo = d.month.toString().padLeft(2, '0');
-    final da = d.day.toString().padLeft(2, '0');
-    return '${d.year}-$mo-$da';
-  }
-
-  bool _isOffDay(DateTime d) => _offDaysYMD.contains(_ymd(d));
-
-  Future<void> _loadOffDays() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('SystemInformation')
-          .doc('OffDays')
-          .get();
-
-      final next = <String>{};
-      if (doc.exists) {
-        final data = doc.data();
-        if (data != null && data['offDays'] is List) {
-          for (final v in (data['offDays'] as List)) {
-            final s = v?.toString().trim();
-            if (s != null && s.isNotEmpty) next.add(s);
-          }
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _offDaysYMD
-            ..clear()
-            ..addAll(next);
-        });
-      }
-    } catch (_) {
-      // keep empty set on failure
-    }
-  }
-
-
-  // ------------------------------------------------------
-  // UI
-  // ------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    // bottom bar height scaled from screen
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
 
     return Scaffold(
+      // ----- Top AppBar -----
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -486,16 +463,19 @@ class _Booking_DateState extends State<Booking_Date> {
           centerTitle: true,
           elevation: 0,
           automaticallyImplyLeading: false,
+          // back button
           leading: IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             tooltip: 'Back',
           ),
+          // title
           title: Text(
             'Date and time',
             style: TextStyle(color: Colors.white, fontSize: 18.sp, fontWeight: FontWeight.w600),
           ),
-          actions: [
+          // close button
+          actions: <Widget>[
             IconButton(
               onPressed: () {
                 Navigator.pushAndRemoveUntil(
@@ -511,18 +491,20 @@ class _Booking_DateState extends State<Booking_Date> {
         ),
       ),
 
+      // ----- Body -----
       body: SafeArea(
         child: Stack(
-          children: [
+          children: <Widget>[
+            // scrollable content
             SingleChildScrollView(
               padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h).copyWith(bottom: 120.h),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Month + year + calendar icon
+                children: <Widget>[
+                  // -- Month + Year + Calendar icon --
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
+                    children: <Widget>[
                       Text(
                         _monthYearText(_selected),
                         style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
@@ -544,10 +526,10 @@ class _Booking_DateState extends State<Booking_Date> {
 
                   SizedBox(height: 10.h),
 
-                  // weekday letters (grey if closed)
+                  // -- Weekday letters (grey if closed) --
                   Row(
-                    children: List.generate(_next7.length, (i) {
-                      final d = _next7[i];
+                    children: List<Widget>.generate(_next7.length, (int i) {
+                      final DateTime d = _next7[i];
                       final bool enabled = _isWeekdayAllowed(d);
                       final Color c = enabled ? Colors.black87 : Colors.black38;
 
@@ -564,10 +546,10 @@ class _Booking_DateState extends State<Booking_Date> {
 
                   SizedBox(height: 6.h),
 
-                  // day numbers selectable (grey + disabled when closed)
+                  // -- Day numbers (selectable) --
                   Row(
-                    children: List.generate(_next7.length, (i) {
-                      final d = _next7[i];
+                    children: List<Widget>.generate(_next7.length, (int i) {
+                      final DateTime d = _next7[i];
 
                       final bool isSelected =
                           d.year == _selected.year &&
@@ -615,22 +597,22 @@ class _Booking_DateState extends State<Booking_Date> {
                   Container(width: 1.0.sw, height: 1.h, color: Colors.black12),
                   SizedBox(height: 12.h),
 
-                  // Header
+                  // -- Header: Slots Available --
                   Row(
-                    children: [
+                    children: <Widget>[
                       Expanded(
                         child: Text(
                           'Slots Available',
                           style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700),
                         ),
                       ),
-                      if (_debugPanel) ...[
-                        const SizedBox(width: 8),
+                      if (_debugPanel) ...<Widget>[
+                        SizedBox(width: 8.w),
                         Chip(
                           label: Text('cap = $_facilityCapacity'),
                           backgroundColor: Colors.black12,
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8.w),
                         Chip(
                           label: Text(_ymdSelected),
                           backgroundColor: Colors.black12,
@@ -640,9 +622,11 @@ class _Booking_DateState extends State<Booking_Date> {
                   ),
 
                   SizedBox(height: 6.h),
+
+                  // -- Info row --
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                    children: <Widget>[
                       Icon(Icons.info_outline, size: 16.sp, color: Colors.black54),
                       SizedBox(width: 6.w),
                       Expanded(
@@ -654,9 +638,10 @@ class _Booking_DateState extends State<Booking_Date> {
                       ),
                     ],
                   ),
+
                   SizedBox(height: 12.h),
 
-                  // Loading states and warnings
+                  // -- Loading/Warnings/Slots grid --
                   if (!_isWeekdayAllowed(_selected))
                     Container(
                       width: 1.0.sw,
@@ -684,7 +669,8 @@ class _Booking_DateState extends State<Booking_Date> {
                       )
                     else
                       Builder(
-                        builder: (_) {
+                        builder: (BuildContext _) {
+                          // responsive chip layout (3 per row)
                           final double fullW = 1.0.sw - 32.w;
                           final double gap = 8.w;
                           final double itemW = (fullW - (gap * 2.0)) / 3.0;
@@ -693,17 +679,18 @@ class _Booking_DateState extends State<Booking_Date> {
                           int i = 0;
                           while (i < _slotsTemplate.length) {
                             final Map<String, dynamic> m = _slotsTemplate[i];
-                            final String s = (m['start'] ?? '').toString(); // e.g. "08:00"
+                            final String s = (m['start'] ?? '').toString(); // "08:00"
 
                             if (s.isNotEmpty) {
-                              final String key = _slotKey4(s); // "0800"
-                              final int booked = _bookedByKey[key] ?? 0;
-                              final int capForThis = _capByKey[key] ?? _facilityCapacity;
+                              final String key = _slotKey4(s);          // "0800"
+                              final int booked = _bookedByKey[key] ?? 0; // booked count (default 0)
+                              final int capForThis = _capByKey[key] ?? _facilityCapacity; // capacity override or facility cap
 
                               final bool isPast = _isSlotPastNow(s);
                               final bool isFull = booked >= capForThis;
                               final bool isPicked = _pickedStarts.contains(s);
 
+                              // decide colors/styles
                               Color fillColor;
                               Color borderColor;
                               Color textColor;
@@ -716,7 +703,6 @@ class _Booking_DateState extends State<Booking_Date> {
                                 textColor = Colors.black54;
                                 opacity = 0.6;
                               } else if (isFull) {
-                                // FULL → red + disabled
                                 fillColor = const Color(0xFFFFCDD2);
                                 borderColor = const Color(0xFFFF0707);
                                 textColor = const Color(0xFFB00020);
@@ -733,6 +719,7 @@ class _Booking_DateState extends State<Booking_Date> {
 
                               final bool disabled = isPast || isFull;
 
+                              // one slot chip (tap to toggle pick)
                               chips.add(
                                 IgnorePointer(
                                   ignoring: disabled,
@@ -752,7 +739,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                                   'past = $isPast\n'
                                                   'full = $isFull',
                                             ),
-                                            actions: [
+                                            actions: <Widget>[
                                               TextButton(
                                                 onPressed: () => Navigator.pop(context),
                                                 child: const Text('Close'),
@@ -774,7 +761,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                       borderRadius: BorderRadius.circular(20.r),
                                       child: Stack(
                                         alignment: Alignment.center,
-                                        children: [
+                                        children: <Widget>[
                                           Container(
                                             width: itemW,
                                             height: 44.h,
@@ -797,7 +784,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                           ),
                                           if (_debugPanel)
                                             Positioned(
-                                              bottom: 3,
+                                              bottom: 3.h,
                                               child: Text(
                                                 '$booked/$capForThis',
                                                 style: TextStyle(
@@ -818,9 +805,10 @@ class _Booking_DateState extends State<Booking_Date> {
                             i = i + 1;
                           }
 
+                          // chips + auto-assign switch
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                            children: <Widget>[
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Wrap(spacing: gap, runSpacing: gap, children: chips),
@@ -828,15 +816,15 @@ class _Booking_DateState extends State<Booking_Date> {
                               SizedBox(height: 16.h),
                               CheckboxListTile(
                                 value: _autoAssign,
-                                onChanged: (v) {
+                                onChanged: (bool? v) {
                                   setState(() => _autoAssign = (v ?? true));
                                 },
                                 controlAffinity: ListTileControlAffinity.leading,
                                 title: const Text('Auto-assign facility (slot number)'),
                                 contentPadding: EdgeInsets.zero,
                               ),
-                              if (_debugPanel) ...[
-                                const SizedBox(height: 8),
+                              if (_debugPanel) ...<Widget>[
+                                SizedBox(height: 8.h),
                                 Text(
                                   'Debug: facilityId=${widget.facilityId}, date=$_ymdSelected, slots=${_bookedByKey.length}',
                                   style: TextStyle(fontSize: 12.sp, color: Colors.black54),
@@ -850,7 +838,7 @@ class _Booking_DateState extends State<Booking_Date> {
               ),
             ),
 
-            // Bottom confirm button
+            // -- Bottom Confirm Button --
             Positioned(
               left: 16.w,
               right: 16.w,
@@ -862,18 +850,19 @@ class _Booking_DateState extends State<Booking_Date> {
                     backgroundColor: const Color(0xFF9747FF),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28.r)),
                   ),
+                  // disable if no picks
                   onPressed: _pickedStarts.isEmpty
                       ? null
                       : () async {
-                    // sort once
+                    // 1) sort selected times
                     final List<String> times = _pickedStarts.toList()..sort();
 
-                    // guard against past times for today
+                    // 2) if today, reject past times
                     if (_isTodaySelected()) {
                       final DateTime now = DateTime.now();
                       final int nowMin = (now.hour * 60) + now.minute;
-                      final List<String> bad = [];
-                      for (final t in times) {
+                      final List<String> bad = <String>[];
+                      for (final String t in times) {
                         if (nowMin >= _timeToMinutes(t)) {
                           bad.add(_toAmPmDotStart(t));
                         }
@@ -886,7 +875,9 @@ class _Booking_DateState extends State<Booking_Date> {
                       }
                     }
 
+                    // 3) go next by auto-assign or manual seat selection
                     if (_autoAssign) {
+                      // directly to confirm
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -900,6 +891,7 @@ class _Booking_DateState extends State<Booking_Date> {
                         ),
                       );
                     } else {
+                      // open seat selection page first
                       final Map<String, int>? picks = await Navigator.push<Map<String, int>>(
                         context,
                         MaterialPageRoute(
@@ -912,6 +904,7 @@ class _Booking_DateState extends State<Booking_Date> {
                         ),
                       );
 
+                      // if user picked seats, go to confirm with seat map
                       if (picks != null && picks.isNotEmpty) {
                         final List<String> sortedKeys = picks.keys.toList()..sort();
                         Navigator.push(
@@ -941,6 +934,7 @@ class _Booking_DateState extends State<Booking_Date> {
         ),
       ),
 
+      // ----- Bottom Navigation Bar -----
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,

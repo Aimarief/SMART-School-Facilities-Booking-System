@@ -1,29 +1,15 @@
-// android_booking_details.dart
-//
-// Design-only details page for a single booking.
-// - Reads facility by facilityId
-// - Reads booking by bookingId
-// - Shows chips + a single bottom action (Edit or Rate) based on approval/status
-// - Removed all "availability" UI and rating section
-// - Uses only if/else (no ?: and no ??) and .w .h .sp .sw .sh everywhere.
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
 import 'android_edit_booking.dart';
 import 'android_make_rating.dart';
-
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_view_booking.dart';
-import 'android_login.dart';
-
-// If you ever need to navigate somewhere else later, import here.
-// (No bottom menu on this page per your design.)
 
 class AndroidBookingDetails extends StatefulWidget {
   final String bookingId;   // from list page tap
@@ -39,14 +25,14 @@ class AndroidBookingDetails extends StatefulWidget {
   State<AndroidBookingDetails> createState() => _AndroidBookingDetailsState();
 }
 
+// state and navigation
 class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
+  int _currentIndex = 1; // this page index in bottom bar
 
-  int _currentIndex = 1; // this page = left-most tab
-
+  // bottom bar navigation
   void _onTabSelected(int i) {
-    // simple navigation for bottom bar
     if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 2) {
@@ -57,23 +43,22 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAccount()));
     }
   }
-  // -------------------- format helpers --------------------
+
+  // format helpers
   String _formatFullDate(DateTime d) {
     final DateFormat f = DateFormat('EEE, d MMM yyyy');
     return f.format(d);
   }
 
+  // format helpers
   String _formatTime12(DateTime d) {
-    // "h.mm am/pm" with non-breaking space to keep one line
     final DateFormat f = DateFormat('h.mm a');
     String s = f.format(d).toLowerCase();
     s = s.replaceAll(' ', '\u00A0');
     return s;
   }
 
-
-
-  // -------- read date-only from mixed fields --------
+  // read date-only from mixed fields
   DateTime? _readDateOnly(dynamic v) {
     if (v is Timestamp) {
       final DateTime d = v.toDate();
@@ -103,7 +88,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // -------- read DateTime (legacy Timestamp/DateTime support) --------
+  // read DateTime (legacy Timestamp/DateTime support)
   DateTime? _readDateTime(dynamic v) {
     if (v is Timestamp) {
       return v.toDate();
@@ -116,7 +101,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // -------- parse 24h time string like "13:30","1330","13.30","9:05" --------
+  // parse 24h time string like "13:30","1330","13.30","9:05"
   List<int>? _parseHourMinute(String s) {
     if (s.isEmpty == true) {
       return null;
@@ -141,7 +126,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         }
 
         if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          return [h, m];
+          return <int>[h, m];
         } else {
           return null;
         }
@@ -178,7 +163,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         }
 
         if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          return [h, m];
+          return <int>[h, m];
         } else {
           return null;
         }
@@ -186,7 +171,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // Build DateTime from bookingDate + time string OR use existing Timestamp
+  // compose DateTime from bookingDate + time string or use existing Timestamp
   DateTime? _composeFromBookingDate(dynamic bookingDateField, dynamic timeField) {
     final DateTime? ts = _readDateTime(timeField);
     if (ts != null) {
@@ -213,7 +198,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     return null;
   }
 
-  // approval to string
+  // approval text to lowercase string
   String _approvalText(dynamic v) {
     if (v is bool) {
       if (v == true) { return 'approved'; } else { return 'pending'; }
@@ -222,27 +207,28 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // chip colors
+  // chip color resolver
   List<Color> _chipColors(String labelLower) {
     if (labelLower == 'approved' || labelLower == 'accept' || labelLower == 'accepted' || labelLower == 'upcoming') {
-      return [Colors.green.shade200, Colors.green];
+      return <Color>[Colors.green.shade200, Colors.green];
     } else {
       if (labelLower == 'rejected') {
-        return [Colors.red.shade200, Colors.red];
+        return <Color>[Colors.red.shade200, Colors.red];
       } else {
         if (labelLower == 'pending' || labelLower == 'ongoing') {
-          return [Colors.amber.shade200, Colors.amber];
+          return <Color>[Colors.amber.shade200, Colors.amber];
         } else {
           if (labelLower == 'ended' || labelLower == 'complete' || labelLower == 'completed') {
-            return [Colors.grey.shade300, Colors.grey];
+            return <Color>[Colors.grey.shade300, Colors.grey];
           } else {
-            return [Colors.grey.shade200, Colors.grey];
+            return <Color>[Colors.grey.shade200, Colors.grey];
           }
         }
       }
     }
   }
 
+  // chip builder
   Widget _buildChip(String text, Color fill, Color border) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
@@ -259,6 +245,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     );
   }
 
+  // capitalize first letter
   String _capitalize(String s) {
     if (s.isEmpty == true) { return s; } else {
       final String first = s.substring(0, 1).toUpperCase();
@@ -267,15 +254,15 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
+  // build
   @override
   Widget build(BuildContext context) {
     final double sw = 1.0.sw;
     final double barHeight = 0.07.sh;
 
-    // live streams: booking + facility
+    // live streams
     final Stream<DocumentSnapshot<Map<String, dynamic>>> bookingStream =
     FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId).snapshots();
-
     final Stream<DocumentSnapshot<Map<String, dynamic>>> facilityStream =
     FirebaseFirestore.instance.collection('Facilities').doc(widget.facilityId).snapshots();
 
@@ -295,7 +282,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
             tooltip: 'Back',
           ),
           title: Text("Details", style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600)),
-          actions: [
+          actions: <Widget>[
             IconButton(
               icon: const Icon(Icons.close, color: Colors.white),
               onPressed: () {
@@ -306,7 +293,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
           ],
         ),
       ),
-
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: facilityStream,
         builder: (context, facSnap) {
@@ -319,82 +305,61 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
           final Map<String, dynamic> fac = facSnap.data!.data()!;
 
-          // Facility fields
-          String name = '';
-          if (fac.containsKey('name')) {
-            if (fac['name'] != null) { name = fac['name'].toString(); }
-          }
-          String imageName = '';
-          if (fac.containsKey('imageName')) {
-            if (fac['imageName'] != null) { imageName = fac['imageName'].toString().trim(); }
-          }
+          // facility fields
+          String name = fac['name']?.toString() ?? '';
+          String imageName = fac['imageName']?.toString().trim() ?? '';
           String facilityImagePath = '';
           if (imageName.isNotEmpty == true) {
             facilityImagePath = 'asset/image/$imageName';
           }
+          String location = fac['location']?.toString() ?? '';
+          String description = fac['details']?.toString() ?? '';
+          String managerId = fac['managerId']?.toString() ?? '';
 
-          String location = '';
-          if (fac.containsKey('location')) {
-            if (fac['location'] != null) { location = fac['location'].toString(); }
-          }
-
-
-          String description = '';
-          if (fac.containsKey('details')) {
-            if (fac['details'] != null) { description = fac['details'].toString(); }
-          }
-
-          String managerId = '';
-          if (fac.containsKey('managerId')) {
-            if (fac['managerId'] != null) { managerId = fac['managerId'].toString(); }
-          }
-
+          // duration text
           String durationText = '';
-          if (fac.containsKey('bookingDurationHours')) {
-            final dynamic dur = fac['bookingDurationHours'];
-            if (dur is int) {
-              if (dur == 1) { durationText = '1 hour'; } else { durationText = '$dur hours'; }
-            } else {
-              if (dur is double) {
-                final int intPart = dur.toInt();
-                if (dur == intPart) {
-                  if (intPart == 1) { durationText = '1 hour'; } else { durationText = '$intPart hours'; }
-                } else {
-                  durationText = '$dur hours';
-                }
+          final dynamic dur = fac['bookingDurationHours'];
+          if (dur is int) {
+            if (dur == 1) { durationText = '1 hour'; } else { durationText = '$dur hours'; }
+          } else {
+            if (dur is double) {
+              final int intPart = dur.toInt();
+              if (dur == intPart) {
+                if (intPart == 1) { durationText = '1 hour'; } else { durationText = '$intPart hours'; }
               } else {
-                durationText = dur.toString();
+                durationText = '$dur hours';
               }
-            }
-          }
-
-          bool requireApproval = false;
-          if (fac.containsKey('requireApproval')) {
-            final dynamic v = fac['requireApproval'];
-            if (v is bool) {
-              requireApproval = v;
             } else {
-              if (v is String) {
-                if (v.toLowerCase() == 'true') {
-                  requireApproval = true;
-                } else {
-                  requireApproval = false;
-                }
-              } else if (v is num) {
-                if (v != 0) {
-                  requireApproval = true;
-                } else {
-                  requireApproval = false;
-                }
+              if (dur != null) { durationText = dur.toString(); } else { durationText = ''; }
+            }
+          }
+
+          // require approval
+          bool requireApproval = false;
+          final dynamic vRequire = fac['requireApproval'];
+          if (vRequire is bool) {
+            requireApproval = vRequire;
+          } else {
+            if (vRequire is String) {
+              if (vRequire.toLowerCase() == 'true') {
+                requireApproval = true;
+              } else {
+                requireApproval = false;
+              }
+            } else if (vRequire is num) {
+              if (vRequire != 0) {
+                requireApproval = true;
+              } else {
+                requireApproval = false;
               }
             }
           }
 
-          // Manager stream
+          // manager stream
           final Stream<DocumentSnapshot<Map<String, dynamic>>> mgrStream =
           FirebaseFirestore.instance.collection('UserInformation').doc(managerId).snapshots();
 
-          // Now read booking doc
+          // booking stream
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: bookingStream,
             builder: (context, bookSnap) {
@@ -407,7 +372,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
               final Map<String, dynamic> bk = bookSnap.data!.data()!;
 
-              // Booking fields
+              // booking fields
               dynamic bookingDateField;
               if (bk.containsKey('bookingDate')) { bookingDateField = bk['bookingDate']; }
               else {
@@ -426,7 +391,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               String endStr = '--.--';
               if (endDT != null) { endStr = _formatTime12(endDT); }
 
-              // Seat / slot
               String seatText = '-';
               if (bk.containsKey('seatIndex')) {
                 if (bk['seatIndex'] != null) { seatText = bk['seatIndex'].toString(); }
@@ -436,7 +400,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 }
               }
 
-              // approval + status
               final String approval = _approvalText(bk['approval']).trim();
               String status = '';
               if (bk.containsKey('status')) {
@@ -447,11 +410,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 }
               }
 
-              // Build chips by rules:
-              // - pending: show approval only (hide status)
-              // - rejected: show approval only, no buttons
-              // - ongoing: show chips as normal, no buttons
-              // - ended: hide approval chip, show grey Ended chip, Rate button
               final List<Widget> chips = <Widget>[];
 
               bool isPending = false;
@@ -466,18 +424,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               if (status == 'ended' || status == 'complete' || status == 'completed') { isEnded = true; }
               if (status == 'ongoing') { isOngoing = true; }
 
-              // Chips:
               if (isEnded == true) {
-                // ended -> no approval chip, only an Ended status chip (grey)
                 final List<Color> c = _chipColors('ended');
                 chips.add(_buildChip('Ended', c[0], c[1]));
               } else {
-                // show approval chip unless empty
                 if (approval.isNotEmpty == true) {
                   final List<Color> a = _chipColors(approval);
                   chips.add(_buildChip(_capitalize(approval), a[0], a[1]));
                 }
-                // show status chip only if not pending/rejected
                 if (isPending == false && isRejected == false) {
                   if (status.isNotEmpty == true) {
                     final List<Color> s = _chipColors(status);
@@ -486,40 +440,26 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 }
               }
 
-              // Which button to show below Manager card:
-              // - pending  -> Edit
-              // - accepted -> Edit
-              // - rejected -> none
-              // - ongoing  -> none
-              // - ended    -> Rate
               bool showEdit = false;
               bool showRate = false;
 
               if (isEnded == true) {
-                // ended -> Rate
                 showRate = true;
               } else {
                 if (isRejected == true) {
-                  // rejected -> no buttons
                   showEdit = false;
                   showRate = false;
                 } else {
                   if (isOngoing == true) {
-                    // ongoing -> no buttons
                     showEdit = false;
                     showRate = false;
                   } else {
-                    // pending or accepted
                     if (isPending == true) {
-                      // pending -> Edit
                       showEdit = true;
                     } else {
-                      // accepted
                       if (requireApproval == true) {
-                        // accepted + facility requires approval -> NO edit
                         showEdit = false;
                       } else {
-                        // accepted + no facility approval gate -> Edit
                         showEdit = true;
                       }
                     }
@@ -543,8 +483,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 }
               }
 
-
-              // Responsive image height
               double imgH = sw * 0.75;
               if (imgH < 240.h) { imgH = 240.h; } else { if (imgH > 420.h) { imgH = 420.h; } }
 
@@ -552,8 +490,8 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Facility image
+                  children: <Widget>[
+                    // facility image
                     Container(
                       width: double.infinity,
                       height: imgH,
@@ -569,13 +507,13 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                     SizedBox(height: 16.h),
 
-                    // Content at 90% width
+                    // main content
                     SizedBox(
                       width: sw * 0.90,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Name
+                        children: <Widget>[
+                          // name
                           Text(
                             name,
                             style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700),
@@ -585,23 +523,23 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 10.h),
 
-                          // Booking date line
+                          // booking date
                           if (bookingDate != null)
                             Text(
-                              "Booking Date: ${_formatFullDate(bookingDate)}",
+                              'Booking Date: ${_formatFullDate(bookingDate)}',
                               style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w600),
                             ),
 
                           SizedBox(height: 12.h),
 
-                          // Time block + Slot (mirrors list style)
+                          // time + slot + chips
                           Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
                             decoration: BoxDecoration(
                               color: const Color(0xFFE9D7FF),
                               borderRadius: BorderRadius.circular(14.r),
-                              boxShadow: [
+                              boxShadow: <BoxShadow>[
                                 BoxShadow(
                                   color: const Color(0x22000000),
                                   blurRadius: 8.r,
@@ -611,13 +549,13 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                             ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // left times with centered "|"
+                              children: <Widget>[
+                                // times
                                 SizedBox(
                                   width: 78.w,
                                   height: 68.h,
                                   child: Stack(
-                                    children: [
+                                    children: <Widget>[
                                       Align(
                                         alignment: Alignment.topLeft,
                                         child: Text(
@@ -646,7 +584,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                   ),
                                 ),
 
-                                // divider
+                                // vertical divider
                                 Container(
                                   width: 2.w,
                                   height: 50.h,
@@ -654,20 +592,24 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                   color: const Color(0xFF7E57C2),
                                 ),
 
-                                // right: slot + chips
+                                // slot + chips
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
+                                    children: <Widget>[
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
-                                        children: [
+                                        children: <Widget>[
                                           Icon(Icons.event_seat, size: 18.w, color: Colors.black54),
-                                          Text("Slot : ",
-                                              style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600)),
+                                          Text(
+                                            'Slot : ',
+                                            style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),
+                                          ),
                                           SizedBox(width: 6.w),
-                                          Text(seatText,
-                                              style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600)),
+                                          Text(
+                                            seatText,
+                                            style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),
+                                          ),
                                         ],
                                       ),
                                       SizedBox(height: 8.h),
@@ -681,7 +623,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // Location
+                          // location
                           Text('Location', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -696,7 +638,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // Description
+                          // description
                           Text('Description', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -711,7 +653,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // Duration
+                          // duration
                           Text('Duration per slot', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -726,10 +668,11 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // Manager
+                          // manager header
                           Text('Manager', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
 
+                          // manager card and action button
                           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                             stream: mgrStream,
                             builder: (context, mgrSnap) {
@@ -748,46 +691,26 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                               Map<String, dynamic> mm = <String, dynamic>{};
                               if (mgrSnap.hasData) {
-                                if (mgrSnap.data != null) {
-                                  if (mgrSnap.data!.data() != null) {
-                                    mm = mgrSnap.data!.data()!;
-                                  }
-                                }
+                                final Map<String, dynamic>? dd = mgrSnap.data!.data();
+                                if (dd != null) { mm = dd; }
                               }
 
-                              String username = '';
-                              if (mm.containsKey('username')) {
-                                if (mm['username'] != null) { username = mm['username'].toString(); }
-                              }
+                              String username = mm['username']?.toString() ?? '';
                               if (username.isEmpty == true) {
-                                if (mm.containsKey('name')) {
-                                  if (mm['name'] != null) { username = mm['name'].toString(); }
-                                }
+                                username = mm['name']?.toString() ?? '';
                               }
-
-                              String email = '';
-                              if (mm.containsKey('email')) {
-                                if (mm['email'] != null) { email = mm['email'].toString(); }
-                              }
-
-                              String contact = '';
-                              if (mm.containsKey('contact')) {
-                                if (mm['contact'] != null) { contact = mm['contact'].toString(); }
-                              }
+                              String email = mm['email']?.toString() ?? '';
+                              String contact = mm['contact']?.toString() ?? '';
 
                               String managerAssetPath = '';
-                              if (mm.containsKey('profileImageName')) {
-                                if (mm['profileImageName'] != null) {
-                                  final String trimmed = mm['profileImageName'].toString().trim();
-                                  if (trimmed.isNotEmpty == true) {
-                                    managerAssetPath = 'asset/image/$trimmed';
-                                  }
-                                }
+                              final String img = mm['profileImageName']?.toString().trim() ?? '';
+                              if (img.isNotEmpty == true) {
+                                managerAssetPath = 'asset/image/$img';
                               }
 
                               return Column(
-                                children: [
-                                  // manager info card (auto height)
+                                children: <Widget>[
+                                  // manager info card
                                   Container(
                                     width: double.infinity,
                                     constraints: BoxConstraints(minHeight: 135.h),
@@ -798,7 +721,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                     ),
                                     child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
+                                      children: <Widget>[
                                         ClipRRect(
                                           borderRadius: BorderRadius.circular(8.r),
                                           child: SizedBox(
@@ -818,7 +741,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             mainAxisSize: MainAxisSize.min,
-                                            children: [
+                                            children: <Widget>[
                                               _kvLine(label: 'Name', value: username),
                                               SizedBox(height: 6.h),
                                               _kvLine(label: 'Email', value: email),
@@ -833,7 +756,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                                   SizedBox(height: 16.h),
 
-                                  // Bottom single action area (same size/position as old "Book")
+                                  // bottom single action (Edit or Rate or none)
                                   Builder(
                                     builder: (_) {
                                       if (showEdit == true) {
@@ -853,26 +776,22 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                                 MaterialPageRoute(
                                                   builder: (_) => AndroidEditBooking(
                                                     bookingId: widget.bookingId,
-
                                                   ),
                                                 ),
                                               );
                                             },
-
                                             child: Text('Edit', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
                                           ),
                                         );
                                       } else {
                                         if (showRate == true) {
-                                          // If already rated -> grey "Rated" button that does not navigate.
-                                          // If not rated -> purple "Rate" button that navigates to rating page.
                                           Color btnColor;
                                           String btnLabel;
                                           if (ratedAlready == true) {
-                                            btnColor = Colors.grey;     // disabled look
+                                            btnColor = Colors.grey;
                                             btnLabel = 'Rated';
                                           } else {
-                                            btnColor = const Color(0xFF8620E5); // active
+                                            btnColor = const Color(0xFF8620E5);
                                             btnLabel = 'Rate';
                                           }
 
@@ -888,13 +807,11 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                               ),
                                               onPressed: () {
                                                 if (ratedAlready == true) {
-                                                  // Already rated -> do not go anywhere, show snack
                                                   ScaffoldMessenger.of(context).hideCurrentSnackBar();
                                                   ScaffoldMessenger.of(context).showSnackBar(
                                                     SnackBar(content: Text('User have rated on current booking', style: TextStyle(fontSize: 13.sp))),
                                                   );
                                                 } else {
-                                                  // Not rated yet -> navigate to rating page
                                                   Navigator.push(
                                                     context,
                                                     MaterialPageRoute(
@@ -910,7 +827,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                             ),
                                           );
                                         } else {
-                                          // nothing (ongoing / rejected)
                                           return const SizedBox.shrink();
                                         }
                                       }
@@ -939,15 +855,15 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
   }
 }
 
-// ---------- Small UI helpers ----------
+// small ui helper
 Widget _kvLine({required String label, required String value}) {
   return Padding(
     padding: EdgeInsets.only(bottom: 6.h),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+      children: <Widget>[
         Text(
-          "$label: ",
+          '$label: ',
           style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: Colors.black),
         ),
         Expanded(

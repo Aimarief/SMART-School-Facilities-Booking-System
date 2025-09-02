@@ -89,6 +89,8 @@ class _WebEditBookingState extends State<WebEditBooking> {
   final Color _cAvailBrd = const Color(0xFFE5E7EB);   // light border
   final Color _cAvailTxt = const Color(0xFF111827);   // dark text
   final Color _cPanelBg  = const Color(0xFFF9F4FF);   // whole popup background
+  final Color _cPastBg  = const Color(0xFFE5E7EB);   // grey bg for past
+  final Color _cPastTxt = const Color(0xFF9CA3AF);   // grey text for past
 
   // -------- basic selection state --------
   DateTime? _selectedDate;
@@ -140,6 +142,180 @@ class _WebEditBookingState extends State<WebEditBooking> {
     });
   }
 
+  Future<String> _checkUserConflictForInterval({
+    required String userId,
+    required String dateYMD,
+    required String newStartHHmm,
+    required String newEndHHmm, // can be empty; we will handle
+  }) async {
+    try {
+      // normalize new interval
+      final String nS = _normalizeHHmm(newStartHHmm);
+      String nE = _normalizeHHmm(newEndHHmm);
+      if (nE.isEmpty == true) {
+        nE = _endForStartForConflict(nS);
+      }
+      final int newS = _hmToMinutes(nS);
+      final int newE = _hmToMinutes(nE);
+
+      // read user's other bookings that day (exclude this booking)
+      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .where('userId', isEqualTo: userId)
+          .where('bookingDate', isEqualTo: dateYMD)
+          .get();
+
+      int j = 0;
+      while (j < qs.docs.length) {
+        final d = qs.docs[j];
+        if (d.id == widget.bookingId) {
+          j = j + 1;
+          continue;
+        }
+
+        final Map<String, dynamic> m = d.data();
+
+        // keep only accepted/approved/pending
+        String ap = '';
+        if (m.containsKey('approval')) {
+          final dynamic v = m['approval'];
+          if (v != null) { ap = v.toString().toLowerCase().trim(); }
+        }
+        bool keep = false;
+        if (ap == 'accepted') {
+          keep = true;
+        } else {
+          if (ap == 'approved') {
+            keep = true;
+          } else {
+            if (ap == 'pending') {
+              keep = true;
+            }
+          }
+        }
+        if (keep == false) {
+          j = j + 1;
+          continue;
+        }
+
+        // existing start
+        String s = '';
+        if (m.containsKey('start')) {
+          final dynamic v = m['start'];
+          if (v != null) { s = v.toString(); }
+        } else {
+          if (m.containsKey('startTime')) {
+            final dynamic v = m['startTime'];
+            if (v != null) { s = v.toString(); }
+          }
+        }
+        s = _normalizeHHmm(s);
+        if (s.isEmpty == true) {
+          j = j + 1;
+          continue;
+        }
+
+        // existing end (from doc or from facility map; fallback +60)
+        String e = '';
+        if (m.containsKey('end')) {
+          final dynamic v = m['end'];
+          if (v != null) { e = v.toString(); }
+        } else {
+          if (m.containsKey('endTime')) {
+            final dynamic v = m['endTime'];
+            if (v != null) { e = v.toString(); }
+          }
+        }
+        e = _normalizeHHmm(e);
+        if (e.isEmpty == true) {
+          final String byMap = _endForStartForConflict(s);
+          e = byMap;
+        }
+
+        final int exS = _hmToMinutes(s);
+        final int exE = _hmToMinutes(e);
+
+        // block if intervals overlap
+        if (_rangesOverlapStrict(newS, newE, exS, exE) == true) {
+          final String msg = 'Overlap with other booking ' + _rangeText(s, e) +
+              '. New time ' + _rangeText(nS, nE) + ' is not allowed.';
+          return msg;
+        }
+
+        j = j + 1;
+      }
+
+      return '';
+    } catch (_) {
+      // if we fail to read, do not falsely allow; safer to block
+      return 'Could not verify other bookings. Please try again.';
+    }
+  }
+
+
+  // turn minutes back to "HH:mm"
+  String _minutesToHHmm(int mins) {
+    int h = mins ~/ 60;
+    int m = mins % 60;
+    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
+    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+    final String hh = h.toString().padLeft(2, '0');
+    final String mm = m.toString().padLeft(2, '0');
+    return hh + ':' + mm;
+  }
+
+// find END for a given START using current facility slots; fallback +60 minutes
+  String _endForStartForConflict(String startHHmm) {
+    String end = '';
+    final String sNorm = _normalizeHHmm(startHHmm);
+
+    // build start->end map from _timeSlots
+    final Map<String, String> map = <String, String>{};
+    int i = 0;
+    while (i < _timeSlots.length) {
+      final Map<String, String> it = _timeSlots[i];
+      String st = '';
+      String en = '';
+      if (it.containsKey('start')) { st = (it['start'] ?? '').trim(); }
+      if (it.containsKey('end'))   { en = (it['end'] ?? '').trim(); }
+      if (st.isNotEmpty == true && en.isNotEmpty == true) {
+        map[_normalizeHHmm(st)] = _normalizeHHmm(en);
+      }
+      i = i + 1;
+    }
+
+    if (map.containsKey(sNorm) == true) {
+      end = map[sNorm]!;
+    }
+
+    if (end.isEmpty == true) {
+      final int sM = _hmToMinutes(sNorm);
+      end = _minutesToHHmm(sM + 60);
+    }
+
+    return _normalizeHHmm(end);
+  }
+
+// half-open overlap: [aStart,aEnd) vs [bStart,bEnd) ; edge-touch OK
+  bool _rangesOverlapStrict(int aStart, int aEnd, int bStart, int bEnd) {
+    if (aStart < bEnd) {
+      if (aEnd > bStart) {
+        return true;
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+// label like "12.00 - 14.00" for messages
+  String _rangeText(String s, String e) {
+    return _fmtHHmm(s) + ' - ' + _fmtHHmm(e);
+  }
+
+
+
   Future<void> _onConfirm() async {
     if (_selectedYMD.isEmpty) {
       _toast('Please pick a date.');
@@ -173,17 +349,50 @@ class _WebEditBookingState extends State<WebEditBooking> {
       }
     }
 
+    // === Conflict check (interval-based; edge-touch OK) ===
+    if (selStart.isEmpty) {
+      _toast('Please pick a time slot.');
+      return;
+    }
+
+// ensure end exists and is normalized for BOTH check and save
+    String selEndForCheck = selEnd;
+    if (selEndForCheck.isEmpty) {
+      selEndForCheck = _endForStartForConflict(selStart);
+    }
+    selEndForCheck = _normalizeHHmm(selEndForCheck); // normalize
+
+// sanity: start < end
+    final int sM = _hmToMinutes(_normalizeHHmm(selStart));
+    final int eM = _hmToMinutes(selEndForCheck);
+    if (!(sM < eM)) {
+      _toast('End time must be after start time.');
+      return;
+    }
+
+    final String reason = await _checkUserConflictForInterval(
+      userId: widget.bookedByUid,
+      dateYMD: _selectedYMD,
+      newStartHHmm: selStart,
+      newEndHHmm: selEndForCheck,
+    );
+    if (reason.isNotEmpty) {
+      _toast(reason);
+      return;
+    }
+
     final ok = await _busy(() async {
       await BookingService.moveAcceptedBookingByIdTx(
         bookingId: widget.bookingId,
-        newFacilityId: widget.facilityId,   // facility fixed in this UI
+        newFacilityId: widget.facilityId,
         newDateYMD: _selectedYMD,
         newSlotKey: _selectedSlotKey,
         newSeatIndex: seatIndex1Based,
-        newStartStr: selStart,              // <= send start
-        newEndStr: selEnd,                  // <= send end
+        newStartStr: _normalizeHHmm(selStart),      // ✅ normalized
+        newEndStr: selEndForCheck,                  // ✅ normalized, not empty
       );
     });
+
 
     if (!ok) return;
 
@@ -203,6 +412,67 @@ class _WebEditBookingState extends State<WebEditBooking> {
       use24HourFormat: widget.use24HourFormat,
     );
   }
+
+  String _normalizeHHmm(String s) {
+    String t = s.trim();
+    t = t.replaceAll(' ', '');
+    t = t.replaceAll('.', ':');
+    t = t.replaceAll('-', ':');
+    if (t.contains(':') == false) {
+      String d = '';
+      int i = 0;
+      while (i < t.length) {
+        final String ch = t.substring(i, i + 1);
+        final int code = ch.codeUnitAt(0);
+        if (code >= 48 && code <= 57) { d = d + ch; }
+        i = i + 1;
+      }
+      if (d.length == 3) { d = '0' + d; }
+      if (d.length >= 4) {
+        final String hh = d.substring(0, 2);
+        final String mm = d.substring(2, 4);
+        return hh + ':' + mm;
+      } else {
+        return t;
+      }
+    } else {
+      final List<String> p = t.split(':');
+      String hh = '00';
+      String mm = '00';
+      if (p.isNotEmpty == true) { hh = p[0].padLeft(2, '0'); }
+      if (p.length > 1) { mm = p[1].padLeft(2, '0'); }
+      return hh + ':' + mm;
+    }
+  }
+
+  int _hmToMinutes(String s) {
+    final String n = _normalizeHHmm(s);
+    final List<String> p = n.split(':');
+    int h = 0;
+    int m = 0;
+    if (p.isNotEmpty == true) {
+      final int? a = int.tryParse(p[0]);
+      if (a != null) { h = a; }
+    }
+    if (p.length > 1) {
+      final int? b = int.tryParse(p[1]);
+      if (b != null) { m = b; }
+    }
+    return h * 60 + m;
+  }
+
+  String _fmtHHmm(String s) {
+    // label like "08.30"
+    final String n = _normalizeHHmm(s);
+    final List<String> p = n.split(':');
+    if (p.length >= 2) {
+      return p[0].padLeft(2, '0') + '.' + p[1].padLeft(2, '0');
+    } else {
+      return n;
+    }
+  }
+
+
 
 
 // simple busy overlay + friendly errors
@@ -246,6 +516,28 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
     return 'Something went wrong. Please try again.';
   }
+
+  bool _isSelectedDateToday() {
+    if (_selectedDate == null) return false;
+    final now = DateTime.now();
+    final d = _selectedDate!;
+    return now.year == d.year && now.month == d.month && now.day == d.day;
+  }
+
+  /// key = "HHmm" (e.g., "0930"). Returns true if now >= slot start.
+  bool _isSlotPastForSelectedDate(String key) {
+    if (!_isSelectedDateToday()) return false;
+    if (key.length < 4) return false;
+
+    final now = DateTime.now();
+    final hh = int.tryParse(key.substring(0, 2)) ?? 0;
+    final mm = int.tryParse(key.substring(2, 4)) ?? 0;
+    final slotStart = DateTime(now.year, now.month, now.day, hh, mm);
+
+    // Treat "now == slot start" as past/unavailable:
+    return !now.isBefore(slotStart);
+  }
+
 
 
   @override
@@ -528,89 +820,71 @@ class _WebEditBookingState extends State<WebEditBooking> {
     String end = '';
     String key = '';
 
-    if (slot.containsKey('start')) {
-      start = slot['start']!;
-    }
-    if (slot.containsKey('end')) {
-      end = slot['end']!;
-    }
-    if (slot.containsKey('key')) {
-      key = slot['key']!;
-    }
+    if (slot.containsKey('start')) start = slot['start']!;
+    if (slot.containsKey('end'))   end   = slot['end']!;
+    if (slot.containsKey('key'))   key   = slot['key']!;
+
+    // ✅ compute AFTER key is known
+    final bool past = _isSlotPastForSelectedDate(key);
 
     String label;
     if (start.isNotEmpty) {
-      if (end.isNotEmpty) {
-        label = _fmtTimeLabel(start) + ' - ' + _fmtTimeLabel(end);
-      } else {
-        label = _fmtTimeLabel(start);
-      }
+      label = end.isNotEmpty
+          ? _fmtTimeLabel(start) + ' - ' + _fmtTimeLabel(end)
+          : _fmtTimeLabel(start);
     } else {
       label = key;
     }
 
-    int booked = 0;
-    if (_dayBooked.containsKey(key)) {
-      booked = _dayBooked[key]!;
-    }
+    int booked = _dayBooked[key] ?? 0;
+    bool full = _facilitySeatCapacity > 0 && booked >= _facilitySeatCapacity;
+    bool selected = _selectedSlotKey == key;
 
-    bool full = false;
-    if (_facilitySeatCapacity > 0) {
-      if (booked >= _facilitySeatCapacity) {
-        full = true;
-      } else {
-        full = false;
-      }
-    } else {
-      full = false;
-    }
-
-    bool selected = false;
-    if (_selectedSlotKey == key) {
-      selected = true;
-    }
-
-    // decide background and text color
     Color bg;
     Color fg;
     BoxDecoration deco;
 
-    if (full) {
+    if (past) {
+      bg = _cPastBg;
+      fg = _cPastTxt;
+      deco = BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10.r),
+        border: Border.all(color: _cAvailBrd),
+      );
+    } else if (full) {
       bg = _cFullRed;
       fg = Colors.white;
       deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
+    } else if (selected) {
+      bg = _cSelected;
+      fg = Colors.white;
+      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
     } else {
-      if (selected) {
-        bg = _cSelected;
-        fg = Colors.white;
-        deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
-      } else {
-        bg = _cAvailBg;
-        fg = _cAvailTxt;
-        deco = BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(10.r),
-          border: Border.all(color: _cAvailBrd),
-        );
-      }
+      bg = _cAvailBg;
+      fg = _cAvailTxt;
+      deco = BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10.r),
+        border: Border.all(color: _cAvailBrd),
+      );
     }
 
     return InkWell(
       onTap: () async {
-        // block tap if full
+        if (past) {
+          _toast('This time slot has already passed.');
+          return;
+        }
         if (full) {
           _toast('This time slot is full.');
           return;
         }
-
-        // set selected slot and clear seat selection
         setState(() {
           _selectedSlotKey = key;
           _selectedSeatIndex = -1;
           _seatTaken.clear();
         });
-
-        // load seat taken flags for the chosen slot
         await _loadSeatsForSlot(_selectedYMD, key);
       },
       child: Container(
@@ -623,6 +897,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
       ),
     );
   }
+
 
   // ---------- Seats grid ----------
   Widget _buildSeatsWrap() {

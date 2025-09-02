@@ -1,8 +1,3 @@
-// android_bottom_menu.dart
-// Bottom bar with 5 icons in one straight line (always black).
-// The SELECTED icon is drawn ON TOP inside a bigger orange circle.
-// The circle + icon move UP together a bit, and the circle has a blurry glow.
-
 import 'package:flutter/material.dart';
 
 class BottomMenuBar extends StatelessWidget {

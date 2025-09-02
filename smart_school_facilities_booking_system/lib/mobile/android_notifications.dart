@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_list_of_facilities.dart';
 import 'android_account.dart';
@@ -15,7 +15,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
 
   void _onTabSelected(int i) {
     if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 2) {

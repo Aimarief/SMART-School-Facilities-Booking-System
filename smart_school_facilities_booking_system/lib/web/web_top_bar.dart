@@ -195,7 +195,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
         SizedBox(height: 35.h),
         _menuItem("Booking", () {
           Navigator.of(context).pop();
-          context.go('/booking');
+          context.go('/webbooking');
         }),
         SizedBox(height: 35.h),
         _menuItem("Statistic", () {
@@ -217,7 +217,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
         SizedBox(height: 35.h),
         _menuItem("Booking", () {
           Navigator.of(context).pop();
-          context.go('/booking');
+          context.go('/webbooking');
         }),
       ]);
     }

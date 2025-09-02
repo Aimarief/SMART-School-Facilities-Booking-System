@@ -3,71 +3,69 @@ import 'package:flutter/services.dart';                       // input formatter
 import 'package:flutter_screenutil/flutter_screenutil.dart';  // .w .h .sp sizes
 import 'package:firebase_auth/firebase_auth.dart';            // Firebase auth
 import 'package:cloud_firestore/cloud_firestore.dart';        // Firestore
+
+// auth + shared UI
 import 'android_login.dart';
 import 'android_bottom_menu.dart';
+
+// filters + details
 import 'android_filter_category.dart';
 import 'android_facility_details.dart';
 
-// other pages
-import 'android_calendar.dart';
+// other pages for bottom nav
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 
-// ------------------------------
-// List of Facilities (main page)
-// ------------------------------
 class AndroidListOfFacilities extends StatefulWidget {
+  // simple constructor
   @override
   State<AndroidListOfFacilities> createState() => _AndroidListOfFacilitiesState();
 }
 
 class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
-  // bottom bar: this page index
+  // keep Facilities tab active
   int _currentIndex = 2;
 
-  // search bar controller
+  // search controller
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // capacity controller (default 1) – only allow digits
+  // capacity controller (default 1)
   final TextEditingController _capCtrl = TextEditingController(text: '1');
 
-  // category picked from FilterCategory (null = no filter)
+  // currently selected category name (null = no filter)
   String? _selectedCategory;
 
-  // Firestore collections
+  // facilities collection
   final CollectionReference<Map<String, dynamic>> _facCol =
   FirebaseFirestore.instance.collection('Facilities');
 
+  // categories collection
   final CollectionReference<Map<String, dynamic>> _catCol =
   FirebaseFirestore.instance.collection('FacilitiesCategory');
 
-  // ---------------------------
-  // Helpers for favourites path
-  // ---------------------------
-
   // get user's favourites subcollection
   CollectionReference<Map<String, dynamic>>? _favColForCurrentUser() {
-    final user = FirebaseAuth.instance.currentUser;
+    final User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      return null; // not logged in
+      return null;
     } else {
       return FirebaseFirestore.instance
           .collection('UserInformation')
           .doc(user.uid)
-          .collection('favourite'); // doc id = facilityId
+          .collection('favourite');
     }
   }
 
-  // stream all favourite doc IDs for this user (each doc id == facilityId)
+  // stream favourite facility IDs for this user
   Stream<Set<String>> _watchFavoriteIds() {
     final col = _favColForCurrentUser();
     if (col == null) {
-      // no user -> empty set stream
       return Stream<Set<String>>.value(<String>{});
     } else {
       return col.snapshots().map((snap) {
-        final ids = <String>{};
+        final Set<String> ids = <String>{};
         for (final d in snap.docs) {
           ids.add(d.id);
         }
@@ -76,7 +74,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     }
   }
 
-  // toggle favourite (create/delete a doc)
+  // toggle favourite state (create/delete doc)
   Future<void> _toggleFavorite(String facilityId) async {
     final col = _favColForCurrentUser();
     if (col == null) return;
@@ -84,15 +82,15 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     final ref = col.doc(facilityId);
     final snap = await ref.get();
 
-    // if already fav -> remove
+    // delete if exists
     if (snap.exists) {
       await ref.delete();
       return;
     }
 
-    // else fetch facility name once, then save a tiny doc
+    // fetch facility name once and save a small doc
     final facSnap = await _facCol.doc(facilityId).get();
-    Map<String, dynamic>? m = facSnap.data();
+    final Map<String, dynamic>? m = facSnap.data();
     String name;
     if (m == null) {
       name = '';
@@ -110,12 +108,11 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     });
   }
 
-  // batch remove a set of favourite docs (used when facility was deleted)
+  // remove favourite docs for a list of IDs
   Future<void> _removeFavorites(Iterable<String> ids) async {
     final col = _favColForCurrentUser();
     if (col == null) return;
 
-    // nothing to delete
     bool hasAny = false;
     for (final _ in ids) {
       hasAny = true;
@@ -130,16 +127,14 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     await batch.commit();
   }
 
-  // ----------------
-  // Bottom bar nav
-  // ----------------
+  // handle bottom navigation taps
   void _onTabSelected(int i) {
     if (i == 2) {
       setState(() {
-        _currentIndex = 2; // stay here
+        _currentIndex = 2;
       });
     } else if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 3) {
@@ -149,24 +144,15 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     }
   }
 
-  // -----------
-  // Lifecycle
-  // -----------
+  // attach listeners on init
   @override
   void initState() {
     super.initState();
-
-    // whenever the search text changes, rebuild to re-filter the list
-    _searchCtrl.addListener(() {
-      setState(() {});
-    });
-
-    // whenever capacity text changes, rebuild to resort the list
-    _capCtrl.addListener(() {
-      setState(() {});
-    });
+    _searchCtrl.addListener(() => setState(() {}));
+    _capCtrl.addListener(() => setState(() {}));
   }
 
+  // dispose controllers
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -174,13 +160,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     super.dispose();
   }
 
-  // --------------------
-  // Capacity helpers
-  // --------------------
-
-  // read current capacity from the input (only int, min = 1)
+  // read current capacity from input (min 1)
   int _currentCapacity() {
-    final raw = _capCtrl.text.trim();
+    final String raw = _capCtrl.text.trim();
     int v = int.tryParse(raw) ?? 1;
     if (v <= 0) {
       v = 1;
@@ -188,7 +170,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     return v;
   }
 
-  // parse any number-ish value from Firestore into int
+  // parse any number-ish dynamic into int
   int _parseCapInt(dynamic v, int fallback) {
     if (v == null) {
       return fallback;
@@ -200,8 +182,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
           return v.floor();
         } else {
           if (v is String) {
-            final t = v.trim();
-            final n = int.tryParse(t);
+            final String t = v.trim();
+            final int? n = int.tryParse(t);
             if (n == null) {
               return fallback;
             } else {
@@ -215,9 +197,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     }
   }
 
-  // check if userCap fits required and max (max<=0 means unlimited)
+  // check capacity fit (max<=0 means unlimited)
   bool _fitsCapacity(int userCap, int reqCap, int maxCap) {
-    // treat maxCap <= 0 as unlimited
     bool withinMax;
     if (maxCap <= 0) {
       withinMax = true;
@@ -236,10 +217,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     }
   }
 
-  // sort list: matching facilities first, then by ascending requiredCapacity
+  // sort list with "fits" first then by requiredCapacity ascending, stable by name
   void _sortByCapacityRule(List<Map<String, dynamic>> list, int userCap) {
     list.sort((a, b) {
-      // read req/max for A
       int reqA;
       if (a['reqCap'] is int) {
         reqA = a['reqCap'];
@@ -250,9 +230,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       if (a['maxCap'] is int) {
         maxA = a['maxCap'];
       } else {
-        maxA = 0; // 0 = unlimited
+        maxA = 0;
       }
-      // read req/max for B
+
       int reqB;
       if (b['reqCap'] is int) {
         reqB = b['reqCap'];
@@ -266,7 +246,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
         maxB = 0;
       }
 
-      // compute group rank: 0 for fits, 1 for not fits
       int rankA;
       if (_fitsCapacity(userCap, reqA, maxA)) {
         rankA = 0;
@@ -280,17 +259,14 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
         rankB = 1;
       }
 
-      // first compare by rank (fits first)
       if (rankA != rankB) {
         return rankA.compareTo(rankB);
       }
 
-      // then compare by requiredCapacity ascending
       if (reqA != reqB) {
         return reqA.compareTo(reqB);
       }
 
-      // finally small tie-breaker by name so order is stable
       String nameA;
       if (a['name'] is String) {
         nameA = a['name'];
@@ -306,6 +282,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       return nameA.toLowerCase().compareTo(nameB.toLowerCase());
     });
   }
+
   // format capacity text like "3 - 10" or "3 - Unlimited"
   String _formatCapacityText(int reqCap, int maxCap) {
     String right;
@@ -317,18 +294,14 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     return '$reqCap - $right';
   }
 
-
-  // -----
-  // UI
-  // -----
+  // build page scaffold
   @override
   Widget build(BuildContext context) {
-    // bottom bar height and screen width for responsive sizing
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
     final double sw = MediaQuery.of(context).size.width;
 
     return Scaffold(
-      // top app bar (purple) with rounded bottom corners
+      // top bar with title and logout
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -341,7 +314,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
             style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600),
           ),
           actions: [
-            // logout button
             IconButton(
               icon: const Icon(Icons.logout, color: Colors.white),
               onPressed: () async {
@@ -363,67 +335,40 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
         ),
       ),
 
-      // page body
+      // body with controls and lists
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // top row: capacity input + search bar + filter button
-            // top row: [ icon | capacity box | search | filter ]
+            // top control row
             Row(
-              crossAxisAlignment: CrossAxisAlignment.center, // keep items aligned nicely
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // capacity icon on the LEFT of the input
-                Icon(
-                  Icons.people_alt_outlined,          // people icon
-                  size: 20.sp,
-                  // scale with screen
-                  color: Colors.black87,
-                ),
-
-                SizedBox(width: 6.w),                 // small gap between icon and input
-
-                // capacity input (you can keep your 110.w x 44.h if you prefer bigger)
-                SizedBox(
-                  width: 90.w,                        // smaller width so search gets more space
-                  height: 44.h,                       // smaller height (clean look)
-                  child: _buildCapacityField(),       // our +/- number box (min = 1)
-                ),
-
-                SizedBox(width: 8.w),                 // gap before search
-
-                // search fills remaining space
+                Icon(Icons.people_alt_outlined, size: 20.sp, color: Colors.black87),
+                SizedBox(width: 6.w),
+                SizedBox(width: 90.w, height: 44.h, child: _buildCapacityField()),
+                SizedBox(width: 8.w),
                 Expanded(child: _buildSearchField()),
-
-                SizedBox(width: 12.w),                // gap before filter
-
-                // filter is a fixed square so it never wiggles
-                SizedBox(
-                  width: 44.h,
-                  height: 44.h,
-                  child: _buildFilterButton(),
-                ),
+                SizedBox(width: 12.w),
+                SizedBox(width: 44.h, height: 44.h, child: _buildFilterButton()),
               ],
             ),
 
             SizedBox(height: 20.h),
 
-            // data section (categories -> facilities -> favourites)
+            // categories -> facilities -> favorites stream chain
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _catCol.snapshots(),
                 builder: (context, catSnap) {
-                  // show loader while categories load
                   if (catSnap.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  // show error state
                   if (catSnap.hasError) {
                     return const Center(child: Text('Failed to load categories'));
                   }
 
-                  // build simple helpers for categories
                   List<QueryDocumentSnapshot<Map<String, dynamic>>> catDocs;
                   if (catSnap.data == null) {
                     catDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -431,26 +376,23 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                     catDocs = catSnap.data!.docs;
                   }
 
-                  // map: categoryId -> categoryName
                   final Map<String, String> catIdToName = <String, String>{};
-                  // set of all lowercased category names
                   final Set<String> catNameLowerSet = <String>{};
-                  // sorted list of categories for grouped layout
                   final List<String> orderedCategoryNames = <String>[];
 
                   for (final d in catDocs) {
-                    final m = d.data();
+                    final Map<String, dynamic> m = d.data();
                     bool isDeleted = false;
                     if (m.containsKey('deleted')) {
                       if (m['deleted'] is bool) {
                         if (m['deleted'] == true) isDeleted = true;
                       }
                     }
-                    if (isDeleted) continue;
+                    if (isDeleted == true) continue;
 
                     if (m.containsKey('name')) {
                       if (m['name'] is String) {
-                        final name = m['name'] as String;
+                        final String name = m['name'];
                         catIdToName[d.id] = name;
                         catNameLowerSet.add(name.toLowerCase());
                         orderedCategoryNames.add(name);
@@ -458,10 +400,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                     }
                   }
 
-                  // sort categories alphabetically for display (keep same behavior)
                   orderedCategoryNames.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-                  // now stream facilities
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: _facCol.snapshots(),
                     builder: (context, facSnap) {
@@ -479,20 +419,13 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                         facDocs = facSnap.data!.docs;
                       }
 
-                      // build a flat list of visible facilities (after filtering)
                       final List<Map<String, dynamic>> all = <Map<String, dynamic>>[];
-
-                      // set of non-deleted facility ids (used to clean stale favourites)
                       final Set<String> activeFacilityIds = <String>{};
-
-                      // current search text
                       final String q = _searchCtrl.text.trim().toLowerCase();
 
-                      // walk every facility doc
                       for (final d in facDocs) {
-                        final data = d.data();
+                        final Map<String, dynamic> data = d.data();
 
-                        // skip if deleted
                         bool deleted = false;
                         if (data.containsKey('deleted')) {
                           if (data['deleted'] is bool) {
@@ -504,7 +437,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                         final String id = d.id;
                         activeFacilityIds.add(id);
 
-                        // read name
                         String name;
                         if (data.containsKey('name') && data['name'] is String) {
                           name = data['name'];
@@ -512,21 +444,19 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           name = '(Unnamed Facility)';
                         }
 
-                        // resolve category name (prefer categoryId; fallback to stored categoryName)
                         String? categoryName;
 
                         if (data.containsKey('categoryId') && data['categoryId'] is String) {
-                          final cid = data['categoryId'] as String;
+                          final String cid = data['categoryId'];
                           if (catIdToName.containsKey(cid)) {
                             categoryName = catIdToName[cid];
                           }
                         }
                         if (categoryName == null) {
                           if (data.containsKey('categoryName') && data['categoryName'] is String) {
-                            final low = (data['categoryName'] as String).toLowerCase();
+                            final String low = (data['categoryName'] as String).toLowerCase();
                             if (catNameLowerSet.contains(low)) {
-                              // find original case name from our list
-                              for (final cname in orderedCategoryNames) {
+                              for (final String cname in orderedCategoryNames) {
                                 if (cname.toLowerCase() == low) {
                                   categoryName = cname;
                                   break;
@@ -536,9 +466,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           }
                         }
 
-                        // if a category was picked, only keep items in that category
                         if (_selectedCategory != null) {
-                          final sel = _selectedCategory!.toLowerCase();
+                          final String sel = _selectedCategory!.toLowerCase();
                           String cat;
                           if (categoryName == null) {
                             cat = '';
@@ -548,27 +477,22 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           if (sel != cat) continue;
                         }
 
-                        // search by facility name (case-insensitive)
-                        if (q.isNotEmpty) {
+                        if (q.isNotEmpty == true) {
                           if (name.toLowerCase().contains(q) == false) continue;
                         }
 
-                        // keep basic fields for UI
-                        // image path
                         String imagePath = '';
                         if (data.containsKey('imagePath') && data['imagePath'] is String) {
                           imagePath = data['imagePath'];
                         } else {
-                          // legacy imageName
                           if (data.containsKey('imageName') && data['imageName'] is String) {
-                            String nv = (data['imageName'] as String).trim();
-                            if (nv.isNotEmpty) {
+                            final String nv = (data['imageName'] as String).trim();
+                            if (nv.isNotEmpty == true) {
                               imagePath = 'asset/image/$nv';
                             }
                           }
                         }
 
-                        // active flag
                         bool active;
                         if (data.containsKey('active') && data['active'] is bool) {
                           active = data['active'];
@@ -576,10 +500,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           active = false;
                         }
 
-
-                        // capacity fields (robust to different names)
-                        int reqCap = 1; // default minimum = 1
-                        int maxCap = 0; // 0 means unlimited
+                        int reqCap = 1;
+                        int maxCap = 0;
 
                         if (data.containsKey('requiredCapacity')) {
                           reqCap = _parseCapInt(data['requiredCapacity'], 1);
@@ -605,16 +527,14 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           }
                         }
 
-                        // if NOT searching and NO category picked, skip facilities that don't match a valid category
-                        if (q.isEmpty && _selectedCategory == null) {
+                        if (q.isEmpty == true && _selectedCategory == null) {
                           if (categoryName == null) continue;
                         }
 
-                        // collect one item
-                        final item = <String, dynamic>{
+                        final Map<String, dynamic> item = <String, dynamic>{
                           'id': id,
                           'name': name,
-                          'categoryName': categoryName, // may be null in search mode
+                          'categoryName': categoryName,
                           'imagePath': imagePath,
                           'active': active,
                           'reqCap': reqCap,
@@ -623,7 +543,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                         all.add(item);
                       }
 
-                      // now that we built the visible list, we still need favourite IDs
                       return StreamBuilder<Set<String>>(
                         stream: _watchFavoriteIds(),
                         builder: (context, favSnap) {
@@ -634,23 +553,19 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             favoriteIds = favSnap.data!;
                           }
 
-                          // auto-remove favourites for deleted facilities
                           final Set<String> staleFavIds = favoriteIds.difference(activeFacilityIds);
-                          if (staleFavIds.isNotEmpty) {
+                          if (staleFavIds.isNotEmpty == true) {
                             WidgetsBinding.instance.addPostFrameCallback((_) async {
                               await _removeFavorites(staleFavIds);
                             });
                           }
 
-                          // grab user capacity once for sort
                           final int userCap = _currentCapacity();
 
-                          // if a category is selected, show a flat list for that category only (ignore favorites header)
                           if (_selectedCategory != null) {
-                            // capacity-first sort for flat list
                             _sortByCapacityRule(all, userCap);
 
-                            if (all.isEmpty) {
+                            if (all.isEmpty == true) {
                               return Center(
                                 child: Text(
                                   'No facilities in "${_selectedCategory!}"',
@@ -663,7 +578,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                               itemCount: all.length,
                               separatorBuilder: (_, __) => SizedBox(height: 8.h),
                               itemBuilder: (context, i) {
-                                final item = all[i];
+                                final Map<String, dynamic> item = all[i];
                                 return _facilityCard(
                                   sw: sw,
                                   data: item,
@@ -688,13 +603,11 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             );
                           }
 
-                          // if searching, also show a flat list (ignore favorites header)
                           final String qNow = _searchCtrl.text.trim();
-                          if (qNow.isNotEmpty) {
-                            // capacity-first sort for search results
+                          if (qNow.isNotEmpty == true) {
                             _sortByCapacityRule(all, userCap);
 
-                            if (all.isEmpty) {
+                            if (all.isEmpty == true) {
                               return const Center(child: Text('No facilities match your search'));
                             }
 
@@ -702,7 +615,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                               itemCount: all.length,
                               separatorBuilder: (_, __) => SizedBox(height: 8.h),
                               itemBuilder: (context, i) {
-                                final item = all[i];
+                                final Map<String, dynamic> item = all[i];
                                 return _facilityCard(
                                   sw: sw,
                                   data: item,
@@ -727,13 +640,12 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             );
                           }
 
-                          // otherwise: group by category and show "Favorite" section
                           final List<Map<String, dynamic>> favList = <Map<String, dynamic>>[];
                           final Map<String, List<Map<String, dynamic>>> byCat =
                           <String, List<Map<String, dynamic>>>{};
 
-                          for (final m in all) {
-                            final id = m['id'] as String;
+                          for (final Map<String, dynamic> m in all) {
+                            final String id = m['id'] as String;
                             String catName;
                             if (m['categoryName'] is String) {
                               catName = m['categoryName'];
@@ -741,10 +653,10 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                               catName = '';
                             }
 
-                            if (favoriteIds.contains(id)) {
+                            if (favoriteIds.contains(id) == true) {
                               favList.add(m);
                             } else {
-                              if (byCat.containsKey(catName)) {
+                              if (byCat.containsKey(catName) == true) {
                                 byCat[catName]!.add(m);
                               } else {
                                 byCat[catName] = <Map<String, dynamic>>[m];
@@ -752,29 +664,24 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             }
                           }
 
-                          // capacity-first sort for favorites
-                          // capacity-first sort for favorites
                           _sortByCapacityRule(favList, userCap);
 
-// flatten all non-favorite facilities into one list (no category grouping)
                           final List<Map<String, dynamic>> others = <Map<String, dynamic>>[];
-                          for (final entry in byCat.entries) {
-                            final listForCat = entry.value;
-                            if (listForCat.isNotEmpty) {
-                              for (final m in listForCat) {
+                          for (final MapEntry<String, List<Map<String, dynamic>>> entry in byCat.entries) {
+                            final List<Map<String, dynamic>> listForCat = entry.value;
+                            if (listForCat.isNotEmpty == true) {
+                              for (final Map<String, dynamic> m in listForCat) {
                                 others.add(m);
                               }
                             }
                           }
 
-// capacity-first sort for ALL non-favorites
                           _sortByCapacityRule(others, userCap);
 
-// build the final list: Favorite first, then All Facilities
                           final List<Widget> children = <Widget>[];
 
                           children.add(_sectionHeader(title: 'Favorite', count: favList.length));
-                          for (final item in favList) {
+                          for (final Map<String, dynamic> item in favList) {
                             children.add(
                               _facilityCard(
                                 sw: sw,
@@ -801,10 +708,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 
                           children.add(SizedBox(height: 12.h));
 
-                          // “All Facilities” (no category headers)
                           children.add(_sectionHeader(title: 'All Facilities', count: others.length));
-                          for (final item in others) {
-                            final isFav = favoriteIds.contains(item['id'] as String); // usually false, but safe
+                          for (final Map<String, dynamic> item in others) {
+                            final bool isFav = favoriteIds.contains(item['id'] as String);
                             children.add(
                               _facilityCard(
                                 sw: sw,
@@ -830,7 +736,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                           }
 
                           return ListView(children: children);
-
                         },
                       );
                     },
@@ -842,7 +747,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
         ),
       ),
 
-      // bottom menu
+      // bottom navigation
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -851,11 +756,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     );
   }
 
-  // ----------------------------------
-  // Widgets: Capacity, Search, Filter
-  // ----------------------------------
-
-  // capacity input with - and + (min = 1). This will sort lists by capacity rule.
+  // build capacity input with +/- controls
   Widget _buildCapacityField() {
     return Container(
       height: 44.h,
@@ -874,7 +775,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       padding: EdgeInsets.symmetric(horizontal: 6.w),
       child: Row(
         children: [
-          // minus button
           InkWell(
             onTap: () {
               int v = _currentCapacity();
@@ -883,18 +783,14 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                 v = 1;
               }
               _capCtrl.text = v.toString();
-              _capCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _capCtrl.text.length));
+              _capCtrl.selection = TextSelection.fromPosition(
+                TextPosition(offset: _capCtrl.text.length),
+              );
             },
             borderRadius: BorderRadius.circular(8.r),
-            child: SizedBox(
-              width: 28.w,
-              height: 28.h,
-              child: const Icon(Icons.remove),
-            ),
+            child: SizedBox(width: 28.w, height: 28.h, child: const Icon(Icons.remove)),
           ),
           SizedBox(width: 4.w),
-
-          // number field
           Expanded(
             child: TextField(
               controller: _capCtrl,
@@ -906,36 +802,30 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                 border: InputBorder.none,
                 isCollapsed: true,
               ),
-              // onChanged handled via listener in initState()
             ),
           ),
           SizedBox(width: 4.w),
-
-          // plus button
           InkWell(
             onTap: () {
               int v = _currentCapacity();
               v = v + 1;
               _capCtrl.text = v.toString();
-              _capCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _capCtrl.text.length));
+              _capCtrl.selection = TextSelection.fromPosition(
+                TextPosition(offset: _capCtrl.text.length),
+              );
             },
             borderRadius: BorderRadius.circular(8.r),
-            child: SizedBox(
-              width: 28.w,
-              height: 28.h,
-              child: const Icon(Icons.add),
-            ),
+            child: SizedBox(width: 28.w, height: 28.h, child: const Icon(Icons.add)),
           ),
         ],
       ),
     );
   }
 
-  // search input (name only). Uses clear (X) when not empty.
-  // We keep the layout stable while typing.
+  // build name search field with stable clear button slot
   Widget _buildSearchField() {
     return Container(
-      height: 44.h, // fixed height for stable layout
+      height: 44.h,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
@@ -951,12 +841,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       padding: EdgeInsets.symmetric(horizontal: 12.w),
       child: Row(
         children: [
-          // left search icon
           const Icon(Icons.search, color: Colors.grey),
-
           SizedBox(width: 8.w),
-
-          // the text field fills remaining space minus the reserved X slot on the right
           Expanded(
             child: TextField(
               controller: _searchCtrl,
@@ -969,10 +855,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
               ),
             ),
           ),
-
-          // right: reserve a constant-width slot for the clear (X) button
           SizedBox(
-            width: 36.w, // fixed, so layout never shifts
+            width: 36.w,
             child: Align(
               alignment: Alignment.centerRight,
               child: Visibility(
@@ -994,7 +878,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     );
   }
 
-  // filter button: opens FilterCategory page and stores the result
+  // build filter button that opens category picker
   Widget _buildFilterButton() {
     return Material(
       color: Colors.white,
@@ -1003,17 +887,15 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12.r),
         onTap: () async {
-          // open category picker page
           final picked = await Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => FilterCategory()),
           );
 
-          // picked can be a String (category name) or null (None)
           if (picked is String) {
-            if (picked.trim().isEmpty) {
+            if (picked.trim().isEmpty == true) {
               setState(() {
-                _selectedCategory = null; // treat empty as None
+                _selectedCategory = null;
               });
             } else {
               setState(() {
@@ -1021,7 +903,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
               });
             }
           } else {
-            // user chose "None" or backed out -> clear filter
             setState(() {
               _selectedCategory = null;
             });
@@ -1032,11 +913,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     );
   }
 
-  // ----------------------------------
-  // Small reusable UI bits
-  // ----------------------------------
-
-  // section header like: "Favorite - 3"
+  // build small section header text
   Widget _sectionHeader({required String title, required int count}) {
     return Padding(
       padding: EdgeInsets.only(left: 6.w, bottom: 8.h, top: 8.h),
@@ -1047,7 +924,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     );
   }
 
-  // one facility card: image (left), details (right), star button
+  // build one facility card row
   Widget _facilityCard({
     required double sw,
     required Map<String, dynamic> data,
@@ -1055,7 +932,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     required Future<void> Function() onToggleFavorite,
     required VoidCallback onTap,
   }) {
-    // read fields safely without ternary/?? (follow your style)
     String name;
     if (data['name'] is String) {
       name = data['name'];
@@ -1077,38 +953,37 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       active = false;
     }
 
-    // capacity fields
     int reqCap;
     if (data['reqCap'] is int) {
       reqCap = data['reqCap'];
     } else {
       reqCap = 1;
     }
+
     int maxCap;
     if (data['maxCap'] is int) {
       maxCap = data['maxCap'];
     } else {
-      maxCap = 0; // 0 = unlimited
+      maxCap = 0;
     }
 
-    // pick star icon + color (favorite)
     IconData starIcon;
-    if (isFavorite) {
+    if (isFavorite == true) {
       starIcon = Icons.star;
     } else {
       starIcon = Icons.star_border;
     }
+
     Color starColor;
-    if (isFavorite) {
+    if (isFavorite == true) {
       starColor = Colors.amber;
     } else {
       starColor = Colors.black45;
     }
 
-    // availability chip text + color
     String availText;
     Color availColor;
-    if (active) {
+    if (active == true) {
       availText = 'Available';
       availColor = Colors.green;
     } else {
@@ -1116,7 +991,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       availColor = Colors.red;
     }
 
-    // build the card
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 6.h),
       child: Center(
@@ -1136,30 +1010,23 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // left image
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8.r),
                     child: _buildFacilityImage(imagePath),
                   ),
                   SizedBox(width: 10.w),
-
-                  // right side
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // name
                         Text(
                           name,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700),
                         ),
-
                         SizedBox(height: 10.h),
-
-                        // availability chip
                         Row(
                           children: [
                             Container(
@@ -1172,11 +1039,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    active ? Icons.check_circle : Icons.cancel,
-                                    size: 16.sp,
-                                    color: availColor,
-                                  ),
+                                  Icon(active ? Icons.check_circle : Icons.cancel, size: 16.sp, color: availColor),
                                   SizedBox(width: 6.w),
                                   Text(
                                     availText,
@@ -1187,28 +1050,24 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             ),
                           ],
                         ),
-
                         SizedBox(height: 6.h),
-
-                        // capacity row (replaces time)
-                        // capacity chip (bordered box)
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h), // inner space
+                              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
                               decoration: BoxDecoration(
-                                color: Colors.white,                              // light bg
-                                borderRadius: BorderRadius.circular(12.r),        // round corners
-                                border: Border.all(color: Colors.grey.shade400),  // thin border
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12.r),
+                                border: Border.all(color: Colors.grey.shade400),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.person, size: 16.sp, color: Colors.black87),  // human icon
+                                  Icon(Icons.person, size: 16.sp, color: Colors.black87),
                                   SizedBox(width: 6.w),
                                   Text(
-                                    _formatCapacityText(reqCap, maxCap), // "3 - 10" or "3 - Unlimited"
+                                    _formatCapacityText(reqCap, maxCap),
                                     style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),
                                   ),
                                 ],
@@ -1216,14 +1075,13 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             ),
                           ],
                         ),
-
                       ],
                     ),
                   ),
-
-                  // favourite star
                   IconButton(
-                    onPressed: () async { await onToggleFavorite(); },
+                    onPressed: () async {
+                      await onToggleFavorite();
+                    },
                     icon: Icon(starIcon),
                     color: starColor,
                     iconSize: 26.sp,
@@ -1238,9 +1096,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     );
   }
 
-  // image loader with placeholder
+  // build facility image or placeholder
   Widget _buildFacilityImage(String imagePath) {
-    if (imagePath.isEmpty) {
+    if (imagePath.isEmpty == true) {
       return Container(
         width: 110.w,
         height: 110.w,
@@ -1257,5 +1115,4 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       );
     }
   }
-
 }

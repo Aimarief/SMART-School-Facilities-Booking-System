@@ -15,7 +15,7 @@ import 'package:image/image.dart' as img;             // to resize/compress
 import 'android_bottom_menu.dart';
 
 // pages for bottom bar navigation
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
@@ -68,7 +68,7 @@ class _AndroidAccountState extends State<AndroidAccount> {
     if (i == 4) {
       setState(() { _currentIndex = 4; });
     } else if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 2) {

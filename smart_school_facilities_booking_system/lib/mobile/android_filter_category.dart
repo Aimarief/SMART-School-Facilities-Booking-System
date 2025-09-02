@@ -4,11 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // bottom nav + pages
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
-import 'android_list_of_facilities.dart'; // make sure this path matches your file
+import 'android_list_of_facilities.dart';
 
 class FilterCategory extends StatefulWidget {
   const FilterCategory({super.key});
@@ -21,26 +21,31 @@ class _FilterCategoryState extends State<FilterCategory> {
   // keep Facilities tab highlighted
   int _currentIndex = 2;
 
+  // search controller
   final TextEditingController _searchCtrl = TextEditingController();
+
+  // firestore collection reference
   final CollectionReference<Map<String, dynamic>> _catCol =
   FirebaseFirestore.instance.collection('FacilitiesCategory');
 
+  // attach search listener to rebuild on change
   @override
   void initState() {
     super.initState();
     _searchCtrl.addListener(() => setState(() {}));
   }
 
+  // dispose controller to avoid leaks
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  /// Bottom bar navigation: simple if/else routing.
+  // bottom bar navigation: simple if/else routing
   void _onTabSelected(int i) {
     if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 2) {
@@ -52,12 +57,14 @@ class _FilterCategoryState extends State<FilterCategory> {
     }
   }
 
+  // build main scaffold
   @override
   Widget build(BuildContext context) {
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
     final double sw = MediaQuery.of(context).size.width;
 
     return Scaffold(
+      // app bar with title
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -69,20 +76,20 @@ class _FilterCategoryState extends State<FilterCategory> {
             "Filter Category",
             style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600),
           ),
-
         ),
       ),
 
+      // page body
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           children: [
-            // Search bar
+            // search bar
             _buildSearchField(),
 
             SizedBox(height: 16.h),
 
-            // "Choose a category" header (like your mock)
+            // header
             Text(
               "Choose a category",
               style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
@@ -90,7 +97,7 @@ class _FilterCategoryState extends State<FilterCategory> {
 
             SizedBox(height: 12.h),
 
-            // Category list
+            // category list
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _catCol.snapshots(),
@@ -102,59 +109,74 @@ class _FilterCategoryState extends State<FilterCategory> {
                     return const Center(child: Text('Failed to load categories'));
                   }
 
-                  final q = _searchCtrl.text.trim().toLowerCase();
-                  final docs = (snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
+                  // normalize query
+                  final String q = _searchCtrl.text.trim().toLowerCase();
 
-                  // Build list, skip deleted==true, search by name
-                  final List<String> names = [];
+                  // take docs (or empty)
+                  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
+                      snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+                  // filter visible names (skip deleted, match search)
+                  final List<String> names = <String>[];
                   for (final d in docs) {
-                    final data = d.data();
-                    final isDeleted = (data['deleted'] is bool) ? (data['deleted'] as bool) : false;
-                    if (isDeleted) continue;
+                    final Map<String, dynamic> data = d.data();
+                    final bool isDeleted = (data['deleted'] is bool) ? (data['deleted'] as bool) : false;
+                    if (isDeleted == true) {
+                      continue;
+                    }
 
                     if (data['name'] is String) {
-                      final name = (data['name'] as String).trim();
-                      if (name.isEmpty) continue;
-                      if (q.isNotEmpty && !name.toLowerCase().contains(q)) continue;
+                      final String name = (data['name'] as String).trim();
+                      if (name.isEmpty == true) {
+                        continue;
+                      }
+                      if (q.isNotEmpty == true && name.toLowerCase().contains(q) == false) {
+                        continue;
+                      }
                       names.add(name);
                     }
                   }
 
+                  // sort by name
                   names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-                  // Add a "None" option to clear filter
-                  final List<Widget> tiles = [
+                  // leading "None" to clear filter
+                  final List<Widget> tiles = <Widget>[
                     _categoryTile(
                       sw: sw,
                       title: 'None',
-                      onTap: () => Navigator.pop(context, null), // clear filter
+                      onTap: () => Navigator.pop(context, null),
                     ),
                     SizedBox(height: 10.h),
                   ];
 
+                  // add items
                   tiles.addAll(
-                    names.map((n) => Padding(
-                      padding: EdgeInsets.only(bottom: 10.h),
-                      child: _categoryTile(
-                        sw: sw,
-                        title: n,
-                        onTap: () => Navigator.pop(context, n), // return picked name
+                    names.map(
+                          (n) => Padding(
+                        padding: EdgeInsets.only(bottom: 10.h),
+                        child: _categoryTile(
+                          sw: sw,
+                          title: n,
+                          onTap: () => Navigator.pop(context, n),
+                        ),
                       ),
-                    )),
+                    ),
                   );
 
-                  if (names.isEmpty) {
+                  // show "no match" when empty
+                  if (names.isEmpty == true) {
                     return ListView(
-                      children: tiles +
-                          [
-                            SizedBox(height: 12.h),
-                            Center(
-                              child: Text(
-                                'No categories match your search',
-                                style: TextStyle(fontSize: 14.sp, color: Colors.black54),
-                              ),
-                            ),
-                          ],
+                      children: <Widget>[
+                        ...tiles,
+                        SizedBox(height: 12.h),
+                        Center(
+                          child: Text(
+                            'No categories match your search',
+                            style: TextStyle(fontSize: 14.sp, color: Colors.black54),
+                          ),
+                        ),
+                      ],
                     );
                   }
 
@@ -166,23 +188,22 @@ class _FilterCategoryState extends State<FilterCategory> {
         ),
       ),
 
+      // bottom navigation bar
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
-        currentIndex: _currentIndex, // keep Facilities tab highlighted
+        currentIndex: _currentIndex,
         onTabSelected: _onTabSelected,
       ),
     );
   }
 
-  // ---- UI helpers ----
-
-// search bar with stable layout (no jumping when the X appears)
+  // build the search field with stable width for clear button
   Widget _buildSearchField() {
     return Container(
-      height: 44.h, // fixed height for consistency
+      height: 44.h,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22.r), // pill style like your mock
+        borderRadius: BorderRadius.circular(22.r),
         border: Border.all(color: Colors.grey.shade300),
         boxShadow: [
           BoxShadow(
@@ -195,39 +216,40 @@ class _FilterCategoryState extends State<FilterCategory> {
       padding: EdgeInsets.symmetric(horizontal: 12.w),
       child: Row(
         children: [
-          // left search icon
+          // search icon
           const Icon(Icons.search, color: Colors.grey),
 
           SizedBox(width: 8.w),
 
-          // text input fills the remaining space
+          // input
           Expanded(
             child: TextField(
               controller: _searchCtrl,
               textInputAction: TextInputAction.search,
-              // keep text vertically centered and remove extra padding
               textAlignVertical: TextAlignVertical.center,
               decoration: const InputDecoration(
                 hintText: 'Search category',
                 border: InputBorder.none,
-                isCollapsed: true, // no default top/bottom padding
+                isCollapsed: true,
                 contentPadding: EdgeInsets.zero,
               ),
             ),
           ),
 
-          // right: reserve space for the clear (X) button so nothing shifts
+          // reserved area for clear button (no layout jump)
           SizedBox(
-            width: 36.w, // fixed width slot (always reserved)
+            width: 36.w,
             child: Align(
               alignment: Alignment.centerRight,
               child: Visibility(
-                visible: _searchCtrl.text.isNotEmpty, // only show when there is text
-                maintainSize: true,                   // but keep the space even when hidden
+                visible: _searchCtrl.text.isNotEmpty,
+                maintainSize: true,
                 maintainAnimation: true,
                 maintainState: true,
                 child: InkWell(
-                  onTap: () { _searchCtrl.clear(); }, // clear and rebuild (listener in initState)
+                  onTap: () {
+                    _searchCtrl.clear();
+                  },
                   child: Icon(Icons.clear, size: 20.sp, color: Colors.grey.shade700),
                 ),
               ),
@@ -238,7 +260,7 @@ class _FilterCategoryState extends State<FilterCategory> {
     );
   }
 
-
+  // build a single category tile row
   Widget _categoryTile({
     required double sw,
     required String title,
@@ -251,7 +273,7 @@ class _FilterCategoryState extends State<FilterCategory> {
         borderRadius: BorderRadius.circular(10.r),
         onTap: onTap,
         child: Container(
-          width: sw, // scales to screen width
+          width: sw,
           height: 52.h,
           padding: EdgeInsets.symmetric(horizontal: 16.w),
           alignment: Alignment.centerLeft,

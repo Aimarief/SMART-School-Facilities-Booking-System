@@ -1290,6 +1290,27 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         return;
       }
 
+      // ADD THIS: block if any booking in range is not "rejected"
+      if (widget.selectedFacilityId != null) {
+        final bool blocked = await _hasBlockingBookingsForDisable(
+          facilityId: widget.selectedFacilityId!,
+          startDay: startDay,
+          endDay: endDay,
+        );
+        if (blocked) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'There is booking in the disabled date range (only "rejected" is allowed).',
+                style: TextStyle(fontSize: 13.sp),
+              ),
+            ),
+          );
+          return; // stop saving
+        }
+      }
+
+
       final Timestamp? dbFromTs =
       (widget.selectedFacilityData?['inactiveFrom'] is Timestamp)
           ? widget.selectedFacilityData!['inactiveFrom'] as Timestamp
@@ -1352,6 +1373,118 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
           .showSnackBar(SnackBar(content: Text('Failed to update: $e')));
     }
   }
+
+  /// read bookingDate from a booking map in simple way
+  /// supports Firestore Timestamp or "YYYY-MM-DD" string
+  /// return DateTime? (null if cannot read)
+  DateTime? _readBookingDate(Map<String, dynamic> m) {
+    if (m.containsKey('bookingDate')) {
+      final dynamic v = m['bookingDate'];
+
+      // if Firestore Timestamp
+      if (v is Timestamp) {
+        return v.toDate();
+      }
+
+      // if "YYYY-MM-DD" string
+      if (v is String) {
+        final String s = v.trim();
+        if (s.isNotEmpty) {
+          try {
+            final List<String> p = s.split('-');
+            if (p.length == 3) {
+              final int y = int.parse(p[0]);
+              final int mo = int.parse(p[1]);
+              final int d = int.parse(p[2]);
+              return DateTime(y, mo, d);
+            }
+          } catch (_) {
+            // ignore parsing error
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// read an approval/status string in a very forgiving way
+  /// we only allow "rejected" to pass; everything else blocks
+  String _readApprovalLower(Map<String, dynamic> m) {
+    String a = '';
+    if (m.containsKey('approval') && m['approval'] != null) {
+      a = m['approval'].toString();
+    } else {
+      if (m.containsKey('status') && m['status'] != null) {
+        a = m['status'].toString();
+      } else {
+        a = '';
+      }
+    }
+    return a.toLowerCase().trim();
+  }
+
+  /// check bookings for this facility within a date range (inclusive)
+  /// return true if there is ANY booking that is NOT "rejected"
+  /// return false if none found (safe to disable)
+  Future<bool> _hasBlockingBookingsForDisable({
+    required String facilityId,
+    required DateTime startDay,
+    required DateTime endDay,
+  }) async {
+    try {
+      // get all bookings for this facility (simple, then filter by date)
+      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .where('facilityId', isEqualTo: facilityId)
+          .get();
+
+      for (final doc in qs.docs) {
+        final Map<String, dynamic> m = doc.data();
+
+        // skip deleted if you use soft delete
+        if (m.containsKey('deleted')) {
+          if (m['deleted'] is bool) {
+            if (m['deleted'] == true) {
+              continue;
+            }
+          }
+        }
+
+        // read date
+        final DateTime? bd = _readBookingDate(m);
+        if (bd == null) {
+          // no date -> skip
+          continue;
+        }
+
+        // compare by day only
+        final DateTime only = DateTime(bd.year, bd.month, bd.day);
+
+        // outside the disable range -> skip
+        if (only.isBefore(startDay)) {
+          continue;
+        } else {
+          if (only.isAfter(endDay)) {
+            continue;
+          } else {
+            // inside the disable range -> check approval
+            final String approval = _readApprovalLower(m);
+            final bool isRejected = approval == 'rejected';
+            if (!isRejected) {
+              // this blocks the disable
+              return true;
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // on read error we choose to be safe and block
+      return true;
+    }
+    // no blocking bookings found
+    return false;
+  }
+
 
   Future<void> _softDelete() async {
     if (widget.selectedFacilityId == null) return;

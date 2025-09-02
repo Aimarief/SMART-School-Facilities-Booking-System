@@ -1,34 +1,36 @@
-import 'dart:convert';                         // base64Encode / base64Decode
-import 'dart:typed_data';                      // Uint8List
+import 'dart:convert';                         // base64Encode / base64Decode helpers
+import 'dart:typed_data';                      // Uint8List for raw bytes
+import 'package:flutter/material.dart';        // core Flutter UI
+import 'package:flutter/services.dart';        // input formatters (length limit, digits)
+import 'package:flutter_screenutil/flutter_screenutil.dart'; // responsive sizing
+import 'package:firebase_auth/firebase_auth.dart';            // Firebase Auth
+import 'package:cloud_firestore/cloud_firestore.dart';        // Firestore client
 
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';        // LengthLimitingTextInputFormatter
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart'; // file picker for picking image bytes
+import 'package:image/image.dart' as img;      // image decode/resize/encode
 
-import 'package:file_picker/file_picker.dart'; // pick image file (Android/Web)
-import 'package:image/image.dart' as img;      // resize + compress
-
-// pages used by the bottom bar navigation
-import 'android_calendar.dart';
+// bottom bar destination pages
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 
-// your reusable bottom bar
+// shared bottom menu bar
 import 'android_bottom_menu.dart';
 
+// ---------------------------
+// Stateful page: Report Issue
+// ---------------------------
 class AndroidReportIssue extends StatefulWidget {
-  // keep highlight of the tab we came from; default Account (4)
+  // keep highlighted tab index in bottom bar (defaults to Account)
   final int currentIndex;
-
-  // you can pass username/email if you already have them;
-  // otherwise we will read from Firestore below
+  // optional prefilled username (used before Firestore/Auth)
   final String? username;
+  // optional prefilled email (used before Firestore/Auth)
   final String? email;
 
+  // ctor stores incoming params only
   const AndroidReportIssue({
     Key? key,
     this.currentIndex = 4,
@@ -40,52 +42,57 @@ class AndroidReportIssue extends StatefulWidget {
   State<AndroidReportIssue> createState() => _AndroidReportIssueState();
 }
 
+// ---------------------------
+// State: controllers + flows
+// ---------------------------
 class _AndroidReportIssueState extends State<AndroidReportIssue> {
-  // text controllers so we can read/edit values and update counters
+  // title input controller
   final TextEditingController _titleCtrl = TextEditingController();
+  // description input controller
   final TextEditingController _descCtrl  = TextEditingController();
 
-  // live counters for small grey "x/99" and "y/499"
+  // live title char count for small counter
   int _titleLen = 0;
+  // live description char count for small counter
   int _descLen  = 0;
 
-  // inline error messages (shown under inputs)
+  // title inline error string
   String? _titleError;
+  // description inline error string
   String? _descError;
 
-  // we cache user header once so typing won't refetch Firestore
+  // cache username/email future for single fetch
   late Future<Map<String, String>> _headerFuture;
 
-  // prevent double taps on submit
+  // prevent double submits during Firestore write
   bool _submitting = false;
 
-  // ---------- image (optional) state ----------
-  // image chosen by user but NOT saved yet (preview only)
+  // preview image bytes (not yet saved)
   Uint8List? _pendingImageBytes;
+  // preview image base64 (not yet saved)
   String? _pendingBase64;
 
-  // limits (keep Firestore doc < 1MB; we use safe margin 900k chars)
-  static const int _maxBase64Len = 900000;     // ~0.86MB of text
-  static const int _targetMaxWidth = 600;      // resize large images down to 600px width
+  // base64 length limit to keep doc < 1MB (safe margin)
+  static const int _maxBase64Len = 900000;
+  // target max width for resizing large images
+  static const int _targetMaxWidth = 600;
 
-  /// Init: build the header future once.
+  // init: compute header future once
   @override
   void initState() {
     super.initState();
-    _headerFuture = _loadUserHeader(); // fetch once; reused by FutureBuilder
+    _headerFuture = _loadUserHeader();
   }
 
-  /// Back button: pop if possible, else go to Account.
+  // back button: replace with Account page
   void _handleBack() {
-    // Always go to Account page (replace current page so it won't stack)
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => AndroidAccount()),
     );
   }
 
-
-  /// Close button: always go to Account and clear the stack.
+  // close button: go to Account and clear stack
   void _handleCloseToAccount() {
     Navigator.pushAndRemoveUntil(
       context,
@@ -94,12 +101,12 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     );
   }
 
-  /// Bottom bar navigation using simple if/else.
+  // bottom bar tab navigation with simple routing
   void _onTabSelected(int i) {
     if (i == widget.currentIndex) {
-      // same tab, do nothing
+      // same tab, nothing to do
     } else if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 2) {
@@ -111,7 +118,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     }
   }
 
-  /// Dispose controllers to avoid leaks.
+  // dispose input controllers to avoid memory leaks
   @override
   void dispose() {
     _titleCtrl.dispose();
@@ -119,25 +126,26 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     super.dispose();
   }
 
-  /// Read the user's username/email once (prefer passed-in props, else Firestore/Auth).
+  // load username/email once (props → Firestore → Auth fallback)
   Future<Map<String, String>> _loadUserHeader() async {
-    // defaults
     String name = "";
     String mail = "";
 
-    // prefer props passed in
+    // prefer passed-in username
     if (widget.username != null) {
       if (widget.username!.isNotEmpty) {
         name = widget.username!.trim();
       }
     }
+
+    // prefer passed-in email
     if (widget.email != null) {
       if (widget.email!.isNotEmpty) {
         mail = widget.email!.trim();
       }
     }
 
-    // fill from Firestore if still empty
+    // if still empty, get from Firestore/Auth
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final doc = await FirebaseFirestore.instance
@@ -168,7 +176,6 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
           }
         }
       } else {
-        // no doc — try auth email
         if (mail.isEmpty) {
           if (user.email != null) {
             if (user.email!.isNotEmpty) mail = user.email!.trim();
@@ -183,30 +190,25 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     return {"username": name, "email": mail};
   }
 
-  /// Pick image -> resize -> compress -> verify Base64 length -> PREVIEW ONLY.
+  // pick image file → decode/resize/compress → keep preview only
   Future<void> _pickResizePreviewImage() async {
     try {
-      // pick one file (Android + Web)
       final FilePickerResult? res = await FilePicker.platform.pickFiles(
-        type: FileType.custom,                 // allow specific extensions only
+        type: FileType.custom,                 // restrict to images
         allowedExtensions: ['jpg', 'jpeg', 'png'],
-        allowMultiple: false,
-        withData: true,                        // IMPORTANT: we want bytes directly
+        allowMultiple: false,                  // single image
+        withData: true,                        // need raw bytes
       );
 
-      // user canceled / nothing chosen
-      if (res == null) {
-        return;
-      }
-      if (res.files.isEmpty) {
-        return;
-      }
+      // no selection or canceled
+      if (res == null) return;
+      if (res.files.isEmpty) return;
 
-      // get raw bytes from the chosen file
+      // get file bytes directly
       final PlatformFile file = res.files.single;
-      Uint8List? raw = file.bytes;             // bytes are provided when withData: true
+      Uint8List? raw = file.bytes;
 
-      // if bytes are missing, we stop (keep code simple and cross-platform)
+      // guard: bytes missing
       if (raw == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("This image cannot be read. Please pick a different one.", style: TextStyle(fontSize: 12.sp))),
@@ -214,7 +216,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         return;
       }
 
-      // decode image (supports png/jpg)
+      // decode image bytes (png/jpg supported)
       final img.Image? decoded = img.decodeImage(raw);
       if (decoded == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -223,7 +225,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         return;
       }
 
-      // resize if wider than target (keep aspect ratio)
+      // resize only if width exceeds target
       img.Image toEncode;
       if (decoded.width > _targetMaxWidth) {
         toEncode = img.copyResize(
@@ -235,7 +237,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         toEncode = decoded;
       }
 
-      // compress as JPG and make sure Base64 length stays under limit (~<1MB doc)
+      // iterative compression to respect base64 length limit
       int quality = 80;
       Uint8List? finalBytes;
       String? finalB64;
@@ -245,35 +247,35 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         finalB64 = base64Encode(finalBytes);
 
         if (finalB64.length <= _maxBase64Len) {
-          // size OK
-          break;
+          break; // size fits
         } else {
-          // try lower quality
-          quality = quality - 10;
+          quality = quality - 10; // reduce quality step
           if (quality < 40) {
-            await _showTooLargeDialog();       // still too big even at low quality
+            await _showTooLargeDialog(); // still too big
             return;
           }
         }
       }
 
-      // preview only (do not save to Firestore yet)
+      // save preview (not persisted yet)
       setState(() {
         _pendingImageBytes = finalBytes;
         _pendingBase64 = finalB64;
       });
 
+      // notify image ready
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Image ready. It will be saved when you submit.", style: TextStyle(fontSize: 12.sp))),
       );
-    } catch (e) {
+    } catch (_) {
+      // show generic failure
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Picking/compressing failed", style: TextStyle(fontSize: 12.sp))),
       );
     }
   }
 
-  /// Clear the selected pending image (only the local preview, not DB).
+  // remove local image preview (keeps DB untouched)
   void _clearPendingImage() {
     setState(() {
       _pendingImageBytes = null;
@@ -281,7 +283,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     });
   }
 
-  /// Dialog shown when the image is too large even after compression attempts.
+  // tell user to choose a smaller image when compression not enough
   Future<void> _showTooLargeDialog() async {
     await showDialog<void>(
       context: context,
@@ -295,9 +297,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () { Navigator.pop(context); },
               child: Text("OK", style: TextStyle(fontSize: 14.sp)),
             ),
           ],
@@ -307,7 +307,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     );
   }
 
-  /// Build child for Submit button (spinner vs text) without using a ternary.
+  // render submit button child (spinner vs text) without ternary
   Widget _submitChild() {
     if (_submitting == true) {
       return SizedBox(
@@ -320,14 +320,14 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     }
   }
 
-  /// Confirm submit dialog, then add issue to Firestore (optionally with imageBase64).
+  // validate → confirm → write Firestore → reset form
   Future<void> _trySubmit() async {
     if (_submitting == true) return;
 
     final String t = _titleCtrl.text.trim();
     final String d = _descCtrl.text.trim();
 
-    // validate -> set inline errors (red under fields)
+    // inline validation and error label updates
     bool hasErr = false;
     if (t.isEmpty) {
       _titleError = "Title cannot be empty";
@@ -341,12 +341,10 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     } else {
       _descError = null;
     }
-    setState(() {}); // refresh to show errors
-    if (hasErr == true) {
-      return; // stop here, let the user fix inputs
-    }
+    setState(() {}); // refresh UI errors
+    if (hasErr == true) return;
 
-    // simple validations
+    // extra guard with snackbars
     if (t.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Please enter an issue title", style: TextStyle(fontSize: 12.sp))),
@@ -360,7 +358,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
       return;
     }
 
-    // confirmation dialog
+    // user confirmation dialog
     final bool? ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -388,15 +386,17 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
       },
     );
 
+    // abort if canceled
     if (ok != true) return;
 
+    // set submitting flag for button state
     setState(() { _submitting = true; });
 
     try {
-      // get username/email once from cached future
+      // read name/mail from cached header
       final Map<String, String> header = await _headerFuture;
 
-      // derive safe "name" without ?? or ternary
+      // extract safe username without ??/?: usage
       String name = "-";
       if (header.containsKey("username")) {
         final String? maybeName = header["username"];
@@ -407,7 +407,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         }
       }
 
-      // derive safe "mail" without ?? or ternary
+      // extract safe email without ??/?: usage
       String mail = "-";
       if (header.containsKey("email")) {
         final String? maybeMail = header["email"];
@@ -418,26 +418,26 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         }
       }
 
-      // build data to save
+      // build Firestore payload
       final Map<String, dynamic> payload = {
         "username": name,
         "email": mail,
         "issueTitle": t,
         "description": d,
-        "submittedAt": FieldValue.serverTimestamp(), // server time
+        "submittedAt": FieldValue.serverTimestamp(),
       };
 
-      // add Base64 only if user picked an image
+      // attach base64 only when preview exists
       if (_pendingBase64 != null) {
         if (_pendingBase64!.isNotEmpty) {
           payload["imageBase64"] = _pendingBase64;
         }
       }
 
-      // write to Firestore (SystemIssues)
+      // write to SystemIssues collection
       await FirebaseFirestore.instance.collection("SystemIssues").add(payload);
 
-      // clear fields + counters + image preview
+      // clear inputs + counters + image preview
       _titleCtrl.clear();
       _descCtrl.clear();
       setState(() {
@@ -447,368 +447,363 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         _pendingBase64 = null;
       });
 
+      // success toast
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Issue submitted", style: TextStyle(fontSize: 12.sp))),
       );
     } catch (_) {
+      // failure toast
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to submit issue", style: TextStyle(fontSize: 12.sp))),
       );
     } finally {
+      // clear submitting flag regardless
       setState(() { _submitting = false; });
     }
   }
 
-  /// Build the page UI.
+  // build full page with WillPopScope to control back
   @override
   Widget build(BuildContext context) {
     final double barHeight = 60.h;
+
+    // intercept system back to go Account (replace)
     return WillPopScope(
-        onWillPop: () async {
-          // System back → go to Account (replace current)
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => AndroidAccount()),
-          );
-          return false; // stop the default pop, we already handled it
-        },
+      onWillPop: () async {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAccount()));
+        return false; // consume default pop
+      },
 
+      // scaffold with purple app bar
       child: Scaffold(
-      // top app bar with Back and Close
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(60.h),
-        child: AppBar(
-          backgroundColor: const Color(0xFF9747FF),
-          elevation: 0,
-          centerTitle: true,
-          title: Text(
-            "Reporting Issue",
-            style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600),
-          ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: _handleBack,
-            tooltip: "Back",
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.close, color: Colors.white),
-              onPressed: _handleCloseToAccount,
-              tooltip: "Close",
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(60.h),
+          child: AppBar(
+            backgroundColor: const Color(0xFF9747FF),
+            elevation: 0,
+            centerTitle: true,
+            title: Text(
+              "Reporting Issue",
+              style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600),
             ),
-          ],
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: _handleBack,              // back to Account (replace)
+              tooltip: "Back",
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: _handleCloseToAccount,   // close to Account (clear stack)
+                tooltip: "Close",
+              ),
+            ],
+          ),
         ),
-      ),
 
-      // body: load username/email once via cached future, then show the centered form card
-      body: FutureBuilder<Map<String, String>>(
-        future: _headerFuture,
-        builder: (context, snap) {
-          // show loader while waiting
-          if (snap.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
-            );
-          }
+        // body: resolve username/email once via FutureBuilder
+        body: FutureBuilder<Map<String, String>>(
+          future: _headerFuture,
+          builder: (context, snap) {
+            // center spinner during header load
+            if (snap.connectionState == ConnectionState.waiting) {
+              return Center(
+                child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
+              );
+            }
 
-          // defaults for header display
-          String displayUsername = "-";
-          String displayEmail = "-";
+            // default header labels
+            String displayUsername = "-";
+            String displayEmail = "-";
 
-          // fill header display if available
-          if (snap.hasData) {
-            final Map<String, String> map = snap.data!;
-            if (map.containsKey("username")) {
-              final String? v = map["username"];
-              if (v != null) {
-                if (v.isNotEmpty) {
-                  displayUsername = v;
+            // fill header labels when data exists
+            if (snap.hasData) {
+              final Map<String, String> map = snap.data!;
+              if (map.containsKey("username")) {
+                final String? v = map["username"];
+                if (v != null) {
+                  if (v.isNotEmpty) {
+                    displayUsername = v;
+                  }
+                }
+              }
+              if (map.containsKey("email")) {
+                final String? e = map["email"];
+                if (e != null) {
+                  if (e.isNotEmpty) {
+                    displayEmail = e;
+                  }
                 }
               }
             }
-            if (map.containsKey("email")) {
-              final String? e = map["email"];
-              if (e != null) {
-                if (e.isNotEmpty) {
-                  displayEmail = e;
-                }
-              }
-            }
-          }
 
-          // center the whole card on screen; if content overflows, it can scroll
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12.h),
-                      child: Column(
-                        children: [
-                          // ---- Form card ----
-                          Container(
-                            width: 0.9.sw, // 90% of screen width
-                            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              border: Border.all(color: Colors.black, width: 1.5.w),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // USERNAME (read-only label/value)
-                                Text("Username:", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
-                                SizedBox(height: 4.h),
-                                Text(displayUsername, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                                SizedBox(height: 10.h),
+            // layout builder ensures min height to center the card
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12.h),
+                        child: Column(
+                          children: [
+                            // form card container
+                            Container(
+                              width: 0.9.sw,
+                              padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: Colors.black, width: 1.5.w),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // static username line
+                                  Text("Username:", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                                  SizedBox(height: 4.h),
+                                  Text(displayUsername, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
+                                  SizedBox(height: 10.h),
 
-                                // EMAIL (read-only label/value)
-                                Text("Email:", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
-                                SizedBox(height: 4.h),
-                                Text(displayEmail, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
-                                SizedBox(height: 14.h),
+                                  // static email line
+                                  Text("Email:", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                                  SizedBox(height: 4.h),
+                                  Text(displayEmail, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
+                                  SizedBox(height: 14.h),
 
-                                Text("Issue Title", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
-                                SizedBox(height: 6.h),
-                                FractionallySizedBox(
-                                  widthFactor: 0.95, // same as before; set to 1.0 if you want full width
-                                  child: Container(
-                                    height: 48.h,                            // fixed height for stable layout
-                                    padding: EdgeInsets.symmetric(horizontal: 10.w),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      border: Border.all(color: Colors.black, width: 1.w), // simple border
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        // text field fills the space
-                                        Expanded(
-                                          child: TextField(
-                                            controller: _titleCtrl,
-                                            maxLines: 1,                                 // single line only
-                                            textAlignVertical: TextAlignVertical.center, // center the typing line
-                                            inputFormatters: [LengthLimitingTextInputFormatter(99)],
-                                            decoration: const InputDecoration(
-                                              hintText: 'Enter issue title',  // add a friendly hint
-                                              border: InputBorder.none,       // we already draw the border outside
-                                              isCollapsed: true,              // remove default extra padding
-                                              contentPadding: EdgeInsets.zero,
-                                            ),
-                                            onChanged: (v) {
-                                              // update live counter and clear inline error while typing
-                                              setState(() {
-                                                _titleLen = v.length;
-                                                if (v.trim().isNotEmpty) {
-                                                  _titleError = null;
-                                                }
-                                              });
-                                            },
-                                          ),
-                                        ),
+                                  // title label
+                                  Text("Issue Title", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                                  SizedBox(height: 6.h),
 
-                                        // fixed slot for the clear (X) button — keeps layout steady
-                                        SizedBox(
-                                          width: 36.w,
-                                          child: Align(
-                                            alignment: Alignment.centerRight,
-                                            child: Visibility(
-                                              visible: _titleCtrl.text.isNotEmpty, // show only when has text
-                                              maintainSize: true,                   // but keep the space
-                                              maintainAnimation: true,
-                                              maintainState: true,
-                                              child: InkWell(
-                                                onTap: () {                         // clear text on tap
-                                                  _titleCtrl.clear();
-                                                },
-                                                child: Icon(Icons.clear, size: 20.sp, color: Colors.grey.shade700),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-
-// red error line (unchanged; keep outside so height never jumps)
-                                if (_titleError != null)
-                                  Padding(
-                                    padding: EdgeInsets.only(top: 4.h, left: 4.w),
-                                    child: Text(_titleError!, style: TextStyle(fontSize: 12.sp, color: Colors.red)),
-                                  ),
-
-                                SizedBox(height: 4.h),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text("${_titleLen}/99", style: TextStyle(fontSize: 11.sp, color: Colors.grey)),
-                                ),
-
-                                SizedBox(height: 14.h),
-
-                                // DESCRIPTION (multi-line, starts at top-left)
-                                Text("Description", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
-                                SizedBox(height: 6.h),
-                                FractionallySizedBox(
-                                  widthFactor: 0.95,
-                                  child: SizedBox(
-                                    height: 300.h,
-                                    child: TextField(
-                                      controller: _descCtrl,
-                                      keyboardType: TextInputType.multiline,
-                                      textInputAction: TextInputAction.newline,
-                                      maxLines: null,
-                                      expands: true,
-                                      textAlignVertical: TextAlignVertical.top,
-                                      inputFormatters: [LengthLimitingTextInputFormatter(499)],
-                                      onChanged: (v) {
-                                        setState(() {
-                                          _descLen = v.length;
-                                          if (v.trim().isNotEmpty) {
-                                            _descError = null; // clear inline error while typing
-                                          }
-                                        });
-                                      },
-                                      decoration: InputDecoration(
-                                        isDense: true,
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
-                                        border: OutlineInputBorder(
-                                          borderSide: BorderSide(color: Colors.black, width: 1.w),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                if (_descError != null)
-                                  Padding(
-                                    padding: EdgeInsets.only(top: 4.h, left: 4.w),
-                                    child: Text(
-                                      _descError!,
-                                      style: TextStyle(fontSize: 12.sp, color: Colors.red),
-                                    ),
-                                  ),
-
-                                SizedBox(height: 4.h),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text("${_descLen}/499", style: TextStyle(fontSize: 11.sp, color: Colors.grey)),
-                                ),
-
-
-                                SizedBox(height: 14.h),
-
-                                // ---------- IMAGE UPLOAD AREA ----------
-                                Row(
-                                  children: [
-                                    // keep the image icon visible but DISABLED (no pick function here)
-                                    IconButton(
-                                      onPressed: null, // disabled as requested
-                                      icon: const Icon(Icons.image),
-                                      tooltip: "Add Image (tap the box below)",
-                                    ),
-                                    Text("Add Image", style: TextStyle(fontSize: 13.sp)),
-                                    const Spacer(),
-                                    if (_pendingImageBytes != null)
-                                      TextButton(
-                                        onPressed: _clearPendingImage,
-                                        child: Text("Remove", style: TextStyle(fontSize: 12.sp)),
-                                      ),
-                                  ],
-                                ),
-                                SizedBox(height: 8.h),
-
-                                // preview box: 50% width, 170 height, with border
-                                // this BOX is the button to pick / re-pick image
-                                Center(
-                                  child: GestureDetector(
-                                    onTap: _pickResizePreviewImage, // tap to choose or change image
+                                  // title input with clear button slot
+                                  FractionallySizedBox(
+                                    widthFactor: 0.95,
                                     child: Container(
-                                      width: 0.5.sw,        // 50% width
-                                      height: 170.h,        // fixed height
+                                      height: 48.h,
+                                      padding: EdgeInsets.symmetric(horizontal: 10.w),
                                       decoration: BoxDecoration(
-                                        color: Colors.grey[200],
+                                        color: Colors.white,
                                         border: Border.all(color: Colors.black, width: 1.w),
                                       ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: Builder(
-                                        builder: (_) {
-                                          if (_pendingImageBytes != null) {
-                                            return Image.memory(
-                                              _pendingImageBytes!,
-                                              fit: BoxFit.cover,
-                                            );
-                                          } else {
-                                            return Center(
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  const Icon(Icons.touch_app, size: 28),
-                                                  SizedBox(height: 6.h),
-                                                  Text(
-                                                    "Pick image",
-                                                    style: TextStyle(fontSize: 12.sp, color: Colors.black54),
-                                                  ),
-                                                ],
+                                      child: Row(
+                                        children: [
+                                          // expand text field horizontally
+                                          Expanded(
+                                            child: TextField(
+                                              controller: _titleCtrl,
+                                              maxLines: 1,
+                                              textAlignVertical: TextAlignVertical.center,
+                                              inputFormatters: [LengthLimitingTextInputFormatter(99)],
+                                              decoration: const InputDecoration(
+                                                hintText: 'Enter issue title',
+                                                border: InputBorder.none,
+                                                isCollapsed: true,
+                                                contentPadding: EdgeInsets.zero,
                                               ),
-                                            );
-                                          }
-                                        },
+                                              onChanged: (v) {
+                                                setState(() {
+                                                  _titleLen = v.length;
+                                                  if (v.trim().isNotEmpty) {
+                                                    _titleError = null; // clear error when user types valid
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ),
+
+                                          // fixed clear-slot to avoid layout shift
+                                          SizedBox(
+                                            width: 36.w,
+                                            child: Align(
+                                              alignment: Alignment.centerRight,
+                                              child: Visibility(
+                                                visible: _titleCtrl.text.isNotEmpty,
+                                                maintainSize: true,
+                                                maintainAnimation: true,
+                                                maintainState: true,
+                                                child: InkWell(
+                                                  onTap: () { _titleCtrl.clear(); },
+                                                  child: Icon(Icons.clear, size: 20.sp, color: Colors.grey.shade700),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
 
-                          // ---- Submit button below the card ----
-                          SizedBox(height: 14.h),
-                          SizedBox(
-                            width: 0.9.sw,
-                            height: 48.h,
-                            child: Builder(
-                              builder: (ctx) {
-                                // Pre-compute onPressed handler without using a ternary.
-                                VoidCallback? submitHandler;
-                                if (_submitting == true) {
-                                  submitHandler = null;
-                                } else {
-                                  submitHandler = _trySubmit;
-                                }
+                                  // title inline error text when present
+                                  if (_titleError != null)
+                                    Padding(
+                                      padding: EdgeInsets.only(top: 4.h, left: 4.w),
+                                      child: Text(_titleError!, style: TextStyle(fontSize: 12.sp, color: Colors.red)),
+                                    ),
 
-                                return ElevatedButton(
-                                  onPressed: submitHandler,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Color(0xFF8620E5),
-                                    foregroundColor: Colors.white,
-                                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                                  // title char counter right aligned
+                                  SizedBox(height: 4.h),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text("${_titleLen}/99", style: TextStyle(fontSize: 11.sp, color: Colors.grey)),
                                   ),
-                                  child: _submitChild(), // spinner or "Submit"
-                                );
-                              },
+
+                                  SizedBox(height: 14.h),
+
+                                  // description label
+                                  Text("Description", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                                  SizedBox(height: 6.h),
+
+                                  // description multiline expanding field
+                                  FractionallySizedBox(
+                                    widthFactor: 0.95,
+                                    child: SizedBox(
+                                      height: 300.h,
+                                      child: TextField(
+                                        controller: _descCtrl,
+                                        keyboardType: TextInputType.multiline,
+                                        textInputAction: TextInputAction.newline,
+                                        maxLines: null,
+                                        expands: true,
+                                        textAlignVertical: TextAlignVertical.top,
+                                        inputFormatters: [LengthLimitingTextInputFormatter(499)],
+                                        onChanged: (v) {
+                                          setState(() {
+                                            _descLen = v.length;
+                                            if (v.trim().isNotEmpty) {
+                                              _descError = null; // clear error when user types valid
+                                            }
+                                          });
+                                        },
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
+                                          border: OutlineInputBorder(
+                                            borderSide: BorderSide(color: Colors.black, width: 1.w),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // description inline error when present
+                                  if (_descError != null)
+                                    Padding(
+                                      padding: EdgeInsets.only(top: 4.h, left: 4.w),
+                                      child: Text(_descError!, style: TextStyle(fontSize: 12.sp, color: Colors.red)),
+                                    ),
+
+                                  // description char counter right aligned
+                                  SizedBox(height: 4.h),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text("${_descLen}/499", style: TextStyle(fontSize: 11.sp, color: Colors.grey)),
+                                  ),
+
+                                  SizedBox(height: 14.h),
+
+                                  // image section header row with disabled icon and optional remove
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        onPressed: null, // intentionally disabled (use the box below to pick)
+                                        icon: const Icon(Icons.image),
+                                        tooltip: "Add Image (tap the box below)",
+                                      ),
+                                      Text("Add Image", style: TextStyle(fontSize: 13.sp)),
+                                      const Spacer(),
+                                      if (_pendingImageBytes != null)
+                                        TextButton(
+                                          onPressed: _clearPendingImage,
+                                          child: Text("Remove", style: TextStyle(fontSize: 12.sp)),
+                                        ),
+                                    ],
+                                  ),
+                                  SizedBox(height: 8.h),
+
+                                  // image preview box (tap to pick)
+                                  Center(
+                                    child: GestureDetector(
+                                      onTap: _pickResizePreviewImage, // picker entry point
+                                      child: Container(
+                                        width: 0.5.sw,
+                                        height: 170.h,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[200],
+                                          border: Border.all(color: Colors.black, width: 1.w),
+                                        ),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: Builder(
+                                          builder: (_) {
+                                            if (_pendingImageBytes != null) {
+                                              return Image.memory(_pendingImageBytes!, fit: BoxFit.cover);
+                                            } else {
+                                              return Center(
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    const Icon(Icons.touch_app, size: 28),
+                                                    SizedBox(height: 6.h),
+                                                    Text("Pick image", style: TextStyle(fontSize: 12.sp, color: Colors.black54)),
+                                                  ],
+                                                ),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+
+                            // submit button under the form card
+                            SizedBox(height: 14.h),
+                            SizedBox(
+                              width: 0.9.sw,
+                              height: 48.h,
+                              child: Builder(
+                                builder: (_) {
+                                  // choose enabled/disabled handler without ternary
+                                  VoidCallback? submitHandler;
+                                  if (_submitting == true) {
+                                    submitHandler = null;
+                                  } else {
+                                    submitHandler = _trySubmit;
+                                  }
+
+                                  // render elevated button with spinner or label
+                                  return ElevatedButton(
+                                    onPressed: submitHandler,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF8620E5),
+                                      foregroundColor: Colors.white,
+                                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                                    ),
+                                    child: _submitChild(),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                );
+              },
+            );
+          },
+        ),
 
-      // bottom bar
-      bottomNavigationBar: BottomMenuBar(
-        height: barHeight,
-        currentIndex: widget.currentIndex,
-        onTabSelected: _onTabSelected,
-      ),
+        // bottom bar persistent navigation
+        bottomNavigationBar: BottomMenuBar(
+          height: barHeight,
+          currentIndex: widget.currentIndex,
+          onTabSelected: _onTabSelected,
+        ),
       ),
     );
   }

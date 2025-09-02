@@ -23,6 +23,7 @@ import 'web/web_facilities.dart';
 import 'web/web_list_manager.dart';
 import 'package:smart_school_facilities_booking_system/web/admin_web_homepage.dart';
 import 'web/web_booking_list.dart';
+import 'web/web_booking.dart';
 
 class UserRoleCache {
   static String? role;
@@ -145,6 +146,13 @@ class _MyAppState extends State<MyApp> {
           pageBuilder: (context, state) => MaterialPage<void>(
             key: state.pageKey,
             child:BookingList(),
+          ),
+        ),
+        GoRoute(
+          path: '/webbooking',
+          pageBuilder: (context, state) => MaterialPage<void>(
+            key: state.pageKey,
+            child:WebBooking(),
           ),
         ),
       ],

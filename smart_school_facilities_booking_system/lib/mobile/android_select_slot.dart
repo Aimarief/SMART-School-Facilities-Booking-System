@@ -1,39 +1,29 @@
-// android_select_slot.dart
-//
-// What this page does:
-// - Show the chosen booking date and facility name.
-// - For each selected start time, show a box with seat chips: Slot 1..N,
-//   where N = Facilities.availableSlots.
-// - A chip is disabled (red) ONLY if its Firestore doc has { taken: true } at:
-//   Facilities/{facilityId}/Days/{dateYMD}/Slots/{HHmm}/Seats/{seatIndex}.
-//   If the seat doc is missing OR has { taken:false }, it is selectable.
-// - User must choose exactly one seat per start time. Confirm returns a map
-//   like { "08:00": 2, "09:00": 1 } back to the previous page.
-//
-// Rules you asked for:
-// - Always use 4-digit slot keys (HHmm).
-// - No ternary (?:) and no null-coalescing (??).
-// - Use .w .h .sp for sizes.
-// - This page DOES NOT write into Days/* — only reads. Confirm just returns
-//   the selections; your ConfirmBooking/booking_service will perform writes.
+import 'package:cloud_firestore/cloud_firestore.dart'; // Firestore access
+import 'package:flutter/material.dart';               // Flutter UI widgets
+import 'package:flutter_screenutil/flutter_screenutil.dart'; // .w .h .sp responsive units
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
-
+// bottom nav + pages (kept as original navigation behavior)
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_list_of_facilities.dart';
 
+// ------------------------------
+// Page: SelectSlot (stateful)
+// ------------------------------
 class SelectSlot extends StatefulWidget {
+  // facility doc id (to read capacity + seat collections)
   final String facilityId;
+  // facility name (for header display)
   final String facilityName;
-  final String dateYMD;          // "YYYY-MM-DD" (booking date)
-  final List<String> startTimes; // e.g. ["08:00","09:00"]
+  // booking date in "YYYY-MM-DD" (for Days/doc id)
+  final String dateYMD;
+  // list of time strings "HH:mm" (each renders a section)
+  final List<String> startTimes;
 
+  // ctor only wires required arguments
   const SelectSlot({
     Key? key,
     required this.facilityId,
@@ -46,36 +36,46 @@ class SelectSlot extends StatefulWidget {
   State<SelectSlot> createState() => _SelectSlotState();
 }
 
+// ----------------------------------------
+// State: holds selections and live toggles
+// ----------------------------------------
 class _SelectSlotState extends State<SelectSlot> {
   // bottom bar index (2 = Facilities)
   int _currentIndex = 2;
 
-  // parent keeps selections: time("08:00") -> seat index (1-based)
+  // parent map of picks: time("08:00") -> seat index (1-based)
   final Map<String, int> _pick = <String, int>{};
 
-  // only the Confirm button listens to this count
+  // picked count notifier (drives Confirm button enabled state)
   final ValueNotifier<int> _pickedCount = ValueNotifier<int>(0);
 
-  // loading/capacity
+  // loading flag while reading facility capacity once
   bool _loadingFacility = true;
+  // unused saving flag preserved (kept for Confirm label text)
   bool _saving = false;
+  // facility capacity (1..N, default 1)
   int _capacity = 1;
 
+  // init: load facility capacity once
   @override
   void initState() {
     super.initState();
     _loadFacilityOnce();
   }
 
+  // dispose: release notifier
   @override
   void dispose() {
     _pickedCount.dispose();
     super.dispose();
   }
 
-  // ---------- Data helpers ----------
+  // --------------------------
+  // Data: read capacity once
+  // --------------------------
   Future<void> _loadFacilityOnce() async {
     try {
+      // read Facilities/{facilityId} to get availableSlots
       final doc = await FirebaseFirestore.instance
           .collection('Facilities')
           .doc(widget.facilityId)
@@ -85,6 +85,7 @@ class _SelectSlotState extends State<SelectSlot> {
       if (doc.exists) {
         final data = doc.data();
         if (data != null) {
+          // parse availableSlots as int, accept numeric string fallback
           final dynamic v = data['availableSlots'];
           if (v is int) {
             cap = v;
@@ -96,14 +97,20 @@ class _SelectSlotState extends State<SelectSlot> {
           }
         }
       }
+
+      // enforce minimum capacity = 1
       if (cap <= 0) {
         cap = 1;
       }
+
+      // store capacity in state field
       _capacity = cap;
     } catch (_) {
+      // fallback capacity on any error
       _capacity = 1;
     }
 
+    // mark loading as done (if still mounted)
     if (mounted) {
       setState(() {
         _loadingFacility = false;
@@ -111,13 +118,15 @@ class _SelectSlotState extends State<SelectSlot> {
     }
   }
 
-  // ---------- UI helpers ----------
+  // ----------------------------------------
+  // Bottom nav: route by tapped index (kept)
+  // ----------------------------------------
   void _onTabSelected(int i) {
     if (i == 2) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
     } else {
       if (i == 0) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
       } else {
         if (i == 1) {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
@@ -134,6 +143,7 @@ class _SelectSlotState extends State<SelectSlot> {
     }
   }
 
+  // turn "HH:mm" into "HHmm" (always 4 digits for slot doc id)
   String _slotKey4(String hhmm) {
     String s = hhmm.replaceAll(':', '');
     if (s.length < 4) {
@@ -142,17 +152,20 @@ class _SelectSlotState extends State<SelectSlot> {
     return s; // "08:00" -> "0800", "8:00" -> "0800"
   }
 
+  // format "HH:mm" into "h.mm am/pm" (12h with dot minutes)
   String _toAmPmDot(String hhmm) {
     final p = hhmm.split(':');
     int hour = 0;
     int minute = 0;
 
+    // parse hour safely
     if (p.isNotEmpty) {
       final int? h = int.tryParse(p[0]);
       if (h != null) {
         hour = h;
       }
     }
+    // parse minute safely
     if (p.length > 1) {
       final int? m = int.tryParse(p[1]);
       if (m != null) {
@@ -160,18 +173,24 @@ class _SelectSlotState extends State<SelectSlot> {
       }
     }
 
+    // decide suffix by 24h hour
     String suffix = 'am';
     if (hour >= 12) {
       suffix = 'pm';
     }
+
+    // convert 24h to 12h range
     int h12 = hour % 12;
     if (h12 == 0) {
       h12 = 12;
     }
+
+    // pad minute 2-digit and build "h.mm am/pm"
     final String mm = minute.toString().padLeft(2, '0');
     return '$h12.$mm $suffix';
   }
 
+  // format "YYYY-MM-DD" into "D Month YYYY" nice label
   String _niceDate(String ymd) {
     try {
       final parts = ymd.split('-');
@@ -185,48 +204,62 @@ class _SelectSlotState extends State<SelectSlot> {
       ];
       return '$d ${months[m - 1]} $y';
     } catch (_) {
+      // fallback to raw input on parse failure
       return ymd;
     }
   }
 
-  // child -> parent selection change
+  // selection callback from child → update parent map and count
   void _onPickChanged(String start, int? idx) {
     if (idx == null) {
+      // remove pick for this start time when deselected
       _pick.remove(start);
     } else {
+      // keep only valid range [1..capacity]
       if (idx >= 1) {
         if (idx <= _capacity) {
-          _pick[start] = idx; // enforce range safety here too
+          _pick[start] = idx;
         }
       }
     }
+    // notify picked count to refresh Confirm button
     _pickedCount.value = _pick.length;
   }
 
-  // ---------- Build ----------
+  // ---------------
+  // Build the page
+  // ---------------
   @override
   Widget build(BuildContext context) {
+    // bottom bar height ratio to screen
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
 
+    // dynamic Confirm label when "saving" (kept same semantics)
     String confirmText = 'Confirm';
     if (_saving) {
       confirmText = 'Saving...';
     }
 
+    // decide body content (spinner vs sections)
     Widget bodyChild;
     if (_loadingFacility) {
+      // show loader while facility capacity loads
       bodyChild = Center(
         child: SizedBox(width: 28.w, height: 28.w, child: const CircularProgressIndicator()),
       );
     } else {
+      // main content stack (scroll list + bottom Confirm)
       bodyChild = Stack(
         children: [
+          // scrollable list of sections with extra bottom padding
           SingleChildScrollView(
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h).copyWith(bottom: 96.h),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(height: 8.h),
+
+                // header: date, facility, and tip text
                 Center(
                   child: Column(
                     children: [
@@ -254,13 +287,16 @@ class _SelectSlotState extends State<SelectSlot> {
                     ],
                   ),
                 ),
+
                 SizedBox(height: 14.h),
+
+                // time sections for each start time (built below)
                 ..._buildTimeSections(),
               ],
             ),
           ),
 
-          // confirm button (enabled when picked == startTimes.length)
+          // bottom-aligned Confirm button that enables only when all times picked
           Positioned(
             left: 16.w,
             right: 16.w,
@@ -268,6 +304,7 @@ class _SelectSlotState extends State<SelectSlot> {
             child: ValueListenableBuilder<int>(
               valueListenable: _pickedCount,
               builder: (context, count, _) {
+                // ready when not saving and count equals total times
                 bool ready = false;
                 if (!_saving) {
                   if (count == widget.startTimes.length) {
@@ -275,15 +312,18 @@ class _SelectSlotState extends State<SelectSlot> {
                   }
                 }
 
+                // choose handler based on ready flag
                 VoidCallback? onPressed;
                 if (ready) {
                   onPressed = () {
+                    // return a shallow copy of picks back to previous page
                     Navigator.pop<Map<String, int>>(context, Map<String, int>.from(_pick));
                   };
                 } else {
                   onPressed = null;
                 }
 
+                // render full-width rounded button
                 return SizedBox(
                   height: 48.h,
                   child: ElevatedButton(
@@ -305,6 +345,7 @@ class _SelectSlotState extends State<SelectSlot> {
       );
     }
 
+    // scaffold with purple app bar + bottom nav
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
@@ -315,6 +356,7 @@ class _SelectSlotState extends State<SelectSlot> {
           automaticallyImplyLeading: false,
           leading: IconButton(
             onPressed: () {
+              // go back to previous screen (do not modify stack otherwise)
               Navigator.pop(context);
             },
             icon: Icon(Icons.arrow_back, color: Colors.white, size: 20.sp),
@@ -327,6 +369,7 @@ class _SelectSlotState extends State<SelectSlot> {
           actions: [
             IconButton(
               onPressed: () {
+                // close and jump to Facilities root, clearing back stack
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (_) => AndroidListOfFacilities()),
@@ -340,8 +383,10 @@ class _SelectSlotState extends State<SelectSlot> {
         ),
       ),
 
+      // safe area around the dynamically chosen body
       body: SafeArea(child: bodyChild),
 
+      // bottom persistent navigation bar (kept same behavior)
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -350,16 +395,21 @@ class _SelectSlotState extends State<SelectSlot> {
     );
   }
 
-  // ---------- Sections (one per start time) ----------
+  // ---------------------------------------------------------
+  // Build all sections (one section per provided start time)
+  // ---------------------------------------------------------
   List<Widget> _buildTimeSections() {
+    // collector for output widgets
     final List<Widget> out = <Widget>[];
 
+    // iterate times in original order (kept)
     int i = 0;
     while (i < widget.startTimes.length) {
       final String start = widget.startTimes[i];
-      final String slotKey = _slotKey4(start); // ALWAYS "HHmm"
-      final String label = _toAmPmDot(start);
+      final String slotKey = _slotKey4(start);  // convert "HH:mm" -> "HHmm"
+      final String label = _toAmPmDot(start);   // convert "HH:mm" -> "h.mm am/pm"
 
+      // live stream to Seats collection for this time section
       final Stream<QuerySnapshot<Map<String, dynamic>>> seatsStream =
       FirebaseFirestore.instance
           .collection('Facilities').doc(widget.facilityId)
@@ -368,6 +418,7 @@ class _SelectSlotState extends State<SelectSlot> {
           .collection('Seats')
           .snapshots();
 
+      // append a time section with props + callback to parent
       out.add(
         _TimeSection(
           startLabel: label,
@@ -380,17 +431,26 @@ class _SelectSlotState extends State<SelectSlot> {
         ),
       );
 
+      // vertical gap between sections
       out.add(SizedBox(height: 12.h));
+
+      // next time
       i = i + 1;
     }
 
+    // return layout list
     return out;
   }
 }
 
-// A single time-box that listens to Seats/* and renders 1..capacity chips.
-// A chip is red/disabled only if the doc has { taken:true }.
+// ============================================================
+// Child widget: a single time section showing 1..capacity chips
+// - Listens to Seats/* for taken:true -> disabled/red chip
+// - Holds one local chosen index; notifies parent on change
+// - Keeps state alive when scrolled (AutomaticKeepAlive)
+// ============================================================
 class _TimeSection extends StatefulWidget {
+  // label like "8.00 am" derived from time
   const _TimeSection({
     Key? key,
     required this.startLabel,
@@ -400,28 +460,40 @@ class _TimeSection extends StatefulWidget {
     required this.onPickChanged,
   }) : super(key: key);
 
+  // readable time label
   final String startLabel;
+  // number of chips to render (1..capacity)
   final int capacity;
+  // Firestore stream for Seats documents under this time slot
   final Stream<QuerySnapshot<Map<String, dynamic>>> seatsStream;
+  // initial chosen seat index (null if none yet)
   final int? initialChosenIndex;
+  // callback back to parent with new chosen index (or null)
   final ValueChanged<int?> onPickChanged;
 
   @override
   State<_TimeSection> createState() => _TimeSectionState();
 }
 
+// ------------------------------------------------------------
+// State: maintain one chosen index and reflect live taken seats
+// ------------------------------------------------------------
 class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClientMixin {
+  // currently chosen seat index (1-based) or null when not picked
   int? _chosenIndex;
 
+  // init: hydrate chosen index from parent initial value
   @override
   void initState() {
     super.initState();
     _chosenIndex = widget.initialChosenIndex;
   }
 
+  // keep alive when offscreen for smoother scroll UX
   @override
   bool get wantKeepAlive => true;
 
+  // parse seat doc id into numeric index (accepts "1", "seat1", etc.)
   int _idxFromSeatId(String id) {
     final int? a = int.tryParse(id);
     if (a != null) {
@@ -437,18 +509,21 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
     }
   }
 
+  // build a single time section with chips that reflect live "taken" seats
   @override
   Widget build(BuildContext context) {
     super.build(context);
 
+    // compute chip widths for 3 columns layout
     final double fullW = 1.0.sw - 32.w;
     final double gap = 8.w;
     final double chipW = (fullW - (gap * 2.0)) / 3.0;
 
+    // stream builder listens to Seats/* for this time
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: widget.seatsStream,
       builder: (context, snap) {
-        // Identify ONLY seats that are hard-taken (taken:true)
+        // collect numeric seat indices that are hard-taken (taken:true)
         final Set<int> takenTrue = <int>{};
 
         if (snap.hasData) {
@@ -475,7 +550,7 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
           }
         }
 
-        // If my chosen seat became taken:true, clear it and notify parent
+        // if my local chosen seat turned taken:true, clear and notify parent
         if (_chosenIndex != null) {
           if (takenTrue.contains(_chosenIndex!)) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -489,13 +564,16 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
           }
         }
 
-        // Build chips 1..capacity (IMPORTANT: capture per-iteration idx)
+        // create chips for seat indices 1..capacity
         final List<Widget> chips = <Widget>[];
         for (int i = 1; i <= widget.capacity; i++) {
-          final int idx = i; // <-- capture the value for this chip
+          // capture this iteration's index for tap handler
+          final int idx = i;
 
+          // compute isTaken from live set
           final bool isTaken = takenTrue.contains(idx);
 
+          // compute isChosen from local state
           bool isChosen = false;
           if (_chosenIndex != null) {
             if (_chosenIndex == idx) {
@@ -503,32 +581,37 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
             }
           }
 
+          // choose chip colors based on taken/chosen states
           Color fill;
           Color border;
           Color text;
 
           if (isTaken) {
-            // taken:true -> hard block (red)
+            // taken:true -> red/disabled
             fill = const Color(0xFFFFE7E9);
             border = const Color(0xFFFF6B7A);
             text = const Color(0xFFB00020);
           } else {
             if (isChosen) {
+              // my current pick -> purple strong
               fill = const Color(0xFF9747FF);
               border = const Color(0xFF4A00B8);
               text = Colors.white;
             } else {
+              // available but not chosen -> softer purple
               fill = const Color(0xFFB779F1);
               border = const Color(0xFF6E00D4);
               text = Colors.white;
             }
           }
 
+          // handle taps only when not taken
           VoidCallback? onTap;
           if (isTaken) {
             onTap = null;
           } else {
             onTap = () {
+              // set local chosen index and notify parent
               setState(() {
                 _chosenIndex = idx;
               });
@@ -536,7 +619,7 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
             };
           }
 
-          // Ensure reliable taps (Material parent for InkWell)
+          // push a single chip with Material/InkWell for ripple feedback
           chips.add(
             Material(
               color: Colors.transparent,
@@ -562,6 +645,7 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
           );
         }
 
+        // section card with title + chip grid (Wrap)
         return Container(
           width: 1.0.sw,
           padding: EdgeInsets.all(12.w),
@@ -573,8 +657,10 @@ class _TimeSectionState extends State<_TimeSection> with AutomaticKeepAliveClien
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // time label like "8.00 am"
               Text(widget.startLabel, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
               SizedBox(height: 8.h),
+              // chips grid with spacing + run wrap for multiple rows
               Wrap(spacing: gap, runSpacing: gap, children: chips),
             ],
           ),

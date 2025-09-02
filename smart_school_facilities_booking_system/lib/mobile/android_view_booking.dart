@@ -1,9 +1,3 @@
-// android_view_booking.dart
-//
-// Bookings grouped by bookingDate; reads start/end as 24h strings (e.g. "13:30","1330","13.30")
-// and shows "h.mm am/pm" like your mock. Adds slot icon + slot number (seatIndex) under
-// facility name. Uses only if/else, no ?: or ??, and .w .h .sp .sw .sh everywhere.
-
 import 'package:cloud_firestore/cloud_firestore.dart';         // Firestore
 import 'package:firebase_auth/firebase_auth.dart';             // current user
 import 'package:flutter/material.dart';                        // UI
@@ -13,61 +7,81 @@ import 'android_booking_details.dart';
 
 // Bottom bar + other pages (unchanged)
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_login.dart';
 
+// ------------------------------
+// Page: AndroidViewBooking
+// ------------------------------
 class AndroidViewBooking extends StatefulWidget {
   @override
   State<AndroidViewBooking> createState() => _AndroidViewBookingState();
 }
 
 class _AndroidViewBookingState extends State<AndroidViewBooking> {
-  // -------------------- basic UI state --------------------
-  int _currentIndex = 1;             // bottom bar: this page index
-  DateTime? _filterDate;             // user-picked date (null = show all)
-  late DateTime _today;              // today's date for header
-  bool _use24HourFormat = false;     // false so we display "10.00 am" like the mock
+  // keep bottom bar index (1 = Booking)
+  int _currentIndex = 1;
+
+  // optional date filter (null = show all days)
+  DateTime? _filterDate;
+
+  // cache today's date for header (no day-name)
+  late DateTime _today;
+
+  // time display format (kept false → "10.00 am")
+  bool _use24HourFormat = false;
+
+  // ensure housekeeping executes once per page life
   bool _didRunHousekeeping = false;
-  // cache facility names to reduce reads
+
+  // cache facility ids → names to reduce re-reads
   final Map<String, String> _facilityNameCache = {};
 
+  // init: set today + schedule housekeeping after first frame
   @override
   void initState() {
     super.initState();
     _today = DateTime.now();
 
+    // do the one-time status sweep after first layout
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runHousekeepingOnce();
     });
   }
 
-
-  // -------------------- bottom tab handler --------------------
+  // -------------------- bottom tab handler (routes only) --------------------
   void _onTabSelected(int i) {
-    // simple navigation for bottom bar
     if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
-    } else if (i == 1) {
-      setState(() { _currentIndex = 1; });
-    } else if (i == 2) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
-    } else if (i == 3) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidNotifications()));
-    } else if (i == 4) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAccount()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
+    } else {
+      if (i == 1) {
+        setState(() { _currentIndex = 1; }); // stay on this page
+      } else {
+        if (i == 2) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
+        } else {
+          if (i == 3) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidNotifications()));
+          } else {
+            if (i == 4) {
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAccount()));
+            }
+          }
+        }
+      }
     }
   }
 
-  // -------------------- open date picker --------------------
+  // -------------------- open date picker (same UX as Agenda) --------------------
   Future<void> _pickDate() async {
-    // open a calendar so user can pick a date to filter
     final DateTime now = DateTime.now();
     final DateTime first = DateTime(now.year - 5, 1, 1);
     final DateTime last  = DateTime(now.year + 5, 12, 31);
 
+    // modal native date picker (returns a DateTime or null)
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _filterDate == null ? now : _filterDate!,
@@ -75,7 +89,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       lastDate: last,
     );
 
-    // if a date is chosen, store it (only date part)
+    // store only Y/M/D (no time) to compare dates cleanly
     if (picked != null) {
       setState(() {
         _filterDate = DateTime(picked.year, picked.month, picked.day);
@@ -83,19 +97,92 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // -------------------- clear date filter --------------------
+  // -------------------- header date formatting (no weekday) --------------------
+  String _formatLongDateNoDay(DateTime d) {
+    // display as "23 May 2025"
+    final DateFormat f = DateFormat('d MMMM yyyy');
+    return f.format(d);
+  }
+
+  // pick header date (filter or today's date)
+  DateTime _headerDate() {
+    if (_filterDate != null) {
+      return _filterDate!;
+    } else {
+      return _today;
+    }
+  }
+
+  // -------------------- header row: date text + calendar button --------------------
+  Widget _dateHeaderRow() {
+    final DateTime d = _headerDate();
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 8.h),
+      child: Row(
+        children: <Widget>[
+          // left: formatted date (bold)
+          Expanded(
+            child: Text(
+              _formatLongDateNoDay(d),
+              style: TextStyle(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+              ),
+            ),
+          ),
+          // right: calendar icon triggers picker
+          InkWell(
+            onTap: _pickDate,
+            child: Container(
+              width: 36.w,
+              height: 36.w,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(8.w),
+                border: Border.all(color: const Color(0xFFE5E5E5), width: 1.w),
+              ),
+              child: Icon(Icons.calendar_today, size: 18.w, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------- "Clear" link (only visible when filter is applied) --------------------
+  Widget _clearCenterIfNeeded() {
+    if (_filterDate != null) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 4.h),
+          child: TextButton(
+            onPressed: _clearDate,
+            child: Text(
+              "Clear",
+              style: TextStyle(fontSize: 13.sp, color: const Color(0xFF9747FF), fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      );
+    } else {
+      return SizedBox(height: 0.h);
+    }
+  }
+
+  // -------------------- remove date filter --------------------
   void _clearDate() {
-    // remove filter so all bookings show
     setState(() { _filterDate = null; });
   }
 
-  // -------------------- formatting helpers --------------------
+  // -------------------- common formatting helpers --------------------
   String _formatFullDate(DateTime d) {
-    // Example: Thu, 28 Aug 2025
+    // "Fri, 23 May 2025"
     final DateFormat f = DateFormat('EEE, d MMM yyyy');
     return f.format(d);
   }
 
+  // format start/end time as "h.mm am" or "HH.mm" then keep it unbroken
   String _formatTime(DateTime d) {
     String s = '';
     if (_use24HourFormat == true) {
@@ -105,12 +192,12 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       final DateFormat f12 = DateFormat('h.mm a');
       s = f12.format(d).toLowerCase();
     }
-    // change normal spaces to non-breaking spaces so "10.00 am" stays on one line
+    // replace space with non-breaking space so "10.00 am" stays together
     s = s.replaceAll(' ', '\u00A0');
     return s;
   }
 
-
+  // compare only Y/M/D equality
   bool _isSameDay(DateTime a, DateTime b) {
     if (a.year == b.year) {
       if (a.month == b.month) {
@@ -127,10 +214,10 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // -------------------- safe readers --------------------
+  // -------------------- safe readers: strings + timestamps --------------------
   String _readFirstString(Map<String, dynamic> m, List<String> keys) {
-    // tries multiple keys and returns first found as string
-    int i = 0;
+    // scan keys in order and return first non-null value as string
+    int i = 0;                              // counter i walks through keys list
     while (i < keys.length) {
       final String k = keys[i];
       if (m.containsKey(k)) {
@@ -139,14 +226,14 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           return v.toString();
         }
       }
-      i = i + 1;
+      i = i + 1;                            // increment i at end of each iteration
     }
     return '';
   }
 
   DateTime? _readFirstDateTime(Map<String, dynamic> m, List<String> keys) {
-    // reads DateTime from Timestamp/DateTime fields (legacy support)
-    int i = 0;
+    // scan keys and return first Timestamp/DateTime value (as DateTime)
+    int i = 0;                              // counter i for keys traversal
     while (i < keys.length) {
       final String k = keys[i];
       if (m.containsKey(k)) {
@@ -157,18 +244,18 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           if (v is DateTime) {
             return v;
           } else {
-            // ignore other types
+            // ignore non-date types
           }
         }
       }
-      i = i + 1;
+      i = i + 1;                            // step i to check next key
     }
     return null;
   }
 
-  // Read *date only* for bookingDate (Timestamp/DateTime/String "yyyy-MM-dd").
+  // read a date-only value from first match (Timestamp/DateTime/String 'yyyy-MM-dd')
   DateTime? _readFirstDateOnly(Map<String, dynamic> m, List<String> keys) {
-    int i = 0;
+    int i = 0;                              // counter i to loop keys
     while (i < keys.length) {
       final String k = keys[i];
       if (m.containsKey(k)) {
@@ -197,85 +284,80 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           }
         }
       }
-      i = i + 1;
+      i = i + 1;                            // increment i after checking current key
     }
     return null;
   }
 
-  // -------- parse 24h time string like "13:30", "1330", "13.30", "9:05" to hour/min --------
+  // -------------------- parse flexible "HH:mm" into [hour, minute] --------------------
   List<int>? _parseHourMinute(String s) {
-    // return [hour, minute] or null if cannot parse
     if (s.isEmpty == true) {
       return null;
     } else {
       String t = s.trim();
-
-      // unify separators and remove spaces
       t = t.replaceAll(' ', '');
       t = t.replaceAll('.', ':');
       t = t.replaceAll('-', ':');
 
-      // case 1: has colon "HH:MM" or "H:MM"
+      // case A: time with colon present → split and parse
       if (t.contains(':') == true) {
         final List<String> parts = t.split(':');
         int h = 0;
         int m = 0;
 
-        // hour
         if (parts.isNotEmpty == true) {
           try { h = int.parse(parts[0]); } catch (_) { h = -1; }
         }
-
-        // minute (if missing, 0)
         if (parts.length > 1) {
           try { m = int.parse(parts[1]); } catch (_) { m = -1; }
         } else {
           m = 0;
         }
 
+        // return only valid 24h times
         if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
           return [h, m];
         } else {
           return null;
         }
       } else {
-        // case 2: digits only like "1330" or "930" or "09"
-        // remove any non-digits (safety)
+        // case B: pure digits like "1330" or "930" or "13"
         String d = '';
-        int i = 0;
+        int i = 0;                          // counter i scans characters
         while (i < t.length) {
           final String ch = t.substring(i, i + 1);
           if (ch.codeUnitAt(0) >= 48 && ch.codeUnitAt(0) <= 57) {
             d = d + ch;
           }
-          i = i + 1;
+          i = i + 1;                        // move i to next char
         }
 
         int h = -1;
         int m = -1;
 
         if (d.length == 4) {
-          // HHMM
+          // "1330" → 13:30
           try { h = int.parse(d.substring(0, 2)); } catch (_) { h = -1; }
           try { m = int.parse(d.substring(2, 4)); } catch (_) { m = -1; }
         } else {
           if (d.length == 3) {
-            // HMM
+            // "930"  → 9:30
             try { h = int.parse(d.substring(0, 1)); } catch (_) { h = -1; }
             try { m = int.parse(d.substring(1, 3)); } catch (_) { m = -1; }
           } else {
             if (d.length == 2) {
-              // HH (assume minutes = 00)
+              // "13"   → 13:00
               try { h = int.parse(d); } catch (_) { h = -1; }
               m = 0;
             } else {
-              // not supported
+              // unsupported length → invalid
               h = -1;
               m = -1;
             }
           }
         }
 
+        // return only valid bounds
         if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
           return [h, m];
         } else {
@@ -285,34 +367,31 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // build DateTime from bookingDate + time string OR fallback to existing Timestamp
+  // -------------------- compose DateTime from booking date + time fields --------------------
   DateTime? _composeDateTime(Map<String, dynamic> m, List<String> timeKeys) {
-    // 1) if Timestamp/DateTime exists in these keys, use it
+    // prefer real Timestamp/DateTime if present
     final DateTime? ts = _readFirstDateTime(m, timeKeys);
     if (ts != null) {
       return ts;
     }
 
-    // 2) else try to read 24h string and combine with bookingDate
+    // otherwise parse flexible time string and combine with bookingDate
     final String tStr = _readFirstString(m, timeKeys);
-    if (tStr.isEmpty == false) {
+    if (tStr.isNotEmpty == true) {
       final List<int>? hm = _parseHourMinute(tStr);
       if (hm != null) {
-        // read booking date
         DateTime? base = _readFirstDateOnly(m, ['bookingDate', 'booking_date', 'date']);
         if (base == null) {
-          // fallback: use today (only for display)
           base = DateTime.now();
         }
         return DateTime(base.year, base.month, base.day, hm[0], hm[1]);
       }
     }
 
-    // 3) nothing found
     return null;
   }
 
-  // normalize approval string
+  // -------------------- normalize approval values to "approved/pending/rejected" --------------------
   String _approvalText(dynamic approvalValue) {
     if (approvalValue is bool) {
       if (approvalValue == true) { return 'approved'; } else { return 'pending'; }
@@ -321,15 +400,15 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // -------------------- facility name lookup --------------------
+  // -------------------- facility name lookup with local cache --------------------
   Future<String> _getFacilityName(String facilityId) async {
-    // return cached name if present
+    // return cached value if known
     if (_facilityNameCache.containsKey(facilityId) == true) {
       return _facilityNameCache[facilityId]!;
     }
 
-    // else fetch from Facilities
     try {
+      // read Facilities/{id} and pick "name" (fallbacks allowed)
       final DocumentSnapshot<Map<String, dynamic>> d =
       await FirebaseFirestore.instance.collection('Facilities').doc(facilityId).get();
 
@@ -358,9 +437,9 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // -------------------- chip builder --------------------
+  // -------------------- small chip UI helper --------------------
   Widget _buildChip(String text, Color fill, Color border) {
-    // simple rounded chip with padding and border
+    // pill chip with border and bold text
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
       margin: EdgeInsets.only(right: 8.w, top: 6.h),
@@ -376,9 +455,9 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     );
   }
 
-  // choose chip colors by label (lowercased)
+  // -------------------- status-to-color pair --------------------
   List<Color> _chipColors(String labelLower) {
-    // returns [fill, border]
+    // choose consistent color coding by status/approval string
     if (labelLower == 'approved' || labelLower == 'accept' || labelLower == 'accepted' || labelLower == 'upcoming') {
       return [Colors.green.shade200, Colors.green];
     } else {
@@ -391,7 +470,6 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           if (labelLower == 'ended' || labelLower == 'complete' || labelLower == 'completed') {
             return [Colors.grey.shade300, Colors.grey];
           } else {
-            // default neutral
             return [Colors.grey.shade200, Colors.grey];
           }
         }
@@ -399,20 +477,20 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-  // -------------------- one booking row --------------------
+  // -------------------- single booking row (tappable) --------------------
   Widget _buildBookingRow(Map<String, dynamic> m) {
-    // facility id
+    // extract facility id from known keys
     final String facilityId = _readFirstString(m, ['facilityId', 'facilityID', 'facilityDocId']);
 
-    // start/end times (string 24h or timestamp)
+    // compute start/end DateTime using robust parser/composer
     final DateTime? start = _composeDateTime(m, ['start', 'startTime', 'start_at', 'start_time']);
     final DateTime? end   = _composeDateTime(m,   ['end',   'endTime',   'end_at',   'end_time']);
 
-    // approval + status
+    // normalize approval + status text
     final String approval = _approvalText(m['approval']).trim();
     final String status   = _readFirstString(m, ['status', 'state']).toLowerCase().trim();
 
-    // slot number (seatIndex)
+    // show seat/slot index as text or "-" if missing
     final String seatRaw = _readFirstString(m, ['seatIndex', 'slotIndex', 'seat', 'slot']);
     String seatText = '';
     if (seatRaw.isNotEmpty == true) {
@@ -421,7 +499,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       seatText = '-';
     }
 
-    // time strings (no "start/end" words)
+    // format start/end into final strings for left time rail
     String startStr = '--.--';
     if (start != null) {
       startStr = _formatTime(start);
@@ -431,16 +509,12 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       endStr = _formatTime(end);
     }
 
-    // decide which chips to show
+    // assemble status/approval chips (pending/rejected suppresses status chip)
     final List<Widget> chips = [];
-
-    // approval chip (always if not empty)
     if (approval.isNotEmpty == true) {
       final List<Color> c = _chipColors(approval);
       chips.add(_buildChip(_capitalize(approval), c[0], c[1]));
     }
-
-    // show status chip ONLY if approval is not pending/rejected (your rule)
     if (approval != 'pending' && approval != 'rejected') {
       if (status.isNotEmpty == true) {
         final List<Color> s = _chipColors(status);
@@ -448,7 +522,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       }
     }
 
-    // UI row
+    // lookup facility name (cached) then build row
     return FutureBuilder<String>(
       future: _getFacilityName(facilityId),
       builder: (context, snap) {
@@ -459,13 +533,17 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           if (snap.hasError == true) {
             facilityName = 'Facility';
           } else {
-            if (snap.data != null) { facilityName = snap.data!; } else { facilityName = 'Facility'; }
+            if (snap.data != null) {
+              facilityName = snap.data!;
+            } else {
+              facilityName = 'Facility';
+            }
           }
         }
 
         return InkWell(
           onTap: () {
-            // read bookingId that you stored earlier as m['__id']
+            // read booking id for details page (kept same)
             String bookingId = '';
             if (m.containsKey('__id')) {
               final dynamic v = m['__id'];
@@ -473,11 +551,9 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                 bookingId = v.toString();
               }
             }
-
-            // use the facilityId we already read at the top of this function
             String facId = facilityId;
 
-            // navigate to booking details page
+            // navigate into details view
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -489,13 +565,13 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
             );
           },
 
+          // lavender card with left time rail + right info
           child: Container(
-            // card
             width: 1.0.sw,
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
             margin: EdgeInsets.only(bottom: 12.h),
             decoration: BoxDecoration(
-              color: const Color(0xFFE9D7FF), // soft lavender like mock
+              color: const Color(0xFFE9D7FF),
               borderRadius: BorderRadius.circular(14.r),
               boxShadow: [
                 BoxShadow(
@@ -508,13 +584,12 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // left times (top = start time, bottom = end time)
+                // left time rail: start | end stacked
                 SizedBox(
-                  width: 78.w,   // a bit wider so "10.00 am" fits on A32/web
-                  height: 68.h,  // give it height so center works reliably
+                  width: 78.w,
+                  height: 68.h,
                   child: Stack(
                     children: [
-                      // top: start time (single line)
                       Align(
                         alignment: Alignment.topLeft,
                         child: Text(
@@ -525,14 +600,10 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                           style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700, color: Colors.black87),
                         ),
                       ),
-
-                      // middle: the "|" exactly centered vertically, left aligned
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text('       |', style: TextStyle(fontSize: 16.sp, color: Colors.black45)),
                       ),
-
-                      // bottom: end time (single line)
                       Align(
                         alignment: Alignment.bottomLeft,
                         child: Text(
@@ -547,20 +618,20 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                   ),
                 ),
 
-                // thin vertical divider
+                // separator bar
                 Container(
                   width: 2.w,
                   height: 50.h,
                   margin: EdgeInsets.symmetric(horizontal: 12.w),
-                  color: const Color(0xFF7E57C2), // purple line
+                  color: const Color(0xFF7E57C2),
                 ),
 
-                // middle: facility + slot + chips
+                // right info: facility name, seat, chips
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // facility name
+                      // facility name (bold)
                       Text(
                         facilityName,
                         maxLines: 1,
@@ -571,15 +642,18 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                           color: Colors.black87,
                         ),
                       ),
+
                       SizedBox(height: 6.h),
 
-                      // slot row (icon + number)
+                      // seat/slot row with icon
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.event_seat, size: 18.w, color: Colors.black54),
-                          Text("Slot : ",
-                              style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),),
+                          Text(
+                            "Slot : ",
+                            style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),
+                          ),
                           SizedBox(width: 6.w),
                           Text(
                             seatText,
@@ -590,15 +664,13 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
 
                       SizedBox(height: 8.h),
 
-                      // chips in a Wrap so they wrap lines if narrow / zoomed
-                      Wrap(
-                        children: chips,
-                      ),
+                      // status chips
+                      Wrap(children: chips),
                     ],
                   ),
                 ),
 
-                // right chevron
+                // chevron
                 Icon(Icons.chevron_right, size: 26.w, color: Colors.black54),
               ],
             ),
@@ -608,7 +680,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     );
   }
 
-  // capitalize helper
+  // -------------------- capitalize first letter helper --------------------
   String _capitalize(String s) {
     if (s.isEmpty == true) { return s; } else {
       final String first = s.substring(0, 1).toUpperCase();
@@ -617,6 +689,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
+  // -------------------- same-day helper (Y/M/D) --------------------
   bool _isSameYMD(DateTime a, DateTime b) {
     if (a.year == b.year) {
       if (a.month == b.month) {
@@ -633,12 +706,12 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-// booking date from common fields (date-only)
+  // -------------------- booking date reader from common field names --------------------
   DateTime? _readBookingDate(Map<String, dynamic> m) {
     return _readFirstDateOnly(m, ['bookingDate', 'booking_date', 'date']);
   }
 
-// read lowercase trimmed string for first present key
+  // -------------------- read lowercased trimmed string --------------------
   String _readLowerStr(Map<String, dynamic> m, List<String> keys) {
     final String s = _readFirstString(m, keys);
     if (s.isEmpty == true) {
@@ -648,9 +721,9 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
   }
 
-// read time from keys -> TimeOfDay (supports Timestamp/DateTime or strings like "13:30","1330","13.30")
+  // -------------------- read time-of-day from multiple possible shapes --------------------
   TimeOfDay? _readTime(Map<String, dynamic> m, List<String> keys) {
-    int i = 0;
+    int i = 0;                              // counter i loops keys list
     while (i < keys.length) {
       final String k = keys[i];
       if (m.containsKey(k)) {
@@ -672,13 +745,14 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
           }
         }
       }
-      i = i + 1;
+      i = i + 1;                            // increment i to check next key
     }
     return null;
   }
 
-  // ====== ONE-TIME HOUSEKEEPING ======
+  // ==================== ONE-TIME HOUSEKEEPING (status maintenance) ====================
   Future<void> _runHousekeepingOnce() async {
+    // guard: run only once while page lives
     if (_didRunHousekeeping == true) {
       return;
     } else {
@@ -686,10 +760,11 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
 
     try {
+      // compute "today 00:00" to compare date-only
       final DateTime now = DateTime.now();
       final DateTime todayStart = DateTime(now.year, now.month, now.day);
 
-      // accepted -> set ongoing/ended by time
+      // acceptable "accepted" spellings for approval field
       final List<String> acceptedValues = <String>[
         'accepted',
         'Accepted',
@@ -699,42 +774,51 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
         'APPROVED',
       ];
 
+      // 1) Sweep ACCEPTED bookings → update status "ongoing"/"ended" (do not alter "pending"/"rejected")
       final QuerySnapshot<Map<String, dynamic>> acceptedSnap = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('approval', whereIn: acceptedValues)
           .get();
 
+      // loop counter i: iterates over accepted documents
       int i = 0;
       while (i < acceptedSnap.docs.length) {
         final doc = acceptedSnap.docs[i];
         final Map<String, dynamic>? m = doc.data();
         if (m != null) {
+          // read booking date (date-only), else skip status logic
           final DateTime? bookDate = _readBookingDate(m);
           if (bookDate != null) {
+            // align booking date to 00:00 for comparison
             final DateTime bookDayStart = DateTime(bookDate.year, bookDate.month, bookDate.day);
             String newStatus = '';
 
+            // CASE A: day already before today → ended
             if (bookDayStart.isBefore(todayStart) == true) {
               newStatus = 'ended';
             } else {
+              // CASE B: same day → compute by current clock vs start/end
               if (_isSameYMD(bookDate, now) == true) {
+                // read time-of-day values for the booking
                 final TimeOfDay? tStart = _readTime(m, ['start', 'startTime', 'timeStart']);
                 final TimeOfDay? tEnd   = _readTime(m, ['end',   'endTime',   'timeEnd']);
 
+                // only if both present do we determine ongoing vs ended
                 if (tStart != null && tEnd != null) {
                   final DateTime startDT = DateTime(bookDate.year, bookDate.month, bookDate.day,
                       tStart.hour, tStart.minute, 0);
                   final DateTime endDT = DateTime(bookDate.year, bookDate.month, bookDate.day,
                       tEnd.hour, tEnd.minute, 0);
 
+                  // only when end > start is the window valid
                   if (endDT.isAfter(startDT) == true) {
                     if (now.isBefore(startDT) == true) {
-                      // keep as-is
+                      // upcoming today → leave status as-is
                     } else {
                       if (now.isBefore(endDT) == true) {
-                        newStatus = 'ongoing';
+                        newStatus = 'ongoing'; // within window
                       } else {
-                        newStatus = 'ended';
+                        newStatus = 'ended';   // past window
                       }
                     }
                   }
@@ -742,6 +826,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
               }
             }
 
+            // update status only when changed (saving writes)
             if (newStatus.isNotEmpty == true) {
               final String current = _readLowerStr(m, ['status']);
               if (current != newStatus) {
@@ -750,40 +835,46 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
             }
           }
         }
-        i = i + 1;
+        i = i + 1; // increment loop counter i after processing one doc
       }
 
-      // pending -> auto-reject if past start time/day
+      // 2) Sweep PENDING bookings → auto "rejected" if start time/day already passed
       final QuerySnapshot<Map<String, dynamic>> pendingSnap = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('approval', whereIn: ['pending', 'Pending', 'PENDING'])
           .get();
 
+      // loop counter j: iterates over pending documents
       int j = 0;
       while (j < pendingSnap.docs.length) {
         final doc = pendingSnap.docs[j];
         final Map<String, dynamic>? m = doc.data();
         if (m != null) {
+          // read booking date (date-only) to compare day
           final DateTime? bookDate = _readBookingDate(m);
           if (bookDate != null) {
+            // align to 00:00 for day comparison
             final DateTime bookDayStart = DateTime(bookDate.year, bookDate.month, bookDate.day);
             bool shouldReject = false;
 
+            // CASE A: booking day is already before today → reject
             if (bookDayStart.isBefore(todayStart) == true) {
               shouldReject = true;
             } else {
+              // CASE B: booking is today → compare with start time
               if (_isSameYMD(bookDate, now) == true) {
                 final TimeOfDay? tStart = _readTime(m, ['start', 'startTime', 'timeStart']);
                 if (tStart != null) {
                   final DateTime startDT = DateTime(bookDate.year, bookDate.month, bookDate.day,
                       tStart.hour, tStart.minute, 0);
                   if (now.isBefore(startDT) == false) {
-                    shouldReject = true;
+                    shouldReject = true; // past or equal to start time → reject pending
                   }
                 }
               }
             }
 
+            // only write when status actually needs flipping to rejected
             if (shouldReject == true) {
               final String currAppr = _readLowerStr(m, ['approval', 'approve', 'approvalStatus']);
               if (currAppr != 'rejected') {
@@ -795,25 +886,27 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
             }
           }
         }
-        j = j + 1;
+        j = j + 1; // increment loop counter j after processing one doc
       }
     } catch (e) {
+      // swallow housekeeping errors and just log locally
       debugPrint('housekeeping error: $e');
     }
   }
 
-
-
-  // -------------------- main build --------------------
+  // -------------------- main UI build --------------------
   @override
   Widget build(BuildContext context) {
+    // bottom bar height as a fraction of screen height (ScreenUtil)
     final double barHeight = 0.07.sh;
+
+    // current user (null → ask to sign in)
     final User? user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
       backgroundColor: Colors.white,
 
-      // AppBar
+      // purple app bar with rounded bottom corners and sign-out action
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -826,6 +919,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
             IconButton(
               icon: const Icon(Icons.logout, color: Colors.white),
               onPressed: () async {
+                // sign out and clear stack to login page
                 await FirebaseAuth.instance.signOut();
                 Navigator.pushAndRemoveUntil(
                   context,
@@ -844,57 +938,23 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
         ),
       ),
 
-      // Body
+      // content area with header + list
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // today
-            Center(
-              child: Text(
-                _formatFullDate(_today),
-                style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w700, color: Colors.black87),
-              ),
-            ),
-            SizedBox(height: 8.h),
+            // top header row with date + calendar button
+            _dateHeaderRow(),
 
-// calendar icon (pick date) + Clear below when applicable
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 48.w,
-                    height: 48.w,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(24.r),
-                        onTap: _pickDate,
-                        child: Icon(Icons.calendar_month, size: 28.w, color: const Color(0xFF9747FF)),
-                      ),
-                    ),
-                  ),
-                  if (_filterDate != null)
-                    Padding(
-                      padding: EdgeInsets.only(top: 4.h),
-                      child: TextButton(
-                        onPressed: _clearDate,
-                        child: Text(
-                          "Clear",
-                          style: TextStyle(fontSize: 13.sp, color: const Color(0xFF9747FF), fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+            // optional "Clear" under header when a filter is active
+            _clearCenterIfNeeded(),
 
             SizedBox(height: 8.h),
             Divider(height: 1.h, color: const Color(0xFFEAEAEA)),
             SizedBox(height: 8.h),
-            // if not logged in
+
+            // Case: user not logged in → show prompt
             if (user == null)
               Expanded(
                 child: Center(
@@ -905,18 +965,20 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                 ),
               )
             else
-            // bookings stream for this user
+            // Case: user logged in → live stream bookings belonging to user
               Expanded(
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
                       .collection('Bookings')
-                      .where('userId', isEqualTo: user.uid) // change to 'userID' if your field uses that
+                      .where('userId', isEqualTo: user.uid)
                       .snapshots(),
                   builder: (context, snap) {
+                    // loading spinner while waiting for first snapshot
                     if (snap.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
+                    // error state (keep minimal text)
                     if (snap.hasError == true) {
                       return Center(
                         child: Text(
@@ -926,6 +988,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                       );
                     }
 
+                    // no data or empty list → show message
                     if (snap.hasData != true || snap.data == null || snap.data!.docs.isEmpty == true) {
                       return Center(
                         child: Text(
@@ -935,43 +998,63 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                       );
                     }
 
-                    // copy docs into a list of maps
+                    // -------- COPY DOCS INTO MUTABLE LIST --------
+                    // We'll copy to local 'items' so we can add computed fields (e.g., '__id')
                     final List<Map<String, dynamic>> items = [];
-                    int i = 0;
+                    int i = 0;                                      // counter i walks all returned docs
                     while (i < snap.data!.docs.length) {
                       final doc = snap.data!.docs[i];
                       final Map<String, dynamic> m = {};
                       final Map<String, dynamic> data = doc.data();
+
+                      // copy every k/v pair into 'm' (shallow copy)
                       data.forEach((k, v) { m[k] = v; });
+
+                      // store the Firestore doc id to use in navigation
                       m['__id'] = doc.id;
+
+                      // push into items
                       items.add(m);
+
+                      // ++i to move to next document in stream page
                       i = i + 1;
                     }
 
-                    // filter by picked date using bookingDate (with fallbacks)
+                    // -------- FILTER BY DATE (if user picked a day) --------
+                    // We'll check 'bookingDate' (fallback to 'startTime' date) and keep same-day matches only.
                     List<Map<String, dynamic>> filtered = [];
                     if (_filterDate == null) {
+                      // no filter → keep all items
                       filtered = items;
                     } else {
-                      int j = 0;
+                      int j = 0;                                    // counter j scans 'items' to filter
                       while (j < items.length) {
                         final Map<String, dynamic> m = items[j];
+
+                        // read date-only bookingDate, with flexible fallbacks
                         DateTime? bdate = _readFirstDateOnly(m, ['bookingDate', 'booking_date', 'date']);
+
+                        // fallback: derive date from start time if bookingDate missing
                         if (bdate == null) {
                           final DateTime? st = _readFirstDateTime(m, ['startTime','start','start_at','start_time']);
                           if (st != null) {
                             bdate = DateTime(st.year, st.month, st.day);
                           }
                         }
+
+                        // keep record only when its date equals the filter day
                         if (bdate != null) {
                           if (_isSameDay(bdate, _filterDate!) == true) {
                             filtered.add(m);
                           }
                         }
+
+                        // ++j to advance the filtering pass
                         j = j + 1;
                       }
                     }
 
+                    // empty after filtering → show empty message
                     if (filtered.isEmpty == true) {
                       return Center(
                         child: Text(
@@ -981,22 +1064,31 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                       );
                     }
 
-                    // sort by start time ascending
+                    // -------- SORT BY START TIME ASC --------
+                    // Use composed DateTime for a robust comparison
                     filtered.sort((a, b) {
                       final DateTime? sa = _composeDateTime(a, ['start','startTime','start_at','start_time']);
                       final DateTime? sb = _composeDateTime(b, ['start','startTime','start_at','start_time']);
+
+                      // keep nulls at the bottom
                       if (sa == null && sb == null) { return 0; }
                       if (sa == null) { return 1; }
                       if (sb == null) { return -1; }
+
+                      // ascending chronological order
                       return sa.compareTo(sb);
                     });
 
-                    // group by bookingDate
+                    // -------- GROUP BY BOOKING DATE --------
+                    // We'll build a map keyed by "yyyy-MM-dd" with lists of bookings as values.
                     final Map<String, List<Map<String, dynamic>>> byDate = {};
                     final DateFormat keyFmt = DateFormat('yyyy-MM-dd');
-                    int k = 0;
+
+                    int k = 0;                                      // counter k steps through 'filtered'
                     while (k < filtered.length) {
                       final Map<String, dynamic> m = filtered[k];
+
+                      // get the bookingDate for grouping, fallback from start time if needed
                       DateTime? bdate = _readFirstDateOnly(m, ['bookingDate', 'booking_date', 'date']);
                       if (bdate == null) {
                         final DateTime? st = _readFirstDateTime(m, ['startTime','start','start_at','start_time']);
@@ -1004,82 +1096,97 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                           bdate = DateTime(st.year, st.month, st.day);
                         }
                       }
+
+                      // only group when we have a date
                       if (bdate != null) {
+                        // group key like "2025-05-23"
                         final String key = keyFmt.format(bdate);
+
+                        // init group if first time we see this key
                         if (byDate.containsKey(key) == false) {
                           byDate[key] = <Map<String, dynamic>>[];
                         }
+
+                        // append item to that date bucket
                         byDate[key]!.add(m);
                       }
+
+                      // ++k to process next lined-up item
                       k = k + 1;
                     }
 
-                    // order groups by date
-                    // --- ORDER GROUPS: upcoming (today/future) on top, past 7 days at bottom ---
+                    // -------- ORDER GROUPS: upcoming on top, last 7 days below --------
                     final List<String> allKeys = byDate.keys.toList();
+
+                    // build today baseline and a week-ago baseline
                     final DateTime now = DateTime.now();
                     final DateTime todayOnly = DateTime(now.year, now.month, now.day);
                     final DateTime weekAgo = todayOnly.subtract(const Duration(days: 7));
 
+                    // prepare two lists for ordering sections
                     final List<String> upcomingKeys = <String>[];
                     final List<String> past7Keys = <String>[];
 
-// split into upcoming (>= today) and past (< today within last 7 days)
-                    int z = 0;
+                    int z = 0;                                      // counter z traverses all date keys
                     while (z < allKeys.length) {
                       final String kd = allKeys[z];
                       final DateTime d = DateTime.parse(kd);
                       final DateTime dOnly = DateTime(d.year, d.month, d.day);
 
+                      // fill upcoming (today & future) OR past7 (last 7 days) buckets
                       if (dOnly.isBefore(todayOnly) == true) {
-                        // past
                         if (dOnly.isAfter(weekAgo) == true || _isSameDay(dOnly, weekAgo) == true) {
                           past7Keys.add(kd);
                         }
                       } else {
-                        // today or future
                         upcomingKeys.add(kd);
                       }
+
+                      // ++z moves to next date key
                       z = z + 1;
                     }
 
-// upcoming sorted ascending (nearest first)
+                    // sort upcoming ascending (nearest future first)
                     upcomingKeys.sort((a, b) {
                       final DateTime da = DateTime.parse(a);
                       final DateTime db = DateTime.parse(b);
                       return da.compareTo(db);
                     });
 
-// past 7 days sorted descending (nearest first at top of bottom section)
+                    // sort past7 descending (most recent past first)
                     past7Keys.sort((a, b) {
                       final DateTime da = DateTime.parse(a);
                       final DateTime db = DateTime.parse(b);
                       return db.compareTo(da);
                     });
 
-// final order: upcoming first, then past 7 days
+                    // final ordered key list for list builder
                     final List<String> keys = <String>[];
                     keys.addAll(upcomingKeys);
                     keys.addAll(past7Keys);
 
-
-                    // build list with date headers + rows
+                    // -------- BUILD THE LIST VIEW --------
+                    // Build date header + its rows for each key in order.
                     return ListView.builder(
                       padding: EdgeInsets.only(top: 6.h, bottom: 14.h),
                       itemCount: keys.length,
                       itemBuilder: (context, idx) {
+                        // get group key and parse back to DateTime for header text
                         final String kdate = keys[idx];
                         final DateTime parsed = DateTime.parse(kdate);
                         final String headerText = _formatFullDate(parsed);
+
+                        // fetch group items from map (safe fallback to empty)
                         final List<Map<String, dynamic>> group = byDate[kdate] ?? <Map<String, dynamic>>[];
 
+                        // section container with header + list of booking rows
                         return Container(
                           width: 1.0.sw,
                           margin: EdgeInsets.only(bottom: 16.h),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // date header
+                              // date header label (bold)
                               Padding(
                                 padding: EdgeInsets.only(left: 4.w, bottom: 8.h),
                                 child: Text(
@@ -1087,7 +1194,8 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                                   style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700, color: Colors.black87),
                                 ),
                               ),
-                              // bookings for this date
+
+                              // render each booking row for this date
                               Column(
                                 children: group.map((m) => _buildBookingRow(m)).toList(),
                               ),
@@ -1103,7 +1211,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
         ),
       ),
 
-      // Bottom nav
+      // bottom nav bar (kept)
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,

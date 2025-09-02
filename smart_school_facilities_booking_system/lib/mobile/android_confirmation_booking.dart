@@ -1,42 +1,30 @@
-// android_confirmation_booking.dart (ConfirmBooking)
-//
-// FIX IN THIS VERSION:
-// - When auto-assign + requires approval, we now use the SLOT capacity
-//   (from Slots/{slotKey}.capacity) to choose a temporary seat.
-//   This prevents false "slot full" even when other seats are still free.
-// - We also block "Confirm" while slot stats are loading to avoid stale checks.
-//
-// Other goals kept:
-// - Simple code, diploma level, only if/else (no ? : and no ??).
-// - Use .w .h .sw .sh .sp for responsive sizing (works on Huawei P30 ELE-L29).
-// - Show reserve (taken) status per slot and turn red when full.
-// - Save seatIndex even when approval is required; in Days/Seats we write
-//   doc id == seat index, with { taken: false } for pending.
-
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';        // Firestore reads
+import 'package:firebase_auth/firebase_auth.dart';            // Current user
+import 'package:flutter/material.dart';                       // UI
+import 'package:flutter_screenutil/flutter_screenutil.dart';  // .w .h .sp .sw .sh
 
 // Bottom bar + other pages (keep navigation consistent)
 import 'android_bottom_menu.dart';
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_list_of_facilities.dart';
 
-// Phone notifications (local, free, show 1 day before)
-// import 'android_phone_notification.dart';
-
 // Booking service (your Firestore write helpers)
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 
+// ------------------------------ widget ------------------------------
 class ConfirmBooking extends StatefulWidget {
+  // facility to book
   final String facilityId;
   final String facilityName;
+
+  // selection summary
   final String dateYMD;              // "YYYY-MM-DD"
   final List<String> startTimes;     // e.g. ["08:00","09:00"]
+
+  // seat allocation mode
   final bool autoAssign;             // system pick seat if true
   final Map<String, int>? seatPicks; // manual picks per start
 
@@ -54,16 +42,18 @@ class ConfirmBooking extends StatefulWidget {
   State<ConfirmBooking> createState() => _ConfirmBookingState();
 }
 
+// ------------------------------ state ------------------------------
 class _ConfirmBookingState extends State<ConfirmBooking> {
+  // bottom bar index
   int _currentIndex = 2;
 
-  // User info
+  // user info
   String _userId = '';
   String _userName = '';
   String _userEmail = '';
   String _userContact = '';
 
-  // Facility info
+  // facility info
   bool _loadingFacility = true;
   Map<String, dynamic> _facility = {};
   int _facilityCapacity = 1; // fallback if slot has no capacity set
@@ -74,34 +64,37 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   String _managerId = '';
   bool _requireApproval = false;
 
-  // Manager
+  // manager info
   bool _loadingManager = true;
   Map<String, dynamic> _manager = {};
 
-  // Auto-assign preview (treat only taken==true as blocked)
+  // auto-assign preview per start time
   bool _loadingAutoSeats = false;
   final Map<String, int?> _autoSeatByStart = {};
 
-  // Slot stats (capacity + reserve per start time)
+  // per-slot stats
   bool _loadingSlotStats = false;
   final Map<String, int> _capacityByStart = {}; // per-slot capacity
-  final Map<String, int> _reserveByStart = {};  // accepted count
+  final Map<String, int> _reserveByStart = {};  // accepted/booked count
 
-  // Approval reason
+  // approval reason
   final TextEditingController _reasonCtrl = TextEditingController();
   int _reasonLen = 0;
 
-  // Saving flag
+  // saving flag
   bool _saving = false;
 
+  // ------------------------------ lifecycle: init ------------------------------
   @override
   void initState() {
-    super.initState();
-    _loadUser();
+    super.initState();                              // call parent init
 
+    _loadUser();                                    // read current user
+
+    // track reason length live
     _reasonCtrl.addListener(() {
-      final int len = _reasonCtrl.text.characters.length;
-      int safe = len;
+      final int len = _reasonCtrl.text.characters.length;   // count UTF-16 safely
+      int safe = len;                                       // clamp 0..99
       if (safe < 0) {
         safe = 0;
       } else {
@@ -109,33 +102,32 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           safe = 99;
         }
       }
-      setState(() {
-        _reasonLen = safe;
-      });
+      setState(() { _reasonLen = safe; });                  // update UI count
     });
 
-    _loadFacilityThenChain();
+    _loadFacilityThenChain();                      // fetch facility → manager → slot stats → auto seats
   }
 
+  // ------------------------------ lifecycle: dispose ------------------------------
   @override
   void dispose() {
-    _reasonCtrl.dispose();
-    super.dispose();
+    _reasonCtrl.dispose();                         // clean controller
+    super.dispose();                               // call parent dispose
   }
 
-  // Load current user
+  // ------------------------------ user: read current user ------------------------------
   Future<void> _loadUser() async {
     try {
-      final User? u = FirebaseAuth.instance.currentUser;
+      final User? u = FirebaseAuth.instance.currentUser; // get firebase user
 
       if (u != null) {
-        _userId = u.uid;
+        _userId = u.uid;                               // store uid
 
-        if (u.email != null) {
+        if (u.email != null) {                         // read email
           _userEmail = u.email!;
         }
 
-        if (u.displayName != null) {
+        if (u.displayName != null) {                   // read display name
           final String dn = u.displayName!.trim();
           if (dn.isNotEmpty) {
             _userName = dn;
@@ -143,7 +135,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         }
       }
 
-      if (_userName.isEmpty) {
+      if (_userName.isEmpty) {                         // fallback user name
         if (_userEmail.isNotEmpty) {
           _userName = _userEmail;
         } else {
@@ -151,7 +143,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         }
       }
 
-      if (_userId.isNotEmpty) {
+      if (_userId.isNotEmpty) {                        // read profile doc for contact/name override
         final ds = await FirebaseFirestore.instance
             .collection('UserInformation')
             .doc(_userId)
@@ -183,26 +175,20 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       }
     } catch (_) {}
 
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) { setState(() {}); }                 // refresh UI
   }
 
-  // Load facility -> manager -> slot stats -> auto seats (if needed)
+  // ------------------------------ chain: load facility → manager → slot stats → auto seats ------------------------------
   Future<void> _loadFacilityThenChain() async {
-    await _loadFacilityOnce();
-    await _loadManagerOnce();
-    await _prefetchSlotStats();
-    if (widget.autoAssign) {
-      await _prefetchAutoSeats();
-    }
+    await _loadFacilityOnce();                        // read facility fields
+    await _loadManagerOnce();                         // read manager profile
+    await _prefetchSlotStats();                       // per-slot capacity + booked
+    if (widget.autoAssign) { await _prefetchAutoSeats(); } // seat preview only for auto-assign
   }
 
-  // Load facility doc once
+  // ------------------------------ facility: read once ------------------------------
   Future<void> _loadFacilityOnce() async {
-    setState(() {
-      _loadingFacility = true;
-    });
+    setState(() { _loadingFacility = true; });        // show loading
 
     try {
       final snap = await FirebaseFirestore.instance
@@ -213,101 +199,55 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       if (snap.exists) {
         final Map<String, dynamic>? data = snap.data();
         if (data != null) {
-          _facility = data;
+          _facility = data;                           // keep whole map
 
-          if (data.containsKey('name')) {
-            final dynamic n = data['name'];
-            if (n is String) {
-              _facilityName = n;
-            }
-          }
-          if (_facilityName.isEmpty) {
-            _facilityName = widget.facilityName;
-          }
+          // name
+          _facilityName = (data['name'] as String?) ?? '';
+          if (_facilityName.isEmpty) { _facilityName = widget.facilityName; }
 
-          String imageName = '';
-          if (data.containsKey('imageName')) {
-            final dynamic im = data['imageName'];
-            if (im is String) {
-              imageName = im.trim();
-            }
-          }
-          if (imageName.isNotEmpty) {
-            _facilityImagePath = 'asset/image/$imageName';
-          } else {
-            _facilityImagePath = '';
-          }
+          // image path
+          final String imageName = (data['imageName'] as String?)?.trim() ?? '';
+          _facilityImagePath = imageName.isNotEmpty ? 'asset/image/$imageName' : '';
 
-          if (data.containsKey('location')) {
-            final dynamic loc = data['location'];
-            if (loc is String) {
-              _location = loc;
-            }
-          }
+          // location / description
+          _location = (data['location'] as String?) ?? '';
+          _description = (data['details'] as String?) ?? '';
 
-          if (data.containsKey('details')) {
-            final dynamic det = data['details'];
-            if (det is String) {
-              _description = det;
-            }
-          }
-
+          // capacity fallback
           _facilityCapacity = 1;
-          if (data.containsKey('availableSlots')) {
-            final dynamic cap = data['availableSlots'];
-            if (cap is int) {
-              _facilityCapacity = cap;
-            } else {
-              final int? parsed = int.tryParse('$cap');
-              if (parsed != null) {
-                _facilityCapacity = parsed;
-              }
-            }
+          final dynamic cap = data['availableSlots'];
+          if (cap is int) {
+            _facilityCapacity = cap;
+          } else {
+            final int? parsed = int.tryParse('$cap');
+            if (parsed != null) { _facilityCapacity = parsed; }
           }
-          if (_facilityCapacity <= 0) {
-            _facilityCapacity = 1;
-          }
+          if (_facilityCapacity <= 0) { _facilityCapacity = 1; }
 
-          _managerId = '';
-          if (data.containsKey('managerId')) {
-            final dynamic mid = data['managerId'];
-            if (mid is String) {
-              _managerId = mid;
-            }
-          }
+          // manager id
+          _managerId = (data['managerId'] as String?) ?? '';
 
+          // require approval
           _requireApproval = false;
-          if (data.containsKey('requireApproval')) {
-            final dynamic r = data['requireApproval'];
-            if (r is bool) {
-              _requireApproval = r;
-            } else {
-              if (r is String) {
-                final String s = r.toLowerCase().trim();
-                if (s == 'true') {
-                  _requireApproval = true;
-                } else {
-                  _requireApproval = false;
-                }
-              }
+          final dynamic r = data['requireApproval'];
+          if (r is bool) {
+            _requireApproval = r;
+          } else {
+            if (r is String) {
+              final String s = r.toLowerCase().trim();
+              if (s == 'true') { _requireApproval = true; } else { _requireApproval = false; }
             }
           }
         }
       }
     } catch (_) {}
 
-    if (mounted) {
-      setState(() {
-        _loadingFacility = false;
-      });
-    }
+    if (mounted) { setState(() { _loadingFacility = false; }); } // hide loading
   }
 
-  // Load manager doc once
+  // ------------------------------ manager: read once ------------------------------
   Future<void> _loadManagerOnce() async {
-    setState(() {
-      _loadingManager = true;
-    });
+    setState(() { _loadingManager = true; });         // show loading
 
     try {
       if (_managerId.isNotEmpty) {
@@ -318,34 +258,26 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
         if (snap.exists) {
           final Map<String, dynamic>? m = snap.data();
-          if (m != null) {
-            _manager = m;
-          }
+          if (m != null) { _manager = m; }            // store manager map
         }
       }
     } catch (_) {}
 
-    if (mounted) {
-      setState(() {
-        _loadingManager = false;
-      });
-    }
+    if (mounted) { setState(() { _loadingManager = false; }); } // hide loading
   }
 
-  // Read per-slot capacity and reserve (or booked) for each selected time
+  // ------------------------------ per-slot stats: capacity + booked for each selected start ------------------------------
   Future<void> _prefetchSlotStats() async {
-    setState(() {
-      _loadingSlotStats = true;
-    });
+    setState(() { _loadingSlotStats = true; });       // show loading
 
     try {
       int i = 0;
       while (i < widget.startTimes.length) {
-        final String start = widget.startTimes[i];
-        final String key = start.replaceAll(':', '').padLeft(4, '0');
+        final String start = widget.startTimes[i];                        // "HH:mm"
+        final String key = start.replaceAll(':', '').padLeft(4, '0');     // "HHmm"
 
-        int cap = _facilityCapacity; // fallback
-        int res = 0;
+        int cap = _facilityCapacity;                                      // default to facility cap
+        int res = 0;                                                      // default 0 booked
 
         try {
           final slotRef = FirebaseFirestore.instance
@@ -353,41 +285,31 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
               .collection('Days').doc(widget.dateYMD)
               .collection('Slots').doc(key);
 
-          final slotSnap = await slotRef.get();
+          final slotSnap = await slotRef.get();                           // read slot doc
           if (slotSnap.exists) {
             final Map<String, dynamic>? s = slotSnap.data();
             if (s != null) {
+              // capacity override
               if (s.containsKey('capacity')) {
                 final dynamic c = s['capacity'];
-                if (c is int) {
-                  cap = c;
-                } else {
+                if (c is int) { cap = c; } else {
                   final int? p = int.tryParse('$c');
-                  if (p != null) {
-                    cap = p;
-                  }
+                  if (p != null) { cap = p; }
                 }
               }
+              // booked/reserve count
               if (s.containsKey('reserve')) {
                 final dynamic r = s['reserve'];
-                if (r is int) {
-                  res = r;
-                } else {
+                if (r is int) { res = r; } else {
                   final int? p = int.tryParse('$r');
-                  if (p != null) {
-                    res = p;
-                  }
+                  if (p != null) { res = p; }
                 }
               } else {
                 if (s.containsKey('booked')) {
                   final dynamic b = s['booked'];
-                  if (b is int) {
-                    res = b;
-                  } else {
+                  if (b is int) { res = b; } else {
                     final int? p = int.tryParse('$b');
-                    if (p != null) {
-                      res = p;
-                    }
+                    if (p != null) { res = p; }
                   }
                 }
               }
@@ -395,39 +317,31 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           }
         } catch (_) {}
 
-        if (cap <= 0) {
-          cap = 1;
-        }
-        if (res < 0) {
-          res = 0;
-        }
+        if (cap <= 0) { cap = 1; }                                       // guard invalid cap
+        if (res < 0) { res = 0; }                                        // guard invalid count
 
-        _capacityByStart[start] = cap;
-        _reserveByStart[start] = res;
+        _capacityByStart[start] = cap;                                   // cache cap for start
+        _reserveByStart[start] = res;                                    // cache booked for start
 
-        i = i + 1;
+        i = i + 1;                                                       // move next
       }
     } catch (_) {}
 
-    if (mounted) {
-      setState(() {
-        _loadingSlotStats = false;
-      });
-    }
+    if (mounted) { setState(() { _loadingSlotStats = false; }); }        // hide loading
   }
 
-  // Auto-assign helper: find first seat that is NOT taken==true
+  // ------------------------------ auto-assign: find first seat not taken for a start ------------------------------
   Future<int?> _autoAssignSeatIndex(String start, int capacity) async {
-    final String key = start.replaceAll(':', '').padLeft(4, '0'); // "0800"
+    final String key = start.replaceAll(':', '').padLeft(4, '0');         // normalize to "HHmm"
 
     final qs = await FirebaseFirestore.instance
         .collection('Facilities').doc(widget.facilityId)
         .collection('Days').doc(widget.dateYMD)
         .collection('Slots').doc(key)
         .collection('Seats')
-        .get();
+        .get();                                                           // read all seat docs
 
-    final Set<int> hardTaken = <int>{};
+    final Set<int> hardTaken = <int>{};                                   // seats with taken==true
 
     for (final d in qs.docs) {
       final int? idx = int.tryParse(d.id);
@@ -437,90 +351,64 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         if (data.containsKey('taken')) {
           final dynamic t = data['taken'];
           if (t is bool) {
-            if (t == true) {
-              isTaken = true;
-            }
+            if (t == true) { isTaken = true; }
           }
         }
-        if (isTaken) {
-          hardTaken.add(idx);
-        }
+        if (isTaken) { hardTaken.add(idx); }                              // mark hard taken
       }
     }
 
     int i = 1;
     while (i <= capacity) {
-      if (!hardTaken.contains(i)) {
-        return i;
-      }
+      if (!hardTaken.contains(i)) { return i; }                           // pick first free
       i = i + 1;
     }
 
-    return null; // all seat docs are taken==true
+    return null;                                                          // no free seats
   }
 
-  // Prefetch auto seats with the CORRECT per-slot capacity
+  // ------------------------------ auto-assign: prefetch preview for each selected start ------------------------------
   Future<void> _prefetchAutoSeats() async {
-    setState(() {
-      _loadingAutoSeats = true;
-    });
-
+    setState(() { _loadingAutoSeats = true; });                           // show loading
     try {
       int i = 0;
       while (i < widget.startTimes.length) {
         final String s = widget.startTimes[i];
 
-        // Use per-slot capacity if we have it, else fallback to facility capacity
-        int cap = _facilityCapacity;
-        if (_capacityByStart.containsKey(s)) {
-          cap = _capacityByStart[s]!;
-        }
+        int cap = _facilityCapacity;                                      // fallback
+        if (_capacityByStart.containsKey(s)) { cap = _capacityByStart[s]!; }
 
-        final int? idx = await _autoAssignSeatIndex(s, cap);
-        _autoSeatByStart[s] = idx; // can be null
+        final int? idx = await _autoAssignSeatIndex(s, cap);              // preview seat index
+        _autoSeatByStart[s] = idx;                                        // can be null (full)
 
         i = i + 1;
       }
     } catch (_) {}
-
-    if (mounted) {
-      setState(() {
-        _loadingAutoSeats = false;
-      });
-    }
+    if (mounted) { setState(() { _loadingAutoSeats = false; }); }         // hide loading
   }
 
-  // Format to "hh:mm am/pm"
+  // ------------------------------ formatting: "HH:mm" -> "hh:mm am/pm" ------------------------------
   String _toAmPm(String hhmm) {
     final List<String> p = hhmm.split(':');
     int h = 0;
     int m = 0;
 
     if (p.isNotEmpty) {
-      final int? hh = int.tryParse(p[0]);
-      if (hh != null) {
-        h = hh;
-      }
+      final int? hh = int.tryParse(p[0]); if (hh != null) { h = hh; }
     }
-
     if (p.length > 1) {
-      final int? mm = int.tryParse(p[1]);
-      if (mm != null) {
-        m = mm;
-      }
+      final int? mm = int.tryParse(p[1]); if (mm != null) { m = mm; }
     }
 
     String suffix = 'am';
-    if (h >= 12) {
-      suffix = 'pm';
-    }
+    if (h >= 12) { suffix = 'pm'; }
 
     final String hh2 = h.toString().padLeft(2, '0');
     final String mm2 = m.toString().padLeft(2, '0');
     return '$hh2:$mm2 $suffix';
   }
 
-  // Pretty date
+  // ------------------------------ pretty date: "YYYY-MM-DD" -> "d Month yyyy" ------------------------------
   String _niceDate(String ymd) {
     try {
       final List<String> parts = ymd.split('-');
@@ -528,7 +416,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       final int m = int.parse(parts[1]);
       final int d = int.parse(parts[2]);
 
-      const List<String> months = [
+      const List<String> months = <String>[
         'January','February','March','April','May','June',
         'July','August','September','October','November','December'
       ];
@@ -539,86 +427,334 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     }
   }
 
-  // Confirm button handler
+  // ------------------------------ time utils: normalize "HH:mm" from variants ------------------------------
+  String _normalizeHHmm(String s) {
+    String txt = s.trim();
+    if (txt.contains(':')) {                                             // already HH:mm-ish
+      final List<String> p = txt.split(':');
+      String hh = '00';
+      String mm = '00';
+      if (p.isNotEmpty) { hh = p[0].padLeft(2, '0'); }
+      if (p.length > 1) { mm = p[1].padLeft(2, '0'); }
+      return '$hh:$mm';
+    } else {
+      if (txt.contains('.')) {                                           // allow HH.mm
+        txt = txt.replaceAll('.', ':');
+        return _normalizeHHmm(txt);
+      } else {
+        final String only = txt.replaceAll(' ', '');                     // allow HHmm
+        if (only.length >= 4) {
+          final String hh = only.substring(0, 2);
+          final String mm = only.substring(2, 4);
+          return '${hh.padLeft(2, '0')}:${mm.padLeft(2, '0')}';
+        } else {
+          return '00:00';                                                // safe fallback
+        }
+      }
+    }
+  }
+
+  // ------------------------------ time utils: "HH:mm" -> minutes since midnight ------------------------------
+  int _hmToMinutes(String s) {
+    final String norm = _normalizeHHmm(s);
+    final List<String> p = norm.split(':');
+    int h = 0;
+    int m = 0;
+
+    if (p.isNotEmpty) {
+      final int? hh = int.tryParse(p[0]); if (hh != null) { h = hh; }
+    }
+    if (p.length > 1) {
+      final int? mm = int.tryParse(p[1]); if (mm != null) { m = mm; }
+    }
+
+    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
+    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+
+    return h * 60 + m;
+  }
+
+  // ------------------------------ time utils: minutes -> "HH:mm" ------------------------------
+  String _minutesToHHmm(int mins) {
+    int h = mins ~/ 60;
+    int m = mins % 60;
+    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
+    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+    final String hh = h.toString().padLeft(2, '0');
+    final String mm = m.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
+  // ------------------------------ time utils: get end for start (facility template or +60m) ------------------------------
+  String _endForStartForConflict(String startHHmm) {
+    String end = _lookupEndFromFacilityByStart(startHHmm);               // try template
+    if (end.isEmpty) {
+      final int sM = _hmToMinutes(_normalizeHHmm(startHHmm));           // fallback +60
+      final int eM = sM + 60;
+      end = _minutesToHHmm(eM);
+    } else {
+      end = _normalizeHHmm(end);
+    }
+    return end;
+  }
+
+  // ------------------------------ time utils: overlap check [aStart,aEnd) vs [bStart,bEnd) ------------------------------
+  bool _rangesOverlap(int aStart, int aEnd, int bStart, int bEnd) {
+    if (aStart < bEnd) {
+      if (aEnd > bStart) { return true; } else { return false; }
+    } else {
+      return false;
+    }
+  }
+
+  // ------------------------------ text utils: "12:00 pm - 2:00 pm" ------------------------------
+  String _rangeText(String s, String e) {
+    return '${_toAmPm(s)} - ${_toAmPm(e)}';
+  }
+
+  // ------------------------------ facility helper: find end by start in customTimeSlots ------------------------------
+  String _lookupEndFromFacilityByStart(String start) {
+    String end = '';
+    if (_facility.containsKey('customTimeSlots')) {
+      final dynamic raw = _facility['customTimeSlots'];
+      if (raw is List) {
+        int i = 0;
+        while (i < raw.length) {
+          final dynamic item = raw[i];
+          if (item is Map<String, dynamic>) {
+            if (item.containsKey('start')) {
+              final dynamic st = item['start'];
+              if (st is String) {
+                final String stNorm = _normalizeHHmm(st);
+                final String want = _normalizeHHmm(start);
+                if (stNorm == want) {
+                  if (item.containsKey('end')) {
+                    final dynamic ed = item['end'];
+                    if (ed is String) { end = _normalizeHHmm(ed); }
+                  }
+                }
+              }
+            }
+          }
+          i = i + 1;
+        }
+      }
+    }
+    return end;
+  }
+
+  // ------------------------------ bookings: get user's bookings on same day (accepted + pending) ------------------------------
+  Future<List<Map<String, dynamic>>> _getMyBookingsSameDay() async {
+    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+    try {
+      if (_userId.isEmpty) { return out; }
+
+      final qs = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .where('userId', isEqualTo: _userId)
+          .where('bookingDate', isEqualTo: widget.dateYMD)
+          .get();                                                        // equality-only filters
+
+      for (final d in qs.docs) {
+        final Map<String, dynamic>? m = d.data();
+        if (m != null) {
+          String ap = '';
+          if (m.containsKey('approval')) {
+            final dynamic a = m['approval'];
+            if (a is String) { ap = a.toLowerCase().trim(); }
+          }
+          bool keep = false;
+          if (ap == 'accepted') { keep = true; } else { if (ap == 'pending') { keep = true; } }
+          if (keep) { out.add(m); }                                      // keep accepted/pending only
+        }
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  // ------------------------------ confirm: conflict reason vs existing bookings for a new start ------------------------------
+  String _conflictReasonForStart(List<Map<String, dynamic>> existing, String newStart) {
+    final String newS = _normalizeHHmm(newStart);                        // normalize start
+    final int newM = _hmToMinutes(newS);                                 // to minutes
+
+    int i = 0;
+    while (i < existing.length) {
+      final Map<String, dynamic> b = existing[i];
+
+      String s = '';
+      if (b.containsKey('start')) {
+        final dynamic st = b['start'];
+        if (st is String) { s = _normalizeHHmm(st); }
+      }
+      if (s.isEmpty) { i = i + 1; continue; }                            // skip invalid
+
+      String e = '';
+      if (b.containsKey('end')) {
+        final dynamic ed = b['end'];
+        if (ed is String) { e = _normalizeHHmm(ed); }
+      }
+      if (e.isEmpty) {
+        final String fromFac = _lookupEndFromFacilityByStart(s);
+        if (fromFac.isNotEmpty) { e = fromFac; }
+      }
+
+      final int sM = _hmToMinutes(s);
+      final int eM = e.isNotEmpty ? _hmToMinutes(e) : sM + 60;           // 60m default
+
+      if (newM == sM) {                                                  // same start
+        return 'You already have a booking ${_toAmPm(s)} - ${_toAmPm(e)}.';
+      }
+
+      if (newM > sM) {                                                   // inside interval
+        if (newM < eM) { return 'You already have a booking ${_toAmPm(s)} - ${_toAmPm(e)}.'; }
+      }
+
+      i = i + 1;
+    }
+    return '';                                                            // ok
+  }
+
+  // ------------------------------ confirm: tap handler to create bookings ------------------------------
   Future<void> _onConfirmPressed() async {
-    if (_saving) {
+    if (_saving) { return; }                                             // ignore double taps
+
+    if (_loadingFacility) {                                              // wait facility
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait, loading facility.')));
       return;
     }
 
-    // Make sure facility loaded
-    if (_loadingFacility) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please wait, loading facility...')),
-      );
-      return;
-    }
-
-    // Make sure slot stats loaded when we need them for auto-assign + approval
-    if (widget.autoAssign) {
+    if (widget.autoAssign) {                                             // need stats if auto + approval
       if (_requireApproval) {
         if (_loadingSlotStats) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Please wait, checking availability...')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait, checking availability.')));
           return;
         }
       }
     }
 
-    // Reason if approval is required
-    if (_requireApproval) {
+    if (_requireApproval) {                                              // reason required
       final String reason = _reasonCtrl.text.trim();
       if (reason.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please enter your reason')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter your reason')));
         return;
       }
     }
 
-    // Build final seat map for saving
+    // strict conflict checks
+    try {
+      final List<Map<String, dynamic>> existing = await _getMyBookingsSameDay();  // user's bookings for the day
+
+      int i = 0;
+      while (i < widget.startTimes.length) {
+        final String newStart = _normalizeHHmm(widget.startTimes[i]);    // normalize new start
+        final String newEnd = _endForStartForConflict(newStart);         // compute new end
+        final int newS = _hmToMinutes(newStart);
+        final int newE = _hmToMinutes(newEnd);
+
+        int j = 0;
+        while (j < existing.length) {
+          final Map<String, dynamic> b = existing[j];
+
+          String s = '';
+          if (b.containsKey('start')) {
+            final dynamic st = b['start'];
+            if (st is String) { s = _normalizeHHmm(st); }
+          }
+          if (s.isEmpty) { j = j + 1; continue; }
+
+          String e = '';
+          if (b.containsKey('end')) {
+            final dynamic ed = b['end'];
+            if (ed is String) { e = _normalizeHHmm(ed); }
+          }
+          if (e.isEmpty) {
+            final String fromFac = _lookupEndFromFacilityByStart(s);
+            if (fromFac.isNotEmpty) { e = _normalizeHHmm(fromFac); } else {
+              final int sM = _hmToMinutes(s);
+              e = _minutesToHHmm(sM + 60);
+            }
+          }
+
+          final int oldS = _hmToMinutes(s);
+          final int oldE = _hmToMinutes(e);
+
+          if (_rangesOverlap(newS, newE, oldS, oldE) == true) {          // overlap found
+            final String msg = 'Overlap with your existing booking ${_rangeText(s, e)}. '
+                'New request ${_rangeText(newStart, newEnd)} is not allowed.';
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg, style: TextStyle(fontSize: 13.sp))));
+            return;
+          }
+
+          j = j + 1;
+        }
+
+        i = i + 1;
+      }
+
+      // cross-check among new selections themselves
+      int a = 0;
+      while (a < widget.startTimes.length) {
+        final String aStart = _normalizeHHmm(widget.startTimes[a]);
+        final String aEnd = _endForStartForConflict(aStart);
+        final int aS = _hmToMinutes(aStart);
+        final int aE = _hmToMinutes(aEnd);
+
+        int bIdx = a + 1;
+        while (bIdx < widget.startTimes.length) {
+          final String bStart = _normalizeHHmm(widget.startTimes[bIdx]);
+          final String bEnd = _endForStartForConflict(bStart);
+          final int bS = _hmToMinutes(bStart);
+          final int bE = _hmToMinutes(bEnd);
+
+          if (_rangesOverlap(aS, aE, bS, bE) == true) {                  // overlap among picks
+            final String msg = 'Your selected times overlap: ${_rangeText(aStart, aEnd)} vs ${_rangeText(bStart, bEnd)}.';
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg, style: TextStyle(fontSize: 13.sp))));
+            return;
+          }
+
+          bIdx = bIdx + 1;
+        }
+
+        a = a + 1;
+      }
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not verify your other bookings. Try again.', style: TextStyle(fontSize: 13.sp))));
+      return;
+    }
+
+    // build seat picks to save
     final Map<String, int> seatByStart = <String, int>{};
 
     if (widget.autoAssign) {
       if (_requireApproval) {
-        // Auto-assign + approval: pre-pick a TEMP seat using SLOT capacity
+        // pre-pick a TEMP seat now using slot capacity
         int i = 0;
         while (i < widget.startTimes.length) {
           final String s = widget.startTimes[i];
 
-          // per-slot capacity preferred
           int cap = _facilityCapacity;
-          if (_capacityByStart.containsKey(s)) {
-            cap = _capacityByStart[s]!;
-          }
+          if (_capacityByStart.containsKey(s)) { cap = _capacityByStart[s]!; }
 
-          final int? idx = await _autoAssignSeatIndex(s, cap);
+          final int? idx = await _autoAssignSeatIndex(s, cap);           // preview seat index
           if (idx == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Time ${_toAmPm(s)} is full. Choose another.')),
-            );
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Time ${_toAmPm(s)} is full. Choose another.')));
             return;
           } else {
-            seatByStart[s] = idx;
+            seatByStart[s] = idx;                                        // keep temp seat
           }
           i = i + 1;
         }
       } else {
-        // Auto-assign + NO approval: the service will assign in transaction.
+        // no approval: transaction in service will assign during write
       }
     } else {
-      // Manual seat picks must exist for every start time
+      // manual picks must cover all starts
       if (widget.seatPicks == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please pick a seat for every time.')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
         return;
       }
-
       if (widget.seatPicks!.length != widget.startTimes.length) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please pick a seat for every time.')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
         return;
       }
 
@@ -627,60 +763,48 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         final String s = widget.startTimes[i];
         final int? idx = widget.seatPicks![s];
         if (idx == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Please pick a seat for every time.')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
           return;
         } else {
-          seatByStart[s] = idx;
+          seatByStart[s] = idx;                                          // keep manual seat
         }
         i = i + 1;
       }
     }
 
-    // Begin saving
-    setState(() {
-      _saving = true;
-    });
+    // start saving
+    setState(() { _saving = true; });                                     // lock button
 
     try {
-      String managerName = '';
-      if (_facility.containsKey('managerName')) {
-        final dynamic mn = _facility['managerName'];
-        if (mn is String) {
-          managerName = mn;
-        }
-      }
+      // optional manager name from facility
+      final String managerName = (_facility['managerName'] as String?) ?? '';
 
       int i = 0;
       while (i < widget.startTimes.length) {
         final String start = widget.startTimes[i];
+        final String slotKey = start.replaceAll(':', '').padLeft(4, '0'); // "HHmm"
 
-        final String slotKey = start.replaceAll(':', '').padLeft(4, '0');
-
+        // try end from template
         String end = '';
-        if (_facility.containsKey('customTimeSlots')) {
-          final dynamic raw = _facility['customTimeSlots'];
-          if (raw is List) {
-            int k = 0;
-            while (k < raw.length) {
-              final dynamic item = raw[k];
-              if (item is Map<String, dynamic>) {
-                final dynamic st = item['start'];
-                if (st is String) {
-                  if (st == start) {
-                    final dynamic ed = item['end'];
-                    if (ed is String) {
-                      end = ed;
-                    }
-                  }
+        final dynamic raw = _facility['customTimeSlots'];
+        if (raw is List) {
+          int k = 0;
+          while (k < raw.length) {
+            final dynamic item = raw[k];
+            if (item is Map<String, dynamic>) {
+              final dynamic st = item['start'];
+              if (st is String) {
+                if (st == start) {
+                  final dynamic ed = item['end'];
+                  if (ed is String) { end = ed; }
                 }
               }
-              k = k + 1;
             }
+            k = k + 1;
           }
         }
 
+        // base fields
         final Map<String, dynamic> bookingBase = <String, dynamic>{};
         bookingBase['userId'] = _userId;
         bookingBase['userName'] = _userName;
@@ -690,42 +814,33 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         bookingBase['facilityName'] = _facilityName;
         bookingBase['managerId'] = _managerId;
         bookingBase['managerName'] = managerName;
-        bookingBase['bookingDate'] = widget.dateYMD; // "YYYY-MM-DD"
-        bookingBase['slotKey'] = slotKey;           // "0800"
-        bookingBase['start'] = start;               // "HH:mm"
+        bookingBase['bookingDate'] = widget.dateYMD;
+        bookingBase['slotKey'] = slotKey;
+        bookingBase['start'] = start;
         bookingBase['rated'] = false;
-        if (end.isNotEmpty) {
-          bookingBase['end'] = end;
-        }
+        if (end.isNotEmpty) { bookingBase['end'] = end; }
         bookingBase['autoAssigned'] = widget.autoAssign;
         bookingBase['createdAt'] = FieldValue.serverTimestamp();
 
         if (_requireApproval) {
-          // ----------- PENDING PATH -----------
+          // pending path
           bookingBase['approval'] = 'pending';
           bookingBase['approvalReason'] = _reasonCtrl.text.trim();
           bookingBase['status'] = 'upcoming';
 
-          // seatIndex MUST be stored even when pending (manual or auto)
+          // seatIndex must be stored even when pending
           if (widget.autoAssign) {
             final int? tempSeat = seatByStart[start];
-            if (tempSeat != null) {
-              bookingBase['seatIndex'] = tempSeat;
-            }
+            if (tempSeat != null) { bookingBase['seatIndex'] = tempSeat; }
           } else {
             final int? manualSeat = seatByStart[start];
-            if (manualSeat != null) {
-              bookingBase['seatIndex'] = manualSeat;
-            }
+            if (manualSeat != null) { bookingBase['seatIndex'] = manualSeat; }
           }
 
-          // This writes Bookings + Days/Seats/{seatIndex} with taken:false
-          await BookingService.createBookingPending(
-            bookingBase: bookingBase,
-          );
+          await BookingService.createBookingPending(bookingBase: bookingBase); // write pending
 
         } else {
-          // ----------- ACCEPTED NOW PATH -----------
+          // accepted now path
           bookingBase['approval'] = 'accepted';
           bookingBase['status'] = 'upcoming';
 
@@ -735,10 +850,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
               dateYMD: widget.dateYMD,
               slotKey: slotKey,
               bookingBase: bookingBase,
-            );
-            // If you use phone notifications, schedule here for accepted only.
-            // PhoneNotifications.scheduleReminder(...);
-
+            ); // tx assigns seat
           } else {
             final int seatIdx = seatByStart[start]!;
             bookingBase['seatIndex'] = seatIdx;
@@ -749,9 +861,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
               slotKey: slotKey,
               seatIndex: seatIdx,
               bookingBase: bookingBase,
-            );
-            // If you use phone notifications, schedule here for accepted only.
-            // PhoneNotifications.scheduleReminder(...);
+            ); // tx reserves chosen seat
           }
         }
 
@@ -760,17 +870,11 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
       if (mounted) {
         String msg;
-        if (_requireApproval) {
-          msg = 'Request sent. An admin will review it.';
-        } else {
-          msg = 'Booking created';
-        }
+        if (_requireApproval) { msg = 'Request sent. An admin will review it.'; } else { msg = 'Booking created'; }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));   // show result
 
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushAndRemoveUntil(                                              // go to My Bookings
           context,
           MaterialPageRoute(builder: (_) => AndroidViewBooking()),
               (route) => false,
@@ -778,50 +882,29 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create booking: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to create booking: $e')));
       }
     }
 
-    if (mounted) {
-      setState(() {
-        _saving = false;
-      });
-    }
+    if (mounted) { setState(() { _saving = false; }); }                             // unlock button
   }
 
-  // Bottom bar switching
+  // ------------------------------ bottom bar: switch tab ------------------------------
   void _onTabSelected(int i) {
     if (i == 2) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => AndroidListOfFacilities()),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));    // go Facilities
     } else {
       if (i == 0) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => AndroidCalendar()),
-        );
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));            // go Agenda
       } else {
         if (i == 1) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => AndroidViewBooking()),
-          );
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));     // go My Bookings
         } else {
           if (i == 3) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => AndroidNotifications()),
-            );
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidNotifications())); // go Notifications
           } else {
             if (i == 4) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => AndroidAccount()),
-              );
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAccount()));     // go Account
             }
           }
         }
@@ -829,39 +912,24 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     }
   }
 
-  // Label:Value line (optionally colored)
+  // ------------------------------ UI helper: label:value line ------------------------------
   Widget _kvLine({required String label, required String value, Color? color}) {
-    Color labelColor = Colors.black;
-    if (color != null) {
-      labelColor = color;
-    }
-    Color valueColor = Colors.black87;
-    if (color != null) {
-      valueColor = color;
-    }
+    Color labelColor = color ?? Colors.black;
+    Color valueColor = color ?? Colors.black87;
 
     return Padding(
       padding: EdgeInsets.only(bottom: 6.h),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label: ',
-            style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: labelColor),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(fontSize: 13.sp, color: valueColor),
-              softWrap: true,
-            ),
-          ),
+        children: <Widget>[
+          Text('$label: ', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: labelColor)),
+          Expanded(child: Text(value, style: TextStyle(fontSize: 13.sp, color: valueColor), softWrap: true)),
         ],
       ),
     );
   }
 
-  // Grey box
+  // ------------------------------ UI helper: grey box ------------------------------
   Widget _box(String text) {
     return Container(
       width: 1.0.sw,
@@ -874,36 +942,31 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     );
   }
 
+  // ------------------------------ build ------------------------------
   @override
   Widget build(BuildContext context) {
-    final double barHeight = MediaQuery.of(context).size.height * 0.07;
-    final double sw = 1.0.sw;
+    final double barHeight = 0.07.sh;                                    // bottom bar height (responsive)
+    final double sw = 1.0.sw;                                            // screen width
 
+    // facility image child
     Widget imageChild;
     if (_facilityImagePath.isEmpty) {
-      imageChild = Center(
-        child: Icon(Icons.image_not_supported, size: 40.sp, color: Colors.white),
-      );
+      imageChild = Center(child: Icon(Icons.image_not_supported, size: 40.sp, color: Colors.white)); // show placeholder
     } else {
-      imageChild = Image.asset(_facilityImagePath, fit: BoxFit.cover);
+      imageChild = Image.asset(_facilityImagePath, fit: BoxFit.cover);                                 // show asset image
     }
 
+    // responsive image height
     double imgH = sw * 0.75;
-    if (imgH < 240.h) {
-      imgH = 240.h;
-    } else {
-      if (imgH > 420.h) {
-        imgH = 420.h;
-      }
-    }
+    if (imgH < 240.h) { imgH = 240.h; } else { if (imgH > 420.h) { imgH = 420.h; } }
 
-    // Build slot rows (seat preview + reserve stats)
+    // build time rows (seat preview + reserve stats)
     final List<Widget> timeRows = <Widget>[];
     int t = 0;
     while (t < widget.startTimes.length) {
       final String start = widget.startTimes[t];
 
-      // Seat preview text
+      // seat preview text
       String seatTxt = '-';
       if (widget.autoAssign) {
         if (_loadingAutoSeats) {
@@ -911,11 +974,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         } else {
           if (_autoSeatByStart.containsKey(start)) {
             final int? idx = _autoSeatByStart[start];
-            if (idx == null) {
-              seatTxt = 'Full';
-            } else {
-              seatTxt = 'Slot $idx';
-            }
+            if (idx == null) { seatTxt = 'Full'; } else { seatTxt = 'Slot $idx'; }
           } else {
             seatTxt = 'Checking...';
           }
@@ -923,100 +982,49 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       } else {
         if (widget.seatPicks != null) {
           final int? idx = widget.seatPicks![start];
-          if (idx == null) {
-            seatTxt = '-';
-          } else {
-            seatTxt = 'Slot $idx';
-          }
+          if (idx == null) { seatTxt = '-'; } else { seatTxt = 'Slot $idx'; }
         } else {
           seatTxt = '-';
         }
       }
-      timeRows.add(_kvLine(label: _toAmPm(start), value: seatTxt));
+      timeRows.add(_kvLine(label: _toAmPm(start), value: seatTxt));      // add seat line
 
-      // Reserve stats line
+      // reserve stats line
       int cap = _facilityCapacity;
-      if (_capacityByStart.containsKey(start)) {
-        cap = _capacityByStart[start]!;
-      }
+      if (_capacityByStart.containsKey(start)) { cap = _capacityByStart[start]!; }
       int res = 0;
-      if (_reserveByStart.containsKey(start)) {
-        res = _reserveByStart[start]!;
-      }
+      if (_reserveByStart.containsKey(start)) { res = _reserveByStart[start]!; }
 
       bool isFull = false;
-      if (res >= cap) {
-        isFull = true;
-      }
+      if (res >= cap) { isFull = true; }
 
       String statText = 'Taken: $res / $cap';
-      if (isFull) {
-        statText = 'Taken: $res / $cap (Full)';
-      }
+      if (isFull) { statText = 'Taken: $res / $cap (Full)'; }
 
-      Color? statColor;
-      if (isFull) {
-        statColor = Colors.red;
-      } else {
-        statColor = null;
-      }
+      Color? statColor = isFull ? Colors.red : null;
 
-      timeRows.add(_kvLine(label: 'Status', value: statText, color: statColor));
-      timeRows.add(SizedBox(height: 8.h));
-
+      timeRows.add(_kvLine(label: 'Status', value: statText, color: statColor));  // add status line
+      timeRows.add(SizedBox(height: 8.h));                                        // spacing
       t = t + 1;
     }
 
-    // Manager card prep
+    // manager card prep
     String managerName = '';
     String managerEmail = '';
     String managerContact = '';
     String managerAssetPath = '';
 
     if (_manager.isNotEmpty) {
-      if (_manager.containsKey('username')) {
-        final dynamic u = _manager['username'];
-        if (u is String) {
-          managerName = u;
-        }
-      }
-      if (managerName.isEmpty) {
-        if (_manager.containsKey('name')) {
-          final dynamic n = _manager['name'];
-          if (n is String) {
-            managerName = n;
-          }
-        }
-      }
+      managerName = (_manager['username'] as String?) ?? '';
+      if (managerName.isEmpty) { managerName = (_manager['name'] as String?) ?? ''; }
+      managerEmail = (_manager['email'] as String?) ?? '';
+      managerContact = (_manager['contact'] as String?) ?? '';
 
-      if (_manager.containsKey('email')) {
-        final dynamic e = _manager['email'];
-        if (e is String) {
-          managerEmail = e;
-        }
-      }
-
-      if (_manager.containsKey('contact')) {
-        final dynamic c = _manager['contact'];
-        if (c is String) {
-          managerContact = c;
-        }
-      }
-
-      String imgName = '';
-      if (_manager.containsKey('profileImageName')) {
-        final dynamic im = _manager['profileImageName'];
-        if (im is String) {
-          imgName = im.trim();
-        }
-      }
-      if (imgName.isNotEmpty) {
-        managerAssetPath = 'asset/image/$imgName';
-      } else {
-        managerAssetPath = '';
-      }
+      final String imgName = (_manager['profileImageName'] as String?)?.trim() ?? '';
+      managerAssetPath = imgName.isNotEmpty ? 'asset/image/$imgName' : '';
     }
 
+    // manager image
     Widget managerImage;
     if (managerAssetPath.isEmpty) {
       managerImage = Container(
@@ -1028,18 +1036,16 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       managerImage = Image.asset(managerAssetPath, fit: BoxFit.cover);
     }
 
-    // Approval UI
+    // approval UI group
     final List<Widget> approvalWidgets = <Widget>[];
     if (_requireApproval) {
-      approvalWidgets.add(
-        Text('Reason (required)', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
-      );
-      approvalWidgets.add(SizedBox(height: 6.h));
+      approvalWidgets.add(Text('Reason (required)', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700))); // label
+      approvalWidgets.add(SizedBox(height: 6.h));                                                                     // space
       approvalWidgets.add(
         Stack(
-          children: [
+          children: <Widget>[
             TextField(
-              controller: _reasonCtrl,
+              controller: _reasonCtrl,                                                                              // reason input
               maxLength: 99,
               maxLines: 3,
               decoration: InputDecoration(
@@ -1054,34 +1060,25 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
             Positioned(
               right: 10.w,
               bottom: 8.h,
-              child: Text(
-                '$_reasonLen/99',
-                style: TextStyle(fontSize: 12.sp, color: Colors.black54),
-              ),
+              child: Text('$_reasonLen/99', style: TextStyle(fontSize: 12.sp, color: Colors.black54)),               // live counter
             ),
           ],
         ),
       );
-      approvalWidgets.add(SizedBox(height: 18.h));
+      approvalWidgets.add(SizedBox(height: 18.h));                                                                   // space under
     }
 
-    // Body
+    // body content
     Widget bodyChild;
     if (_loadingFacility) {
-      bodyChild = Center(
-        child: SizedBox(
-          width: 28.w,
-          height: 28.w,
-          child: CircularProgressIndicator(),
-        ),
-      );
+      bodyChild = Center(child: SizedBox(width: 28.w, height: 28.w, child: CircularProgressIndicator()));            // loading
     } else {
       bodyChild = SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h).copyWith(bottom: 96.h),
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h).copyWith(bottom: 96.h),                      // scroll with bottom gap
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Facility image
+          children: <Widget>[
+            // facility image
             Container(
               width: 1.0.sw,
               height: imgH,
@@ -1095,12 +1092,13 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
             SizedBox(height: 16.h),
 
-            // Narrow content for readability
+            // narrow content
             SizedBox(
               width: 0.90.sw,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                children: <Widget>[
+                  // name
                   Text(
                     _facilityName,
                     style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700),
@@ -1110,12 +1108,14 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
                   SizedBox(height: 12.h),
 
+                  // date
                   Text('Date', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
                   _box(_niceDate(widget.dateYMD)),
 
                   SizedBox(height: 18.h),
 
+                  // start times & slot
                   Text('Start time(s) & slot', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
                   Container(
@@ -1133,18 +1133,21 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
                   SizedBox(height: 18.h),
 
+                  // location
                   Text('Location', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
                   _box(_location),
 
                   SizedBox(height: 18.h),
 
+                  // description
                   Text('Description', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
                   _box(_description),
 
                   SizedBox(height: 18.h),
 
+                  // user info
                   Text('Your info', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
                   Container(
@@ -1156,7 +1159,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                      children: <Widget>[
                         _kvLine(label: 'Username', value: _userName),
                         SizedBox(height: 6.h),
                         _kvLine(label: 'Email', value: _userEmail),
@@ -1168,59 +1171,52 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
                   SizedBox(height: 18.h),
 
+                  // approval reason block if required
                   ...approvalWidgets,
 
+                  // manager header
                   Text('Manager', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                   SizedBox(height: 6.h),
 
+                  // manager card
                   Builder(
                     builder: (context) {
-                      Widget managerCardChild;
                       if (_loadingManager) {
-                        managerCardChild = SizedBox(
-                          width: 28.w,
-                          height: 28.w,
-                          child: CircularProgressIndicator(),
-                        );
-                      } else {
-                        managerCardChild = Container(
-                          width: 1.0.sw,
-                          constraints: BoxConstraints(minHeight: 135.h),
-                          padding: EdgeInsets.all(10.w),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2CCFF),
-                            borderRadius: BorderRadius.circular(12.r),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8.r),
-                                child: SizedBox(
-                                  width: 110.w,
-                                  height: 110.w,
-                                  child: managerImage,
-                                ),
-                              ),
-                              SizedBox(width: 15.w),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _kvLine(label: 'Name', value: managerName),
-                                    SizedBox(height: 6.h),
-                                    _kvLine(label: 'Email', value: managerEmail),
-                                    SizedBox(height: 6.h),
-                                    _kvLine(label: 'Contact', value: managerContact),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
+                        return SizedBox(width: 28.w, height: 28.w, child: CircularProgressIndicator()); // manager loading
                       }
-                      return managerCardChild;
+
+                      return Container(
+                        width: 1.0.sw,
+                        constraints: BoxConstraints(minHeight: 135.h),
+                        padding: EdgeInsets.all(10.w),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2CCFF),
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8.r),
+                              child: SizedBox(width: 110.w, height: 110.w, child: managerImage), // image or placeholder
+                            ),
+                            SizedBox(width: 15.w),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  _kvLine(label: 'Name',   value: managerName),
+                                  SizedBox(height: 6.h),
+                                  _kvLine(label: 'Email',  value: managerEmail),
+                                  SizedBox(height: 6.h),
+                                  _kvLine(label: 'Contact',value: managerContact),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
                     },
                   ),
                 ],
@@ -1231,12 +1227,11 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       );
     }
 
-    // Button label without ternary
+    // button text without ternary
     String btnText = 'Confirm';
-    if (_saving) {
-      btnText = 'Saving...';
-    }
+    if (_saving) { btnText = 'Saving...'; }
 
+    // scaffold
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
@@ -1246,19 +1241,14 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           centerTitle: true,
           automaticallyImplyLeading: false,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: Colors.white, size: 22.sp),
-            onPressed: () {
-              Navigator.pop(context);
-            },
+            icon: Icon(Icons.arrow_back, color: Colors.white, size: 22.sp), // back
+            onPressed: () { Navigator.pop(context); },
             tooltip: 'Back',
           ),
-          title: Text(
-            'Confirmation',
-            style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600),
-          ),
-          actions: [
+          title: Text('Confirmation', style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w600)), // title
+          actions: <Widget>[
             IconButton(
-              icon: Icon(Icons.close, color: Colors.white, size: 22.sp),
+              icon: Icon(Icons.close, color: Colors.white, size: 22.sp), // close
               onPressed: () {
                 Navigator.pushAndRemoveUntil(
                   context,
@@ -1272,16 +1262,17 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         ),
       ),
 
-      body: bodyChild,
+      body: bodyChild,                                                    // main body
 
       bottomNavigationBar: BottomMenuBar(
-        height: barHeight,
-        currentIndex: _currentIndex,
-        onTabSelected: _onTabSelected,
+        height: barHeight,                                               // responsive height
+        currentIndex: _currentIndex,                                     // active tab
+        onTabSelected: _onTabSelected,                                   // switch tab
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat, // center bottom
       floatingActionButton: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16.w),
+        padding: EdgeInsets.symmetric(horizontal: 16.w),                 // side padding
         child: SizedBox(
           width: 1.0.sw,
           height: 48.h,
@@ -1294,13 +1285,10 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
               if (_saving) {
                 // ignore while saving
               } else {
-                _onConfirmPressed();
+                _onConfirmPressed();                                      // create bookings
               }
             },
-            child: Text(
-              btnText,
-              style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700, color: Colors.white),
-            ),
+            child: Text(btnText, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700, color: Colors.white)), // button text
           ),
         ),
       ),

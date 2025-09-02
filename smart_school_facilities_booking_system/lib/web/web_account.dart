@@ -351,6 +351,8 @@ class _AdminWebAccountState extends State<WebAccount> {
   /// Pick a time and save only if facility hours fit the new window.
   /// If conflicts exist, show a SnackBar and DO NOT change state or DB.
   Future<void> _pickTime({required bool isStart}) async {
+
+
     final TimeOfDay initial = isStart
         ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
         : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
@@ -398,6 +400,25 @@ class _AdminWebAccountState extends State<WebAccount> {
         return;
       }
 
+      // === NEW: also block if any existing booking is outside the new window ===
+      final List<String> bookingConflicts =
+      await _findBookingConflicts(newStartStr, newEndStr);
+
+      if (bookingConflicts.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'There are still booking out of the new working hour',
+                style: TextStyle(fontSize: 13.sp), // scale 1080x2400 nicely
+              ),
+            ),
+          );
+        }
+        return; // do not change start/end; keep old values
+      }
+
+
       // No conflicts -> apply to UI and save to Firestore
       setState(() {
         if (isStart) {
@@ -420,6 +441,10 @@ class _AdminWebAccountState extends State<WebAccount> {
       }
     });
   }
+
+
+
+
 
 
   Future<void> _saveSystemTimes() async {
@@ -632,6 +657,292 @@ class _AdminWebAccountState extends State<WebAccount> {
         .doc(userDocId)
         .set(<String, dynamic>{field: value}, SetOptions(merge: true));
   }
+
+
+  // ---------------------------------------------------------------------------
+// BOOKING TIME HELPERS (very simple + beginner style)
+// ---------------------------------------------------------------------------
+
+  /// read booking start/end time from many possible field names
+  /// return a map with 'start' and 'end' both as strings (can be empty)
+  Map<String, String> _readBookingTimes(Map<String, dynamic> m) {
+    // start and end as empty first
+    String s = '';
+    String e = '';
+
+    // 1) nested map case: { "time": { "start": "...", "end": "..." } }
+    if (m.containsKey('time')) {
+      if (m['time'] is Map<String, dynamic>) {
+        final Map<String, dynamic> tm = m['time'] as Map<String, dynamic>;
+        if (tm.containsKey('start')) {
+          if (tm['start'] is String) {
+            s = (tm['start'] as String).trim();
+          }
+        }
+        if (tm.containsKey('end')) {
+          if (tm['end'] is String) {
+            e = (tm['end'] as String).trim();
+          }
+        }
+      }
+    }
+
+    // 2) flat fields "start" and "end"
+    if (s.isEmpty) {
+      if (m.containsKey('start')) {
+        if (m['start'] is String) {
+          s = (m['start'] as String).trim();
+        }
+      }
+    }
+    if (e.isEmpty) {
+      if (m.containsKey('end')) {
+        if (m['end'] is String) {
+          e = (m['end'] as String).trim();
+        }
+      }
+    }
+
+    // 3) other common names "startTime" / "endTime"
+    if (s.isEmpty) {
+      if (m.containsKey('startTime')) {
+        if (m['startTime'] is String) {
+          s = (m['startTime'] as String).trim();
+        }
+      }
+    }
+    if (e.isEmpty) {
+      if (m.containsKey('endTime')) {
+        if (m['endTime'] is String) {
+          e = (m['endTime'] as String).trim();
+        }
+      }
+    }
+
+    // return whatever we found ("" is ok, means unknown)
+    return <String, String>{'start': s, 'end': e};
+  }
+
+  /// normalize a raw time like "13:30", "1330", "13.30", "7", "730"
+  /// to a strict "HH:mm" string so our _timeToMinutes() can parse it
+  String _normalizeToHHmm(String raw) {
+    if (raw.isEmpty) {
+      return '';
+    }
+
+    // make lower, trim spaces
+    String s = raw.toLowerCase().trim();
+
+    // unify separators (turn "." or "-" into ":")
+    s = s.replaceAll('.', ':');
+    s = s.replaceAll('-', ':');
+
+    // if already looks like H:MM or HH:MM -> split and pad
+    if (s.contains(':')) {
+      final List<String> p = s.split(':');
+      if (p.isNotEmpty) {
+        String hh = p[0].trim();
+        String mm = '00';
+        if (p.length > 1) {
+          mm = p[1].trim();
+        }
+        if (hh.isEmpty) {
+          hh = '0';
+        }
+        // pad HH and MM to 2 digits
+        int hNum = 0;
+        int mNum = 0;
+        try {
+          hNum = int.parse(hh);
+        } catch (_) {}
+        try {
+          mNum = int.parse(mm);
+        } catch (_) {}
+
+        if (hNum < 0) hNum = 0;
+        if (hNum > 23) hNum = 23;
+        if (mNum < 0) mNum = 0;
+        if (mNum > 59) mNum = 59;
+
+        final String outH = hNum.toString().padLeft(2, '0');
+        final String outM = mNum.toString().padLeft(2, '0');
+        return '$outH:$outM';
+      } else {
+        return '';
+      }
+    }
+
+    // no ":", keep only digits
+    final String digits = s.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return '';
+    }
+
+    // if length == 1 or 2 -> treat as hour only (minute = 00)
+    if (digits.length <= 2) {
+      int h = 0;
+      try {
+        h = int.parse(digits);
+      } catch (_) {}
+      if (h < 0) h = 0;
+      if (h > 23) h = 23;
+      return '${h.toString().padLeft(2, '0')}:00';
+    }
+
+    // if length >= 3 -> last two digits are minutes, the rest are hours
+    final String hh = digits.substring(0, digits.length - 2);
+    final String mm = digits.substring(digits.length - 2);
+
+    int hNum = 0;
+    int mNum = 0;
+    try {
+      hNum = int.parse(hh);
+    } catch (_) {}
+    try {
+      mNum = int.parse(mm);
+    } catch (_) {}
+
+    if (hNum < 0) hNum = 0;
+    if (hNum > 23) hNum = 23;
+    if (mNum < 0) mNum = 0;
+    if (mNum > 59) mNum = 59;
+
+    final String outH = hNum.toString().padLeft(2, '0');
+    final String outM = mNum.toString().padLeft(2, '0');
+    return '$outH:$outM';
+  }
+
+  /// safe convert any raw time into minutes since midnight by
+  /// 1) normalize to "HH:mm" then 2) reuse your _timeToMinutes()
+  int _safeMinutes(String raw) {
+    final String hhmm = _normalizeToHHmm(raw);
+    if (hhmm.isEmpty) {
+      return -1; // -1 means "cannot parse"
+    }
+    return _timeToMinutes(hhmm);
+  }
+
+  /// read bookingDate from the booking Map in a simple way
+  /// supports Firestore Timestamp or String "YYYY-MM-DD"
+  /// return DateTime? (null if cannot read)
+  DateTime? _readBookingDate(Map<String, dynamic> m) {
+    // try "bookingDate" first
+    if (m.containsKey('bookingDate')) {
+      final dynamic v = m['bookingDate'];
+
+      // if Timestamp (from cloud_firestore)
+      if (v is Timestamp) {
+        // convert to DateTime directly
+        return v.toDate();
+      }
+
+      // if String "YYYY-MM-DD"
+      if (v is String) {
+        final String s = v.trim();
+        if (s.isNotEmpty) {
+          try {
+            // expect "2025-08-31"
+            final List<String> p = s.split('-');
+            if (p.length == 3) {
+              final int y = int.parse(p[0]);
+              final int mo = int.parse(p[1]);
+              final int d = int.parse(p[2]);
+              return DateTime(y, mo, d);
+            }
+          } catch (_) {
+            // ignore parsing error
+          }
+        }
+      }
+    }
+
+    // if needed later, you can add more keys like "date"
+    // now we just return null to say "unknown"
+    return null;
+  }
+
+  /// check all docs inside "Bookings"
+  /// ignore bookings that are older than 8 days from today
+  /// if a booking start/end sits OUTSIDE newStart..newEnd window, we flag it
+  /// return a simple list of conflicting booking doc IDs
+  Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
+    // convert system "HH:mm" to minutes
+    final int sysStart = _timeToMinutes(newStart);
+    final int sysEnd = _timeToMinutes(newEnd);
+
+    // compute cutoff date: today at 00:00 minus 8 days
+    final DateTime now = DateTime.now();
+    final DateTime todayStart = DateTime(now.year, now.month, now.day);
+    final DateTime cutoff = todayStart.subtract(const Duration(days: 8));
+
+    // read bookings (simple: one shot get)
+    final QuerySnapshot<Map<String, dynamic>> qs =
+    await _firestore.collection('Bookings').get();
+
+    final List<String> conflicts = <String>[];
+
+    for (final doc in qs.docs) {
+      final Map<String, dynamic> m = doc.data();
+
+      // skip soft-deleted bookings
+      if (m.containsKey('deleted')) {
+        if (m['deleted'] is bool) {
+          if (m['deleted'] == true) {
+            continue;
+          }
+        }
+      }
+
+      // read and filter by bookingDate: ignore if older than 8 days
+      final DateTime? bDate = _readBookingDate(m);
+      if (bDate != null) {
+        final DateTime bStart = DateTime(bDate.year, bDate.month, bDate.day);
+        if (bStart.isBefore(cutoff)) {
+          // older than 8 days -> ignore this booking
+          continue;
+        }
+      } else {
+        // if no bookingDate is stored, you can choose to:
+        // 1) evaluate anyway, or 2) skip. We skip to be safe.
+        continue;
+      }
+
+      // read booking times
+      final Map<String, String> tt = _readBookingTimes(m);
+      final String sRaw = (tt['start'] ?? '').trim();
+      final String eRaw = (tt['end'] ?? '').trim();
+
+      if (sRaw.isEmpty) {
+        continue; // cannot evaluate
+      }
+      if (eRaw.isEmpty) {
+        continue; // cannot evaluate
+      }
+
+      // convert to minutes safely
+      final int bStartMin = _safeMinutes(sRaw);
+      final int bEndMin = _safeMinutes(eRaw);
+
+      if (bStartMin < 0) {
+        continue; // bad time format, ignore
+      }
+      if (bEndMin < 0) {
+        continue; // bad time format, ignore
+      }
+
+      // if booking falls outside new system working hour -> conflict
+      if (bStartMin < sysStart) {
+        conflicts.add(doc.id);
+      } else {
+        if (bEndMin > sysEnd) {
+          conflicts.add(doc.id);
+        }
+      }
+    }
+
+    return conflicts;
+  }
+
 
   // =========================================================================
   // UI
@@ -910,7 +1221,13 @@ class _AdminWebAccountState extends State<WebAccount> {
                             contentPadding: EdgeInsets.zero,
                             title: const Text("Use 24-Hour Format"),
                             value: use24HourFormat,
-                            onChanged: (bool? v) => _saveTimeFormat(v ?? true),
+                            onChanged: (bool? v) {
+                              bool val = true;
+                              if (v != null) {
+                                val = v;
+                              }
+                              _saveTimeFormat(val);
+                            },
                           ),
                         ],
                       ),

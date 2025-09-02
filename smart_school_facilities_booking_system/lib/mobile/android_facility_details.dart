@@ -4,8 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'android_bottom_menu.dart';
 
-// other pages (for bottom nav)
-import 'android_calendar.dart';
+import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
@@ -13,6 +12,9 @@ import 'android_list_of_facilities.dart';
 import 'android_rating_review.dart';
 import 'android_booking_date.dart';
 
+// ------------------------------
+// Widget: AndroidFacilityDetails
+// ------------------------------
 class AndroidFacilityDetails extends StatefulWidget {
   // incoming arguments from the list page
   final String facilityId;
@@ -30,11 +32,14 @@ class AndroidFacilityDetails extends StatefulWidget {
   State<AndroidFacilityDetails> createState() => _AndroidFacilityDetailsState();
 }
 
+// ------------------------------------
+// State: AndroidFacilityDetails (UI/UX)
+// ------------------------------------
 class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
   // keep Facilities tab selected
   int _currentIndex = 2;
 
-  // go back to list page
+  // go back to list page (or replace if no back stack)
   void _goToList() {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
@@ -46,12 +51,12 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-  // handle bottom menu taps
+  // handle bottom menu taps (keep logic identical)
   void _onTabSelected(int i) {
     if (i == 2) {
       _goToList();
     } else if (i == 0) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidCalendar()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
     } else if (i == 1) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidViewBooking()));
     } else if (i == 3) {
@@ -107,7 +112,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-// check if user's capacity fits facility requirement (max<=0 means unlimited)
+  // check if user's capacity fits facility requirement (max<=0 means unlimited)
   bool _fitsCapacity(int userCap, int reqCap, int maxCap) {
     bool withinMax;
     if (maxCap <= 0) {
@@ -127,7 +132,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-
+  // ----------------
+  // Build UI Content
+  // ----------------
   @override
   Widget build(BuildContext context) {
     // sizes for responsiveness
@@ -223,7 +230,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             }
           }
 
-
           // available time
           String start24 = '';
           String end24 = '';
@@ -318,12 +324,11 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             }
           }
 
-// user's requested capacity from previous page
+          // user's requested capacity from previous page
           final int userCap = widget.userCapacity;
 
-// does the user capacity fit this facility?
+          // does the user capacity fit this facility?
           final bool capacityOk = _fitsCapacity(userCap, reqCap, maxCap);
-
 
           // manager stream
           final Stream<DocumentSnapshot<Map<String, dynamic>>> mgrStream = FirebaseFirestore.instance
@@ -399,12 +404,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                         style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
                       ),
 
-                      // red warning when unavailable
+                      SizedBox(height: 12.h),
+
                       // red warning when unavailable
                       if (active == false) ...[
-                        SizedBox(height: 12.h),
-
-                        // build the message using inactiveReason (fallback if empty)
                         Builder(
                           builder: (_) {
                             String reasonMsg = '';
@@ -444,7 +447,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                           },
                         ),
                       ],
-
 
                       SizedBox(height: 18.h),
 
@@ -567,13 +569,12 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // check requireApproval from the facility doc (data comes from outer scope)
+                          // read requireApproval from facility doc
                           bool requireApproval = false;
                           if (data.containsKey('requireApproval')) {
                             if (data['requireApproval'] is bool) {
                               requireApproval = data['requireApproval'];
                             } else {
-                              // simple conversion if stored as string/number
                               final v = data['requireApproval'];
                               if (v is String) {
                                 if (v.toLowerCase() == 'true') {
@@ -591,18 +592,12 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // NOTE:
-                          // 'active' is already read above from the facility doc (outer scope).
-                          // If active == false -> we will NOT show the Book button.
-
                           // return the whole section
                           return Column(
                             children: [
-                              // manager info card
                               // manager info card (auto height so it never overflows)
                               Container(
                                 width: double.infinity,
-                                // let height grow; keep a comfortable minimum height
                                 constraints: BoxConstraints(minHeight: 135.h),
                                 padding: EdgeInsets.all(10.w),
                                 decoration: BoxDecoration(
@@ -610,10 +605,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                   borderRadius: BorderRadius.circular(12.r),
                                 ),
                                 child: Row(
-                                  // top-align so long texts add lines downward (no overflow)
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // left: image or grey placeholder (fixed box)
+                                    // left image or grey placeholder
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(8.r),
                                       child: SizedBox(
@@ -631,11 +625,11 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                                     SizedBox(width: 15.w),
 
-                                    // right: fields (let it wrap + grow)
+                                    // right info
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min, // only as tall as needed
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
                                           _kvLine(label: 'Name', value: username),
                                           SizedBox(height: 6.h),
@@ -649,10 +643,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                 ),
                               ),
 
-
                               SizedBox(height: 12.h),
 
-                              // show info box only if this facility needs approval
+                              // info box for required approval
                               if (requireApproval == true) ...[
                                 Container(
                                   width: double.infinity,
@@ -682,17 +675,14 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                 SizedBox(height: 16.h),
                               ],
 
-                              // Book button:
-                              // If active == true -> show button
-                              // If active == false -> do NOT show (hide)
+                              // Book button (hidden if inactive)
                               Builder(
                                 builder: (_) {
                                   if (active == true) {
                                     return SizedBox(
-                                      width: sw * 0.90, // 90% screen width
+                                      width: sw * 0.90,
                                       height: 48.h,
                                       child: ElevatedButton(
-                                        // grey out if capacity does not fit
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: capacityOk ? const Color(0xFF8620E5) : Colors.grey.shade400,
                                           shape: RoundedRectangleBorder(
@@ -700,17 +690,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                           ),
                                         ),
                                         onPressed: () {
-                                          // if capacity NOT OK -> show SnackBar and do nothing
+                                          // block when capacity doesn't meet facility min/max
                                           if (capacityOk == false) {
-                                            // build a friendly reason text
-                                            String right;
-                                            if (maxCap <= 0) {
-                                              right = 'Unlimited';
-                                            } else {
-                                              right = maxCap.toString();
-                                            }
                                             final String msg = 'Capacity does not meet requirement. ';
-
                                             ScaffoldMessenger.of(context).hideCurrentSnackBar();
                                             ScaffoldMessenger.of(context).showSnackBar(
                                               SnackBar(
@@ -721,13 +703,16 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                             return;
                                           }
 
-                                          // else OK -> proceed to booking date
-                                          Navigator.push(context, MaterialPageRoute(
-                                            builder: (_) => Booking_Date(
-                                              facilityId: widget.facilityId,
-                                              facilityName: name,
+                                          // navigate to booking date page
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => Booking_Date(
+                                                facilityId: widget.facilityId,
+                                                facilityName: name,
+                                              ),
                                             ),
-                                          ));
+                                          );
                                         },
                                         child: Text(
                                           "Book",
@@ -739,9 +724,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                         ),
                                       ),
                                     );
-
                                   } else {
-                                    // active == false -> return an empty box (no button displayed)
                                     return const SizedBox.shrink();
                                   }
                                 },
@@ -751,31 +734,24 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                         },
                       ),
 
-
-
                       SizedBox(height: 16.h),
 
-                      // ------------------------
-// Review summary (read-only)
-// Subcollection: Facilities/{facilityId}/Rating
-// Each doc should have a numeric field "rating" (1..5) and maybe "review" text
-// ------------------------
+                      // Review summary (read-only) from Facilities/{facilityId}/Rating
                       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        // listen to all rating docs for this facility
                         stream: FirebaseFirestore.instance
                             .collection('Facilities')
                             .doc(widget.facilityId)
                             .collection('Rating')
                             .snapshots(),
                         builder: (context, rateSnap) {
-                          // show spinner while loading
+                          // loader
                           if (rateSnap.connectionState == ConnectionState.waiting) {
                             return Center(
                               child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
                             );
                           }
 
-                          // count how many ratings + sum all rating values
+                          // accumulate ratings
                           int count = 0;
                           double total = 0.0;
 
@@ -786,7 +762,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             for (final d in docs) {
                               final Map<String, dynamic> r = d.data();
 
-                              // get "rating" value (int/double/string) in a safe way
                               if (r.containsKey('rating')) {
                                 final dynamic v = r['rating'];
                                 if (v is int) {
@@ -803,7 +778,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // compute average = total / count (if no rating -> 0.0)
+                          // compute average
                           double avg = 0.0;
                           if (count > 0) {
                             avg = total / count;
@@ -811,10 +786,8 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             avg = 0.0;
                           }
 
-                          // format average text with 1 decimal, e.g. "4.0"
+                          // format texts
                           String avgText = avg.toStringAsFixed(1);
-
-                          // build "x ratings" / "1 rating" label without ternary
                           String countLabel = '';
                           if (count == 1) {
                             countLabel = '1 rating';
@@ -822,7 +795,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             countLabel = '$count ratings';
                           }
 
-                          // UI card
+                          // render rating card
                           return Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 12.w),
@@ -834,41 +807,16 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                // title
-                                Text(
-                                  'Review',
-                                  style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700),
-                                ),
+                                Text('Review', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                                 SizedBox(height: 4.h),
-
-                                // subtitle
-                                Text(
-                                  'Overall rating',
-                                  style: TextStyle(fontSize: 13.sp, color: Colors.black54),
-                                ),
+                                Text('Overall rating', style: TextStyle(fontSize: 13.sp, color: Colors.black54)),
                                 SizedBox(height: 8.h),
-
-                                // big average number
-                                Text(
-                                  avgText,
-                                  style: TextStyle(fontSize: 28.sp, fontWeight: FontWeight.w700),
-                                ),
+                                Text(avgText, style: TextStyle(fontSize: 28.sp, fontWeight: FontWeight.w700)),
                                 SizedBox(height: 6.h),
-
-                                // 5 stars (read-only)
                                 _buildStars(avg),
-
                                 SizedBox(height: 6.h),
-
-                                // how many users rated
-                                Text(
-                                  countLabel,
-                                  style: TextStyle(fontSize: 12.5.sp, color: Colors.black87, fontWeight: FontWeight.w500),
-                                ),
-
+                                Text(countLabel, style: TextStyle(fontSize: 12.5.sp, color: Colors.black87, fontWeight: FontWeight.w500)),
                                 SizedBox(height: 10.h),
-
-                                // "View more" button (no action for now)
                                 SizedBox(
                                   height: 36.h,
                                   child: OutlinedButton(
@@ -878,12 +826,11 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                         MaterialPageRoute(
                                           builder: (_) => AndroidRatingReview(
                                             facilityId: widget.facilityId,
-                                            facilityName: name, // use the resolved facility name variable you already have
+                                            facilityName: name,
                                           ),
                                         ),
                                       );
                                     },
-
                                     child: Text('View more', style: TextStyle(fontSize: 14.sp)),
                                   ),
                                 ),
@@ -911,7 +858,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
   }
 }
 
-// small helper to render "Label: Value" so easier to write the value later no need repeat
+// ---------------------
+// UI Helper: Label:Value
+// ---------------------
 Widget _kvLine({required String label, required String value}) {
   return Padding(
     padding: EdgeInsets.only(bottom: 6.h),
@@ -933,28 +882,27 @@ Widget _kvLine({required String label, required String value}) {
               fontSize: 13.sp,
               color: Colors.black87,
             ),
-            softWrap: true, // wraps long text
+            softWrap: true,
           ),
         ),
       ],
     ),
   );
 }
-// build 5 stars based on average value (0.0 to 5.0). Read-only.
+
+// ---------------------------
+// UI Helper: Read-only Stars
+// ---------------------------
 Widget _buildStars(double avg) {
-  // list to hold 5 star icons
   final List<Widget> list = <Widget>[];
 
-  // loop from 1 to 5 to decide each star
   for (int i = 1; i <= 5; i++) {
     IconData icon;
 
-    // if avg >= i -> full star
     if (avg >= i) {
       icon = Icons.star;
     } else {
-      // else check if close enough for half star
-      double diff = i - avg; // example: i=4, avg=3.6 -> diff = 0.4 (half)
+      double diff = i - avg;
       if (diff <= 0.5) {
         icon = Icons.star_half;
       } else {
@@ -962,13 +910,12 @@ Widget _buildStars(double avg) {
       }
     }
 
-    list.add(Icon(icon, size: 22.sp, color: const Color(0xFFFFC107))); // yellow star
+    list.add(Icon(icon, size: 22.sp, color: const Color(0xFFFFC107)));
     if (i < 5) {
-      list.add(SizedBox(width: 2.w)); // small gap between stars
+      list.add(SizedBox(width: 2.w));
     }
   }
 
-  // center the stars row
   return Row(
     mainAxisAlignment: MainAxisAlignment.center,
     children: list,
