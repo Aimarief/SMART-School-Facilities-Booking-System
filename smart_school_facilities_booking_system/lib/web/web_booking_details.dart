@@ -1,12 +1,12 @@
 // web_booking_details.dart
 import 'dart:convert';
 import 'dart:typed_data';
-
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'web_edit_booking.dart';
-
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 
 class WebBookingDetails extends StatelessWidget {
@@ -44,7 +44,7 @@ class WebBookingDetails extends StatelessWidget {
                 maxLines: 6,          // becomes scrollable when longer
                 // wraps to next line when hitting the right edge
                 decoration: const InputDecoration(
-                  hintText: 'Write a short reason...',
+                  hintText: 'Write a short details',
                   // keep hint top-left
                   contentPadding: EdgeInsets.fromLTRB(12, 10, 12, 10),
                   isDense: true,
@@ -293,6 +293,20 @@ class WebBookingDetails extends StatelessWidget {
                           // ----- 1) close the DETAILS popup -----
                           Navigator.of(context).pop();
 
+                          String owner = '-';                                // default so it never crashes
+                          if (booking['userId'] != null &&
+                              booking['userId'].toString().trim().isNotEmpty) {
+                            owner = booking['userId'].toString().trim();     // most common key
+                          } else if (booking['uid'] != null &&
+                              booking['uid'].toString().trim().isNotEmpty) {
+                            owner = booking['uid'].toString().trim();        // alternate key
+                          } else if (booking['ownerId'] != null &&
+                              booking['ownerId'].toString().trim().isNotEmpty) {
+                            owner = booking['ownerId'].toString().trim();    // another possible key
+                          } else if (bookedByUid.trim().isNotEmpty) {
+                            owner = bookedByUid.trim();                      // fallback to actor who created
+                          }
+
                           // ----- 2) open the EDIT popup (this looks like the popup "changes" to Edit) -----
                           await openWebEditBookingDialog(
                             context: context,
@@ -301,6 +315,7 @@ class WebBookingDetails extends StatelessWidget {
                             facilityId: facilityId,
                             bookedByUid: bookedByUid,
                             managerUid: managerUid,
+                            userUid: owner,
                             dateYMD: ymd,
                             timeStart: startStr,
                             timeEnd: endStr,
@@ -338,17 +353,29 @@ class WebBookingDetails extends StatelessWidget {
       return;
     }
 
-    // Reason OPTIONAL for approve
-    final reason = await _askReasonDialog(
-      context,
-      title: 'Approve booking',
-
-    );
-    if (reason == null) return; // cancelled
+    final reason = await _askReasonDialog(context, title: 'Approve booking');
+    if (reason == null) return;
 
     final ok = await _busy(context, () async {
+      // 1) update booking + store reason
       await BookingService.approveBookingByIdTx(bookingId: bookingId);
       await _saveStatusReason(bookingId, reason);
+
+      // 2) send approval mail (type: approval_status)
+      final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
+      final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+      final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
+
+      await NotificationService.sendBookingApprovalMails(
+        bookingId: bookingId,
+        userId: userId,
+        bookedBy: actor,           // who clicked Approve
+        facilityId: facilityId,
+        managerId: managerId,
+        approval: 'accepted',
+        approvalReason: reason,
+      );
     });
 
     if (!ok) return;
@@ -362,16 +389,29 @@ class WebBookingDetails extends StatelessWidget {
       return;
     }
 
-    // Reason REQUIRED for reject
-    final reason = await _askReasonDialog(
-      context,
-      title: 'Reject booking',
-    );
-    if (reason == null) return; // cancelled
+    final reason = await _askReasonDialog(context, title: 'Reject booking');
+    if (reason == null) return;
 
     final ok = await _busy(context, () async {
+      // 1) update booking + store reason
       await BookingService.rejectBookingByIdSimple(bookingId: bookingId);
       await _saveStatusReason(bookingId, reason);
+
+      // 2) send approval mail (type: approval_status)
+      final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
+      final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+      final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
+
+      await NotificationService.sendBookingApprovalMails(
+        bookingId: bookingId,
+        userId: userId,
+        bookedBy: actor,           // who clicked Reject
+        facilityId: facilityId,
+        managerId: managerId,
+        approval: 'rejected',
+        approvalReason: reason,
+      );
     });
 
     if (!ok) return;
@@ -385,13 +425,57 @@ class WebBookingDetails extends StatelessWidget {
       _toast(context, 'Missing booking id to delete.');
       return;
     }
+
+    // pull IDs straight from the booking map
+    final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
+    final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
+    final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+    final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    // slot/seat (try to parse to int, default to -1 if not numeric)
+    final String seatRaw = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+    final int seatIndex  = int.tryParse(seatRaw) ?? -1;
+
+    // start/end time: prefer raw strings; if missing, format from DateTime
+    String startStr = _readFirstStr(booking, ['start','startTime','timeStart']);
+    String endStr   = _readFirstStr(booking, ['end','endTime','timeEnd']);
+    final DateTime? tStart = _readTime(booking, ['start','startTime','timeStart']);
+    final DateTime? tEnd   = _readTime(booking, ['end','endTime','timeEnd']);
+    String _fmtHHmm(DateTime d) => '${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';
+    if (startStr.isEmpty && tStart != null) startStr = _fmtHHmm(tStart);
+    if (endStr.isEmpty && tEnd != null)     endStr   = _fmtHHmm(tEnd);
+
+    // booking date as YYYY-MM-DD
+    final DateTime? d = _readBookingDate(booking);
+    String bookingDate = _readFirstStr(booking, ['bookingDate','date','bookDate','day']);
+    if ((bookingDate.trim().isEmpty) && d != null) {
+      bookingDate =
+      '${d.year.toString().padLeft(4,'0')}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+    }
+
     final ok = await _busy(context, () async {
+      // 1) delete it
       await BookingService.deleteAcceptedBookingByIdTx(bookingId: bookingId);
+
+      // 2) notify user, manager, and actor
+      await NotificationService.sendBookingDeletedMails(
+        bookingId: bookingId,
+        userId: userId,
+        bookedBy: actor,      // who performed the deletion
+        facilityId: facilityId,
+        managerId: managerId,
+        seatIndex: seatIndex,
+        start: startStr,
+        end: endStr,
+        bookingDate: bookingDate,
+      );
     });
+
     if (!ok) return;
     _toast(context, 'Booking deleted.');
     if (context.mounted) Navigator.of(context).pop();
   }
+
 
 // 1) Make _busy return success/failure
   Future<bool> _busy(BuildContext context, Future<void> Function() task) async {

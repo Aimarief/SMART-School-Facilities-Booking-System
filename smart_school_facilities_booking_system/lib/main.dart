@@ -17,13 +17,17 @@ import 'mobile/android_login.dart';
 import 'mobile/android_list_of_facilities.dart';
 
 import 'web/web_login.dart';
-import 'web/manager_web_homepage.dart';
+
 import 'web/web_account.dart';
 import 'web/web_facilities.dart';
 import 'web/web_list_manager.dart';
-import 'package:smart_school_facilities_booking_system/web/admin_web_homepage.dart';
+import 'package:smart_school_facilities_booking_system/web/web_homepage.dart';
 import 'web/web_booking_list.dart';
 import 'web/web_booking.dart';
+import 'web/web_notification.dart';
+import 'dart:async';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // not strictly needed here
+import 'local_notify.dart'; // <-- add this
 
 class UserRoleCache {
   static String? role;
@@ -43,6 +47,38 @@ class GoRouterRefreshStream extends ChangeNotifier {
   }
 }
 
+// Keep a single plugin instance
+final FlutterLocalNotificationsPlugin localNotifications =
+FlutterLocalNotificationsPlugin();
+
+// Call this during startup
+Future<void> initLocalNotifications() async {
+  // Android init (icon should exist in mipmap)
+  const AndroidInitializationSettings androidInit =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initSettings =
+  InitializationSettings(android: androidInit);
+
+  await localNotifications.initialize(initSettings);
+
+  // Create a high-importance channel (Android 8+)
+  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+    'inbox_updates',                // <-- reuse this id later
+    'Inbox Updates',
+    description: 'Booking & approval alerts',
+    importance: Importance.max,     // heads-up on Android 12
+  );
+
+  final androidImpl = localNotifications
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+  await androidImpl?.createNotificationChannel(channel);
+
+  // Optional: on Android 13+ this will show the permission prompt; on 12 it no-ops.
+  await androidImpl?.requestNotificationsPermission();
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -51,9 +87,17 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+
+  if (!kIsWeb) {
+    await LocalNotify.init(); // <-- add this
+  }
   // Optional but nice on Web: keep auth after refresh/close
   if (kIsWeb) {
     await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+  }
+
+  if (!kIsWeb) {
+    await initLocalNotifications();
   }
 
   runApp(const MyApp());
@@ -69,9 +113,184 @@ class _MyAppState extends State<MyApp> {
   late final GoRouter _router;
   late final VoidCallback _routeListener;
 
+  StreamSubscription<User?>? _authSub; // <-- add
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _inboxSub; // <-- add
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _settingsSub; // NEW
+
+  // Store current settings in memory
+  bool _notifAll = true;
+  bool _notifApprovalBook = true;
+  bool _notifNewBook = true;
+  bool _notifReminder = true;
+  bool _notifUpdatedBook = true;
+
+  // ===============================================================
+// LAST-SEEN HELPERS (store single timestamp on the user document)
+// ===============================================================
+
+// read "inboxLastSeen"; if missing, create it as "now" so old backlog is ignored
+  Future<Timestamp> _readOrInitLastSeenFS(String uid) async {
+    // point to user doc path
+    final docRef = FirebaseFirestore.instance.collection('UserInformation').doc(uid);
+
+    // read user doc once
+    final snap = await docRef.get();
+
+    // if doc exists and has "inboxLastSeen" as Timestamp => return it
+    if (snap.exists == true) {
+      final data = snap.data();
+      if (data != null && data.containsKey('inboxLastSeen') && data['inboxLastSeen'] is Timestamp) {
+        return data['inboxLastSeen'] as Timestamp;
+      }
+    }
+
+    // first time: write "now" so we won't notify old items
+    final now = Timestamp.now();
+    await docRef.set({'inboxLastSeen': now}, SetOptions(merge: true));
+
+    // return the "now" we just saved
+    return now;
+  }
+
+// write newest lastSeen after we processed new docs
+  Future<void> _writeLastSeenFS(String uid, Timestamp ts) async {
+    // point to user doc path
+    final docRef = FirebaseFirestore.instance.collection('UserInformation').doc(uid);
+
+    // merge to avoid overwriting other fields
+    await docRef.set({'inboxLastSeen': ts}, SetOptions(merge: true));
+  }
+
+// start inbox listener that only pulls docs newer than lastSeen
+  Future<void> _startInboxListenerFS(User user) async {
+    // stop any previous listener to avoid duplicates
+    _inboxSub?.cancel();
+
+    // read or create "last seen" once at start
+    final Timestamp lastSeenAtStart = await _readOrInitLastSeenFS(user.uid);
+
+    // query: only items with createdAt > lastSeen, sorted by createdAt
+    final Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+        .collection('UserInformation')
+        .doc(user.uid)
+        .collection('Inbox')
+        .where('createdAt', isGreaterThan: lastSeenAtStart)  // only new ones
+        .orderBy('createdAt');                               // sort by time
+
+    // listen to changes from Firestore
+    _inboxSub = q.snapshots().listen((qs) async {
+      // keep track of the newest time we processed this round
+      Timestamp newest = lastSeenAtStart;
+
+      // go through only "added" docs (new docs)
+      for (final c in qs.docChanges) {
+        if (c.type != DocumentChangeType.added) {
+          // skip modified/removed; we only show popup for new
+          continue;
+        }
+
+        // get doc map
+        final m = c.doc.data();
+        if (m == null) {
+          // skip safety
+          continue;
+        }
+
+        // if user already read it, we skip popup
+        if (m['isRead'] == true) {
+          continue;
+        }
+
+        // master switch off => skip all
+        if (_notifAll == false) {
+          continue;
+        }
+
+        // read createdAt safely
+        Timestamp createdAt = Timestamp.now(); // fallback value
+        final any = m['createdAt'];
+        if (any is Timestamp) {
+          createdAt = any;
+        }
+
+        // read basic fields for title/body decisions
+        final String type = (m['type'] ?? '').toString();
+        final String facility =
+        (m['facilityName'] ?? m['facility'] ?? 'SMART booking').toString();
+        final String approval =
+        (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
+
+        // build title + body in basic if/else style
+        String title;
+        String body = facility;
+
+        if (type == 'booking_created') {
+          if (_notifNewBook == false) { continue; }
+          if (approval == 'pending') { continue; }
+          title = 'Booked successfully';
+        } else if (type == 'booking_updated') {
+          if (_notifUpdatedBook == false) { continue; }
+          title = 'Booking updated';
+        } else if (type == 'approval_status') {
+          if (_notifApprovalBook == false) { continue; }
+          if (approval.contains('accept') || approval.contains('approv')) {
+            title = 'Facility approved';
+          } else if (approval.contains('reject') || approval.contains('declin') || approval.contains('deni')) {
+            title = 'Facility rejected';
+          } else {
+            title = 'Booking updated';
+          }
+        } else if (type == 'reminder') {
+          if (_notifReminder == false) { continue; }
+          title = 'Booking reminder';
+        } else if (type == 'request_update') {
+          title = 'Action needed';
+          final String date = (m['bookingDate'] ?? '').toString().trim();
+          final String facName = (m['facilityName'] ?? '').toString().trim();
+          if (facName.isNotEmpty && date.isNotEmpty) {
+            body = '$facName • $date — please change booking date';
+          } else if (date.isNotEmpty) {
+            body = 'Please change your booking date: $date';
+          } else {
+            body = 'Please change your booking date';
+          }
+        } else if (type == 'booking_deleted') {
+          if (_notifReminder == false) { continue; }
+          title = 'Your booking have been deleted';
+        } else {
+          title = 'Notification';
+          final String msg = (m['message'] ?? '').toString().trim();
+          if (msg.isNotEmpty) {
+            body = msg;
+          }
+        }
+
+        // show local popup (mobile only; you already wrap this whole flow in !kIsWeb)
+        LocalNotify.show(
+          id: c.doc.id.hashCode & 0x7fffffff,
+          title: title,
+          body: body,
+        );
+
+        // remember the newest createdAt seen
+        if (createdAt.compareTo(newest) > 0) {
+          newest = createdAt;
+        }
+      }
+
+      // after batch, bump lastSeen if we saw newer items
+      if (newest.compareTo(lastSeenAtStart) > 0) {
+        await _writeLastSeenFS(user.uid, newest);
+      }
+    });
+  }
+
+
   @override
   void initState() {
     super.initState();
+
+
 
     _router = GoRouter(
       refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
@@ -84,8 +303,8 @@ class _MyAppState extends State<MyApp> {
         } else {
           if (isLoggingIn) {
             final role = UserRoleCache.role ?? '';
-            if (role == 'Admin') return '/admin';
-            if (role == 'Manager') return '/manager';
+            if (role == 'Admin') return '/homepage';
+            if (role == 'Manager') return '/homepage';
             return '/login';
           }
           return null;
@@ -100,19 +319,13 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
         GoRoute(
-          path: '/admin',
+          path: '/homepage',
           pageBuilder: (context, state) => MaterialPage<void>(
             key: state.pageKey,
-            child: AdminWebHomepage(),
+            child: Homepage(),
           ),
         ),
-        GoRoute(
-          path: '/manager',
-          pageBuilder: (context, state) => MaterialPage<void>(
-            key: state.pageKey,
-            child: ManagerWebHomepage(),
-          ),
-        ),
+
         GoRoute(
           path: '/webaccount',
           pageBuilder: (context, state) => MaterialPage<void>(
@@ -155,6 +368,13 @@ class _MyAppState extends State<MyApp> {
             child:WebBooking(),
           ),
         ),
+        GoRoute(
+          path: '/webnotification',
+          pageBuilder: (context, state) => MaterialPage<void>(
+            key: state.pageKey,
+            child:WebNotification(),
+          ),
+        ),
       ],
     );
 
@@ -171,13 +391,48 @@ class _MyAppState extends State<MyApp> {
       }
     };
     _router.routerDelegate.addListener(_routeListener);
+
+    if (!kIsWeb) {
+      _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+        // cancel old listeners
+        _inboxSub?.cancel();
+        _settingsSub?.cancel();
+
+        if (user == null) return;
+
+        // --- listen to settings ---
+        _settingsSub = FirebaseFirestore.instance
+            .collection('UserInformation')
+            .doc(user.uid)
+            .snapshots()
+            .listen((doc) {
+          if (!doc.exists) return;
+          final data = doc.data() ?? {};
+          _notifAll = data['notifAll'] ?? true;
+          _notifApprovalBook = data['notifApprovalBook'] ?? true;
+          _notifNewBook = data['notifNewBook'] ?? true;
+          _notifReminder = data['notifReminder'] ?? true;
+          _notifUpdatedBook = data['notifUpdatedBook'] ?? true;
+        });
+
+        // --- listen to inbox (new-only using "inboxLastSeen") ---
+        _startInboxListenerFS(user); // starts the filtered stream and updates lastSeen after processing
+
+      });
+
+    }
   }
 
   @override
   void dispose() {
     _router.routerDelegate.removeListener(_routeListener);
+    _inboxSub?.cancel();
+    _authSub?.cancel();
+    _settingsSub?.cancel(); // NEW
     super.dispose();
   }
+
+
 
   @override
   Widget build(BuildContext context) {

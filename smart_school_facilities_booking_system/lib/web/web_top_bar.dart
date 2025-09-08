@@ -169,7 +169,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
       items.addAll([
         _menuItem("Calendar", () {
           Navigator.of(context).pop();
-          context.go('/calendar');
+          context.go('/homepage');
         }),
         SizedBox(height: 35.h),
         _menuItem("Booking List", () {
@@ -207,7 +207,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
       items.addAll([
         _menuItem("Calendar", () {
           Navigator.of(context).pop();
-          context.go('/calendar');
+          context.go('/homepage');
         }),
         SizedBox(height: 35.h),
         _menuItem("Booking List", () {
@@ -313,7 +313,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
           Row(
             children: [
               GestureDetector(
-                onTap: () => context.go('/notifications'),
+                onTap: () => context.go('/webnotification'),
                 child: Icon(
                   Icons.notifications,
                   size: 40.w,

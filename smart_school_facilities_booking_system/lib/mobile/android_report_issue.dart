@@ -396,46 +396,54 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
       // read name/mail from cached header
       final Map<String, String> header = await _headerFuture;
 
-      // extract safe username without ??/?: usage
       String name = "-";
       if (header.containsKey("username")) {
         final String? maybeName = header["username"];
-        if (maybeName != null) {
-          if (maybeName.isNotEmpty) {
-            name = maybeName;
-          }
+        if (maybeName != null && maybeName.isNotEmpty) {
+          name = maybeName;
         }
       }
 
-      // extract safe email without ??/?: usage
       String mail = "-";
       if (header.containsKey("email")) {
         final String? maybeMail = header["email"];
-        if (maybeMail != null) {
-          if (maybeMail.isNotEmpty) {
-            mail = maybeMail;
-          }
+        if (maybeMail != null && maybeMail.isNotEmpty) {
+          mail = maybeMail;
         }
       }
 
-      // build Firestore payload
-      final Map<String, dynamic> payload = {
-        "username": name,
-        "email": mail,
-        "issueTitle": t,
-        "description": d,
-        "submittedAt": FieldValue.serverTimestamp(),
-      };
+      // send to all Admin users' inbox
+      final admins = await FirebaseFirestore.instance
+          .collection("UserInformation")
+          .where("role", isEqualTo: "Admin")
+          .get();
 
-      // attach base64 only when preview exists
-      if (_pendingBase64 != null) {
-        if (_pendingBase64!.isNotEmpty) {
-          payload["imageBase64"] = _pendingBase64;
-        }
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final admin in admins.docs) {
+        final inboxRef = FirebaseFirestore.instance
+            .collection("UserInformation")
+            .doc(admin.id)
+            .collection("Inbox")
+            .doc();
+
+        batch.set(inboxRef, {
+          "type": "system_issue",                       // use lower-case consistently
+          "title": t,                                   // issue title
+          "message": d,                                 // description
+          "username": name,
+          "email": mail,
+          "createdBy": FirebaseAuth.instance.currentUser?.uid ?? "",
+          "recipientId": admin.id,                      // <-- REQUIRED so _canSee() passes
+          "createdAt": FieldValue.serverTimestamp(),    // <-- REQUIRED so your list/query can sort & group
+          "submittedAt": FieldValue.serverTimestamp(),  // optional: keep if you still want this
+          "imageBase64": _pendingBase64 ?? "",
+          "isRead": false,
+        });
+
       }
 
-      // write to SystemIssues collection
-      await FirebaseFirestore.instance.collection("SystemIssues").add(payload);
+      await batch.commit();
 
       // clear inputs + counters + image preview
       _titleCtrl.clear();
@@ -447,10 +455,10 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
         _pendingBase64 = null;
       });
 
-      // success toast
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Issue submitted", style: TextStyle(fontSize: 12.sp))),
       );
+
     } catch (_) {
       // failure toast
       ScaffoldMessenger.of(context).showSnackBar(

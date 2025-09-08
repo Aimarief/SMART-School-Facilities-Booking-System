@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'web_top_bar.dart';
 import 'web_booking_details.dart';
+import 'package:smart_school_facilities_booking_system/notification_service.dart'; // <-- add this
+
 
 class BookingList extends StatefulWidget {
   const BookingList({Key? key}) : super(key: key);
@@ -102,17 +104,19 @@ class _BookingListState extends State<BookingList> {
     if (r == 'manager' && uid != null) {
       s = FirebaseFirestore.instance
           .collection('Bookings')
-          .where('managerId', isEqualTo: uid)   // <-- compare by uid
-          .snapshots();                         // no orderBy to avoid index requirement
+          .where('managerId', isEqualTo: uid)
+          .where('deleted', isEqualTo: false) // ⬅️ optional
+          .snapshots();
     } else {
-      // admin or others: see everything
       s = FirebaseFirestore.instance
           .collection('Bookings')
+          .where('deleted', isEqualTo: false) // ⬅️ optional
           .snapshots();
     }
 
     setState(() => _bookingsStream = s);
   }
+
   DateTime _readCreatedAt(Map<String, dynamic> m) {
     final v = m['createdAt'];
     if (v is Timestamp) return v.toDate();
@@ -293,8 +297,7 @@ class _BookingListState extends State<BookingList> {
         final bookDate = _readBookingDate(m);
         if (bookDate == null) continue;
 
-        final bookDayStart =
-        DateTime(bookDate.year, bookDate.month, bookDate.day);
+        final bookDayStart = DateTime(bookDate.year, bookDate.month, bookDate.day);
         bool shouldReject = false;
 
         if (bookDayStart.isBefore(todayStart)) {
@@ -302,23 +305,46 @@ class _BookingListState extends State<BookingList> {
         } else if (_isSameYMD(bookDate, now)) {
           final tStart = _readTime(m, ['start', 'startTime', 'timeStart']);
           if (tStart != null) {
-            final startDT = DateTime(bookDate.year, bookDate.month, bookDate.day,
-                tStart.hour, tStart.minute, tStart.second);
+            final startDT = DateTime(
+              bookDate.year, bookDate.month, bookDate.day,
+              tStart.hour, tStart.minute, tStart.second,
+            );
             if (!now.isBefore(startDT)) shouldReject = true;
           }
         }
 
         if (shouldReject) {
-          final currAppr =
-          _readLowerStr(m, ['approval', 'approve', 'approvalStatus']);
+          final currAppr = _readLowerStr(m, ['approval', 'approve', 'approvalStatus']);
           if (currAppr != 'rejected') {
+            // 1) flip Firestore fields to rejected
             await doc.reference.update({
               'approval': 'rejected',
               'approvalStatus': 'rejected',
             });
+
+            // 2) send approval_status (hardcoded rejected)
+            try {
+              final String bookingId  = doc.id;
+              final String userId     = _readFirstStr(m, ['uid','userId','bookedByUid','bookedById','bookedBy']);
+              final String bookedBy   = _readFirstStr(m, ['createdBy','creatorUid','creatorId','bookedBy','bookedByUid','userId','uid']);
+              final String facilityId = _readFirstStr(m, ['facilityId','facilityID','facilityDocId','facility_id']);
+              final String managerId  = _readFirstStr(m, ['managerId','managerUID','managerUid']);
+
+              await NotificationService.sendBookingApprovalMails(
+                bookingId: bookingId,
+                userId: userId,
+                bookedBy: bookedBy.isNotEmpty ? bookedBy : userId,
+                facilityId: facilityId,
+                managerId: managerId,
+                approval: 'rejected', // <-- hardcoded
+              );
+            } catch (e) {
+              debugPrint('notify auto-reject failed: $e');
+            }
           }
         }
       }
+
     } catch (e) {
       debugPrint('housekeeping error: $e');
     }

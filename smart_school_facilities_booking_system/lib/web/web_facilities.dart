@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'web_top_bar.dart';
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 
 class WebFacilities extends StatefulWidget {
   const WebFacilities({Key? key}) : super(key: key);
@@ -56,6 +57,8 @@ class _WebFacilitiesState extends State<WebFacilities> {
       _facInitial = 'view';
     });
   }
+
+
 
   @override
   void dispose() {
@@ -582,6 +585,99 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       return {'start': start, 'end': end};
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<void> _notifyBookingsInDisabledRange({
+    required String facilityId,  // facility doc id
+    required DateTime startDay,  // range start (00:00)
+    required DateTime endDay,    // range end (23:59:59.999)
+  }) async {
+    try {
+      // 1) read all bookings for this facility (simple, then filter in memory)
+      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .where('facilityId', isEqualTo: facilityId)
+          .get();
+
+      // 2) loop every booking and decide if we should notify the user
+      for (final doc in qs.docs) {
+        final Map<String, dynamic> m = doc.data();
+
+        // ignore soft-deleted bookings
+        if (m.containsKey('deleted')) {
+          if (m['deleted'] is bool) {
+            if (m['deleted'] == true) {
+              continue;
+            }
+          }
+        }
+
+        // ignore status = ended
+        String statusStr = '';
+        if (m.containsKey('status') && m['status'] != null) {
+          statusStr = m['status'].toString().toLowerCase().trim();
+        }
+        if (statusStr == 'ended') {
+          continue;
+        }
+
+        // read booking date (supports Timestamp or "YYYY-MM-DD")
+        final DateTime? bd = _readBookingDate(m);
+        if (bd == null) continue;
+
+        // compare by date only
+        final DateTime only = DateTime(bd.year, bd.month, bd.day);
+        if (only.isBefore(startDay)) continue;
+        if (only.isAfter(endDay)) continue;
+
+        // ignore approval = rejected
+        final String approval = _readApprovalLower(m);
+        if (approval == 'rejected') continue;
+
+        // read userId (several possible keys)
+        String userId = '';
+        if (m.containsKey('userId') && m['userId'] != null) {
+          userId = m['userId'].toString().trim();
+        } else if (m.containsKey('bookBy') && m['bookBy'] != null) {
+          userId = m['bookBy'].toString().trim();
+        } else if (m.containsKey('bookedBy') && m['bookedBy'] != null) {
+          userId = m['bookedBy'].toString().trim();
+        }
+        if (userId.isEmpty) continue; // nothing to notify
+
+        // seatIndex (int; default 0 if missing)
+        int seatIndex = 0;
+        if (m.containsKey('seatIndex') && m['seatIndex'] != null) {
+          final int? si = int.tryParse(m['seatIndex'].toString());
+          if (si != null) seatIndex = si;
+        }
+
+        // start/end in "HH:MM" (try to parse minutes or "HH:MM"/"HH:MM AM/PM")
+        String startStr = '-';
+        if (m.containsKey('start') && m['start'] != null) {
+          final int min = _parseToMinutes(m['start']);
+          if (min >= 0) startStr = _showHHMM(min);
+        }
+        String endStr = '-';
+        if (m.containsKey('end') && m['end'] != null) {
+          final int min = _parseToMinutes(m['end']);
+          if (min >= 0) endStr = _showHHMM(min);
+        }
+
+        // send to inbox (ONLY user)
+        await NotificationService.sendRequestUpdateMails(
+          bookingId: doc.id,
+          userId: userId,
+          seatIndex: seatIndex,
+          start: startStr,
+          end: endStr,
+          facilityId: facilityId,
+          bookingDate: _fmtDate(only), // "YYYY-MM-DD"
+        );
+      }
+    } catch (_) {
+      // be silent here; disable still goes through even if notification fails
     }
   }
 
@@ -1290,25 +1386,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         return;
       }
 
-      // ADD THIS: block if any booking in range is not "rejected"
-      if (widget.selectedFacilityId != null) {
-        final bool blocked = await _hasBlockingBookingsForDisable(
-          facilityId: widget.selectedFacilityId!,
-          startDay: startDay,
-          endDay: endDay,
-        );
-        if (blocked) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'There is booking in the disabled date range (only "rejected" is allowed).',
-                style: TextStyle(fontSize: 13.sp),
-              ),
-            ),
-          );
-          return; // stop saving
-        }
-      }
+
 
 
       final Timestamp? dbFromTs =
@@ -1358,6 +1436,20 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
           .collection('Facilities')
           .doc(widget.selectedFacilityId)
           .update(update);
+
+      if (_disableFacility && widget.selectedFacilityId != null && _inactiveRange != null) {
+        final DateTime startDay = DateTime(
+          _inactiveRange!.start.year, _inactiveRange!.start.month, _inactiveRange!.start.day,
+        );
+        final DateTime endDay = DateTime(
+          _inactiveRange!.end.year, _inactiveRange!.end.month, _inactiveRange!.end.day,
+        );
+        await _notifyBookingsInDisabledRange(
+          facilityId: widget.selectedFacilityId!,
+          startDay: startDay,
+          endDay: endDay,
+        );
+      }
 
       final Map<String, dynamic> newMap = <String, dynamic>{};
       final Map<String, dynamic> old =

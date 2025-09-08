@@ -226,8 +226,49 @@ class _Booking_DateState extends State<Booking_Date> {
 
     if (!byWeekday) return false;
     if (_isOffDay(d)) return false;
+
+// block dates inside facility inactive window (if both ends present)
+    if (_inactiveFrom != null && _inactiveTo != null) {
+      final DateTime dOnly = DateTime(d.year, d.month, d.day);
+      if (!dOnly.isBefore(_inactiveFrom!) && !dOnly.isAfter(_inactiveTo!)) {
+        return false;
+      }
+    }
+
     return true;
   }
+
+  // --- lead time to lock a slot (minutes) ---
+  final int _leadDisableMinutes = 180; // 3 hours
+
+// --- facility inactive window (date-only) ---
+  DateTime? _inactiveFrom;
+  DateTime? _inactiveTo;
+
+// Coerce any dynamic into a date-only (yyyy-MM-dd at 00:00)
+  DateTime? _dateOnly(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) {
+      final dt = v.toDate();
+      return DateTime(dt.year, dt.month, dt.day);
+    }
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is String) {
+      final p = DateTime.tryParse(v);
+      if (p != null) return DateTime(p.year, p.month, p.day);
+    }
+    return null;
+  }
+
+// Disable if (today) and we are within lead time of start
+  bool _isSlotTooSoon(String startHHMM) {
+    if (!_isTodaySelected()) return false;
+    final now = DateTime.now();
+    final int nowMin = (now.hour * 60) + now.minute;
+    final int startMin = _timeToMinutes(startHHMM);
+    return nowMin >= (startMin - _leadDisableMinutes);
+  }
+
 
   // read weekday booleans from SystemInformation/Setting
   Future<void> _loadWeekdayRules() async {
@@ -296,11 +337,17 @@ class _Booking_DateState extends State<Booking_Date> {
       int cap = _asInt(_facilityData['availableSlots']);
       if (cap <= 0) cap = 1;
       _facilityCapacity = cap;
+
+      _inactiveFrom = _dateOnly(_facilityData['inactiveFrom']);
+      _inactiveTo   = _dateOnly(_facilityData['inactiveTo']);
     } catch (_) {
       _facilityData = <String, dynamic>{};
       _slotsTemplate = <Map<String, dynamic>>[];
       _facilityCapacity = 1;
+
     }
+
+
 
     if (mounted) setState(() => _loadingFacility = false);
   }
@@ -686,7 +733,7 @@ class _Booking_DateState extends State<Booking_Date> {
                               final int booked = _bookedByKey[key] ?? 0; // booked count (default 0)
                               final int capForThis = _capByKey[key] ?? _facilityCapacity; // capacity override or facility cap
 
-                              final bool isPast = _isSlotPastNow(s);
+                              final bool isTooSoon = _isSlotTooSoon(s); // 3h lock
                               final bool isFull = booked >= capForThis;
                               final bool isPicked = _pickedStarts.contains(s);
 
@@ -697,7 +744,7 @@ class _Booking_DateState extends State<Booking_Date> {
                               double borderWidth = 1.5;
                               double opacity = 1.0;
 
-                              if (isPast) {
+                              if (isTooSoon) {
                                 fillColor = Colors.grey.shade300;
                                 borderColor = Colors.grey.shade500;
                                 textColor = Colors.black54;
@@ -717,7 +764,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                 textColor = Colors.white;
                               }
 
-                              final bool disabled = isPast || isFull;
+                              final bool disabled = isTooSoon || isFull;
 
                               // one slot chip (tap to toggle pick)
                               chips.add(
@@ -736,7 +783,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                               'booked = $booked\n'
                                                   'capacity (slot/fallback) = $capForThis\n'
                                                   'facilityCap = $_facilityCapacity\n'
-                                                  'past = $isPast\n'
+                                                  'past = $isTooSoon\n'
                                                   'full = $isFull',
                                             ),
                                             actions: <Widget>[
@@ -857,23 +904,25 @@ class _Booking_DateState extends State<Booking_Date> {
                     // 1) sort selected times
                     final List<String> times = _pickedStarts.toList()..sort();
 
-                    // 2) if today, reject past times
+                    // 2) if today, reject past OR within-3h times
                     if (_isTodaySelected()) {
                       final DateTime now = DateTime.now();
                       final int nowMin = (now.hour * 60) + now.minute;
                       final List<String> bad = <String>[];
                       for (final String t in times) {
-                        if (nowMin >= _timeToMinutes(t)) {
+                        final int startMin = _timeToMinutes(t);
+                        if (nowMin >= (startMin - _leadDisableMinutes)) {
                           bad.add(_toAmPmDotStart(t));
                         }
                       }
                       if (bad.isNotEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('These times already passed: ${bad.join(', ')}')),
+                          SnackBar(content: Text('These times cannot be booked (less than 3h away): ${bad.join(', ')}')),
                         );
                         return;
                       }
                     }
+
 
                     // 3) go next by auto-assign or manual seat selection
                     if (_autoAssign) {

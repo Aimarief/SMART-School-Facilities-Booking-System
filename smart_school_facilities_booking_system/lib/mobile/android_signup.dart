@@ -375,10 +375,12 @@ class _SignupInformationState extends State<SignupInformation> {
         "role": _selectedRole,                  // "Student" or "Lecturer"
         "isVerified": true,                     // set TRUE now (verified already)
         "notifAll": true,                       // your extra flags
-        "notifSuccessfulBook": true,
-        "notifFailedBook": true,
+        "notifApprovalBook": true,
+        "notifNewBook": true,
         "notifReminder": true,
+        "notifUpdatedBook": true,
         "profileImageName": null,               // string null for now
+        "inboxLastSeen": FieldValue.serverTimestamp(),
         "createdAt": FieldValue.serverTimestamp(),
       };
 

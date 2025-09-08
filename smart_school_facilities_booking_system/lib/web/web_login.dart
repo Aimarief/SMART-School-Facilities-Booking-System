@@ -4,8 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:smart_school_facilities_booking_system/web/admin_web_homepage.dart';
-import 'manager_web_homepage.dart';
+import 'package:smart_school_facilities_booking_system/web/web_homepage.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'web_account.dart';
@@ -112,11 +112,11 @@ class _WebLoginPageState extends State<WebLoginPage> {
 
       if (isAdminSelected) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          context.go('/admin');
+          context.go('/homepage');
         });
       } else {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          context.go('/manager');
+          context.go('/homepage');
         });
       }
 

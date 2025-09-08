@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';        // Firestore acces
 import 'package:flutter/material.dart';                       // Flutter UI
 import 'package:flutter_screenutil/flutter_screenutil.dart';  // Responsive units
 import 'package:intl/intl.dart';                              // Date formatting
+import 'package:firebase_auth/firebase_auth.dart';
+ // adjust path if yours differs
 
 import 'package:smart_school_facilities_booking_system/booking_service.dart'; // Booking writes
 
@@ -12,6 +14,7 @@ import 'android_list_of_facilities.dart'; // Facilities page
 import 'android_notifications.dart';      // Notifications page
 import 'android_account.dart';            // Account page
 
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 // ---------------- widget: AndroidEditBooking ----------------
 class AndroidEditBooking extends StatefulWidget {
   // booking id to edit
@@ -60,6 +63,26 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
   // off rules loaded from SystemInformation
   Set<int> _offWeekdays = <int>{};     // 1..7 (Mon..Sun) that are off
   Set<String> _offDatesYmd = <String>{}; // yyyy-mm-dd off dates
+
+  // facility inactive window (inclusive). If either is null, ignore.
+  DateTime? _inactiveFrom;
+  DateTime? _inactiveTo;
+
+// coerce Timestamp / DateTime / String -> date-only (yyyy-mm-dd at 00:00)
+  DateTime? _dateOnly(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) {
+      final dt = v.toDate();
+      return DateTime(dt.year, dt.month, dt.day);
+    }
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is String) {
+      final p = DateTime.tryParse(v);
+      if (p != null) return DateTime(p.year, p.month, p.day);
+    }
+    return null;
+  }
+
 
   // ---------------- bottom bar: on tab selected ----------------
   void _onTabSelected(int i) {
@@ -284,10 +307,21 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     final int wd = d.weekday;
     final String ymd = _ymd(d);
     bool ok = true;
+
     if (_offWeekdays.contains(wd) == true) { ok = false; }
     if (ok == true && _offDatesYmd.contains(ymd) == true) { ok = false; }
+
+    // block days within facility inactive window (inclusive) ONLY if both ends exist
+    if (ok == true && _inactiveFrom != null && _inactiveTo != null) {
+      final DateTime dOnly = DateTime(d.year, d.month, d.day);
+      if (!dOnly.isBefore(_inactiveFrom!) && !dOnly.isAfter(_inactiveTo!)) {
+        ok = false;
+      }
+    }
+
     return ok;
   }
+
 
   // ---------------- facility: apply facility fields to state ----------------
   void _applyFacilityData(Map<String, dynamic> fac) {
@@ -313,7 +347,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       }
     }
     if (_capacity <= 0) { _capacity = 1; }
-
+// read optional inactive window (timestamps or dates). If any end is null, ignore later.
+    _inactiveFrom = _dateOnly(fac['inactiveFrom']);
+    _inactiveTo   = _dateOnly(fac['inactiveTo']);
     _timeChoices.clear();
     _startToEnd.clear();
 
@@ -560,42 +596,37 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
   }
 
   // ---------------- bookings: get user's other bookings same day (exclude self) ----------------
-  Future<List<Map<String, dynamic>>> _getMyBookingsSameDayExcludeSelf(String userId, String dateYMD) async {
-    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+  Future<List<Map<String, dynamic>>> _getMyBookingsSameDayExcludeSelf(
+      String userId,
+      String dateYMD,
+      ) async {
+    final out = <Map<String, dynamic>>[];
     try {
-      if (userId.isEmpty == true) {
-        return out;
-      }
+      if (userId.isEmpty) return out;
 
-      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+      final qs = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('userId', isEqualTo: userId)
           .where('bookingDate', isEqualTo: dateYMD)
+      // OPTIONAL (requires backfill + composite index):
+      // .where('deleted', isEqualTo: false)
           .get();
 
-      int i = 0;
-      while (i < qs.docs.length) {
-        final d = qs.docs[i];
-        if (d.id != widget.bookingId) {
-          final Map<String, dynamic>? m = d.data();
-          if (m != null) {
-            String ap = '';
-            if (m.containsKey('approval')) {
-              final dynamic a = m['approval'];
-              if (a is String) { ap = a.toLowerCase().trim(); }
-            }
-            bool keep = false;
-            if (ap == 'accepted') { keep = true; } else {
-              if (ap == 'pending') { keep = true; }
-            }
-            if (keep == true) { out.add(m); }
-          }
-        }
-        i = i + 1;
+      for (final d in qs.docs) {
+        if (d.id == widget.bookingId) continue;              // ignore this booking
+        final m = d.data();
+
+        // ignore soft-deleted bookings
+        if ((m['deleted'] ?? false) == true) continue;
+
+        final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
+        final keep = (ap == 'accepted' || ap == 'pending');
+        if (keep) out.add(m);
       }
     } catch (_) {}
     return out;
   }
+
 
   // ---------------- time: "HH:mm" -> minutes via normalize ----------------
   int _hmToMinutes(String s) {
@@ -655,6 +686,164 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
     return '';
   }
+
+  Widget _buildDeleteButton() {
+    return Container(
+      // fixed small size box so it looks like a chip/button
+      width: 110.w,
+      height: 36.h,
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFE7E9),                          // light red fill
+        borderRadius: BorderRadius.circular(10.r),               // rounded
+        border: Border.all(color: const Color(0xFFD32F2F), width: 1.w), // red border
+      ),
+      child: Material(
+        color: Colors.transparent,                               // let container color show
+        child: InkWell(
+          onTap: _onDelete,                                      // tap -> delete
+          borderRadius: BorderRadius.circular(10.r),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,         // center icon+text
+            children: <Widget>[
+              Icon(Icons.delete, size: 16.sp, color: const Color(0xFFD32F2F)), // trash can at left
+              SizedBox(width: 6.w),
+              Text(
+                'Delete',
+                style: TextStyle(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFD32F2F),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+// ---------------- action: delete (soft-delete) current booking ----------------
+// PURPOSE: ask user to confirm; set deleted = true in Bookings/{bookingId}; go back to list
+// ---------------- action: delete (soft-delete) current booking ----------------
+  Future<void> _onDelete() async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete booking?'),
+        content: const Text('This will mark the booking as deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),  child: const Text('Yes')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      // ---- 1) read the booking once (to build the notification payload) ----
+      final doc = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .doc(widget.bookingId)
+          .get();
+
+      if (!doc.exists || doc.data() == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking not found')),
+        );
+        return;
+      }
+
+      final m = doc.data()!;
+
+      // ids
+      String facilityId = (m['facilityId'] ?? m['facilityID'] ?? '').toString().trim();
+      final String userId =
+      (m['userId'] ?? m['uid'] ?? m['bookedBy'] ?? m['bookBy'] ?? '').toString().trim();
+
+      // manager: prefer booking, else fallback to facility doc
+      String managerId =
+      (m['managerId'] ?? m['managerUID'] ?? m['managerUid'] ?? '').toString().trim();
+      if (managerId.isEmpty && facilityId.isNotEmpty) {
+        try {
+          final fac = await FirebaseFirestore.instance
+              .collection('Facilities').doc(facilityId).get();
+          final fm = fac.data();
+          if (fm != null) {
+            managerId = (fm['managerId'] ?? fm['managerUID'] ?? fm['managerUid'] ?? '')
+                .toString()
+                .trim();
+            if (facilityId.isEmpty) {
+              facilityId = fac.id; // just in case it was blank
+            }
+          }
+        } catch (_) {}
+      }
+
+      // seat index
+      final int seatIndex = int.tryParse(
+        (m['seatIndex'] ?? m['slotIndex'] ?? '').toString(),
+      ) ??
+          -1;
+
+      // strict "HH:mm" extractor that ignores am/pm & punctuation
+      String _hhmmStrict(String raw) {
+        final digits = RegExp(r'\d+').allMatches(raw).map((e) => e.group(0)!).join();
+        if (digits.isEmpty) return '';
+        String four = digits.length == 3
+            ? '0$digits'
+            : (digits.length >= 4 ? digits.substring(0, 4) : digits.padLeft(4, '0'));
+        int hh = int.tryParse(four.substring(0, 2)) ?? 0; hh = hh.clamp(0, 23);
+        int mm = int.tryParse(four.substring(2, 4)) ?? 0; mm = mm.clamp(0, 59);
+        return '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
+      }
+
+      final String start = _hhmmStrict((m['start'] ?? m['startTime'] ?? '').toString());
+      final String end   = _hhmmStrict((m['end']   ?? m['endTime']   ?? '').toString());
+
+      // "YYYY-MM-DD" for bookingDate
+      DateTime? _dateOnlyAny(dynamic v) => _dateOnly(v) ?? _dateOnly(m['booking_date']) ?? _dateOnly(m['date']);
+      final DateTime? bd = _dateOnlyAny(m['bookingDate']);
+      final String bookingDate = bd != null
+          ? _ymd(bd)
+          : _normalizeYmdString((m['bookingDate'] ?? m['booking_date'] ?? m['date'] ?? '').toString());
+
+      final String actor = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+      // ---- 2) delete first (seat release, counters, etc) ----
+      await BookingService.deleteAcceptedBookingByIdTx(bookingId: widget.bookingId);
+
+      // ---- 3) send inbox mails (user, manager, actor) ----
+      await NotificationService.sendBookingDeletedMails(
+        bookingId: widget.bookingId,
+        userId: userId,
+        bookedBy: actor,     // the deleter
+        facilityId: facilityId,
+        managerId: managerId,
+        seatIndex: seatIndex,
+        start: start,
+        end: end,
+        bookingDate: bookingDate,
+      );
+
+      // UI: toast + go back to My Bookings
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Booking deleted')),
+      );
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => AndroidViewBooking()),
+            (_) => false,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
+    }
+  }
+
+
+
 
   // ---------------- confirm: apply edits to booking ----------------
   Future<void> _onConfirm() async {
@@ -876,9 +1065,47 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         await batch.commit();
       }
 
+      // --- after successful update, send inbox mail (booking_updated) ---
+      final String currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+// approval to send mirrors current state:
+// - was accepted+upcoming before edit  -> 'accepted'
+// - was pending                        -> 'pending'
+      final String approvalForMail = isAcceptedUpcoming ? 'accepted' : 'pending';
+
+// managerId: prefer from booking doc; fallback to Facility doc
+      String managerId = '';
+      final dynamic mIdRaw = b['managerId'];
+      if (mIdRaw != null) managerId = mIdRaw.toString().trim();
+      if (managerId.isEmpty) {
+        try {
+          final facSnap = await FirebaseFirestore.instance
+              .collection('Facilities')
+              .doc(_facilityId)
+              .get();
+          final fac = facSnap.data();
+          final dynamic mid = fac?['managerId'] ?? fac?['managerUID'] ?? fac?['managerUid'];
+          if (mid != null) managerId = mid.toString().trim();
+        } catch (_) {/* ignore */}
+      }
+
+// userId = booking owner you already read above from `b`
+      try {
+        await NotificationService.sendBookingUpdatedMails(
+          bookingId: widget.bookingId,
+          userId: userId,           // booking owner
+          bookedBy: currentUid,     // actor (who edited)
+          facilityId: _facilityId,
+          managerId: managerId,
+          approval: approvalForMail,
+        );
+      } catch (_) {/* ignore notification errors */}
+
+
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Booking updated', style: TextStyle(fontSize: 13.sp))),
+
       );
       if (Navigator.canPop(context)) { Navigator.pop(context); }
     } catch (e) {
@@ -1082,6 +1309,16 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
                     // summary card
+                    // --- TOP RIGHT DELETE BUTTON (place ABOVE the summary box) ---
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,        // push to the right
+                      children: <Widget>[
+                        _buildDeleteButton(),                          // our small red delete chip
+                      ],
+                    ),
+
+                    SizedBox(height: 10.h),                            // small gap before the summary
+
                     Container(
                       width: sw * 0.95,
                       padding: EdgeInsets.all(14.w),

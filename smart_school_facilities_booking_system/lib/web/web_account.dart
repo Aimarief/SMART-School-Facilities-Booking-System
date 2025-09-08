@@ -1,19 +1,14 @@
+// lib/web/web_account.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:file_picker/file_picker.dart';
-import 'web_top_bar.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-/// ---------------------------------------------------------------------------
-/// WebAccount
-/// - Left: Account info, edit profile, reset password, logout
-/// - Middle: System settings (Admin: working hours/days + Off Days calendar)
-///           Instant save: working hours & working days update Firestore immediately.
-///           Warning: only facilities are checked for conflicts; bookings ignored.
-/// - Right: Notification settings (moved here from System settings)
-/// ---------------------------------------------------------------------------
+
+import 'web_top_bar.dart';
+
 class WebAccount extends StatefulWidget {
   const WebAccount({Key? key}) : super(key: key);
 
@@ -70,17 +65,22 @@ class _AdminWebAccountState extends State<WebAccount> {
     'Friday': false,
     'Saturday': false,
   };
+  // keep original working days so we know which were newly disabled on apply
+  late Map<String, bool> _originalWorkingDays;
 
   // -------------------------------------------------------------------------
   // OFF DAYS (SystemInformation/OffDays.offDays = ["YYYY-MM-DD", ...])
-  // Calendar UI states mirror Booking List calendar.
+  // (UI/calendar remains the same, still toggles DB immediately. Apply button
+  // will only fan-out request_update to users who booked on holiday dates.)
   // -------------------------------------------------------------------------
   DateTime _offCalVisibleMonthFirst =
   DateTime(DateTime.now().year, DateTime.now().month, 1);
   final Set<String> _offDaysYMD = <String>{};
   bool _loadingOffDays = true;
+  Set<String> _offDaysSaved = <String>{};     // snapshot from DB
+  bool _offDirty = false;                     // true if user changed but not applied
 
-  // ---- Notification toggles (right column)
+  // ---- Notification toggles (right column) — removed for Admin layout
   bool notifAll = true;
   bool notifNewBooking = true;
   bool notifPending = true;
@@ -200,6 +200,7 @@ class _AdminWebAccountState extends State<WebAccount> {
         'Friday': fri,
         'Saturday': sat,
       };
+      _originalWorkingDays = Map<String, bool>.from(workingDays);
     });
   }
 
@@ -207,22 +208,72 @@ class _AdminWebAccountState extends State<WebAccount> {
     setState(() => _loadingOffDays = true);
     try {
       final doc = await _firestore.collection('SystemInformation').doc('OffDays').get();
-      _offDaysYMD.clear();
+
+      final Set<String> tmp = <String>{};
       if (doc.exists) {
         final data = doc.data();
         if (data != null && data['offDays'] is List) {
           for (final v in (data['offDays'] as List)) {
             final s = v?.toString().trim();
-            if (s != null && s.isNotEmpty) _offDaysYMD.add(s);
+            if (s != null && s.isNotEmpty) tmp.add(s);
           }
         }
       }
+
+      // baseline from DB
+      _offDaysSaved = Set<String>.from(tmp);
+
+      // working copy for UI
+      _offDaysYMD
+        ..clear()
+        ..addAll(tmp);
+
+      _offDirty = false; // nothing pending
     } catch (_) {
       // ignore
     } finally {
       if (mounted) setState(() => _loadingOffDays = false);
     }
   }
+
+  String _assetFromName(String name) {
+    if (name.isEmpty) return '';
+    return 'asset/image/$name';
+  }
+
+  Widget _profileAvatarFromName(String name, {double size = 60}) {
+    final String path = _assetFromName(name);
+
+    if (path.isEmpty) {
+      return Container(
+        width: size * 2,
+        height: size * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.black12, width: 2),
+          color: Colors.grey.shade300,
+        ),
+        alignment: Alignment.center,
+        child: const Text('empty'),
+      );
+    }
+
+    return Container(
+      width: size * 2,
+      height: size * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.black12, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.asset(
+        path,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stack) => const Center(child: Text('empty')),
+      ),
+    );
+  }
+
 
   // =========================================================================
   // SAVERS
@@ -305,16 +356,20 @@ class _AdminWebAccountState extends State<WebAccount> {
         .set(<String, dynamic>{'timeFormat24': value}, SetOptions(merge: true));
   }
 
-  Future<void> _updateWorkingDay(String day, bool value) async {
-    // Update immediately (admin only section)
-    setState(() {
-      workingDays[day] = value;
-    });
+  Future<void> _saveSystemTimes() async {
+    if (startTime == null || endTime == null) return;
     await _firestore
         .collection('SystemInformation')
         .doc('Setting')
-        .set(<String, dynamic>{day: value}, SetOptions(merge: true));
+        .set(
+      <String, dynamic>{
+        'start': _formatTime(startTime!),
+        'end': _formatTime(endTime!),
+      },
+      SetOptions(merge: true),
+    );
   }
+
 
   // =========================================================================
   // AUTH / MISC
@@ -345,140 +400,6 @@ class _AdminWebAccountState extends State<WebAccount> {
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
-  }
-
-
-  /// Pick a time and save only if facility hours fit the new window.
-  /// If conflicts exist, show a SnackBar and DO NOT change state or DB.
-  Future<void> _pickTime({required bool isStart}) async {
-
-
-    final TimeOfDay initial = isStart
-        ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
-        : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
-
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: initial,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
-      ),
-    );
-    if (picked == null) return;
-
-    // Build candidate pair (what the times WOULD be if this change is applied)
-    final TimeOfDay? candStart = isStart ? picked : startTime;
-    final TimeOfDay? candEnd   = isStart ? endTime  : picked;
-
-    // If we have both, validate order and check facility conflicts
-    if (candStart != null && candEnd != null) {
-      final int sMin = _timeToMinutes(_formatTime(candStart));
-      final int eMin = _timeToMinutes(_formatTime(candEnd));
-      if (eMin <= sMin) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('End time must be later than start time.')),
-        );
-        return; // reject change
-      }
-
-      final String newStartStr = _formatTime(candStart);
-      final String newEndStr   = _formatTime(candEnd);
-
-      final conflicts = await _findFacilityConflicts(newStartStr, newEndStr);
-      if (conflicts.isNotEmpty) {
-        // Reject change and keep old values in UI and DB
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Some facilities have available time that does not fit the system start/end time. Reverting change.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-
-      // === NEW: also block if any existing booking is outside the new window ===
-      final List<String> bookingConflicts =
-      await _findBookingConflicts(newStartStr, newEndStr);
-
-      if (bookingConflicts.isNotEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'There are still booking out of the new working hour',
-                style: TextStyle(fontSize: 13.sp), // scale 1080x2400 nicely
-              ),
-            ),
-          );
-        }
-        return; // do not change start/end; keep old values
-      }
-
-
-      // No conflicts -> apply to UI and save to Firestore
-      setState(() {
-        if (isStart) {
-          startTime = picked;
-        } else {
-          endTime = picked;
-        }
-      });
-      await _saveSystemTimes(); // writes {start,end}
-      return;
-    }
-
-    // If we only have one side (start or end) so far, just set state.
-    // We will validate + save when both are available.
-    setState(() {
-      if (isStart) {
-        startTime = picked;
-      } else {
-        endTime = picked;
-      }
-    });
-  }
-
-
-
-
-
-
-  Future<void> _saveSystemTimes() async {
-    if (startTime == null || endTime == null) return;
-    await _firestore
-        .collection('SystemInformation')
-        .doc('Setting')
-        .set(
-      <String, dynamic>{
-        'start': _formatTime(startTime!),
-        'end': _formatTime(endTime!),
-      },
-      SetOptions(merge: true),
-    );
-  }
-
-
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 10.h),
-      child: Row(
-        children: <Widget>[
-          Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18.sp)),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(fontSize: 18.sp),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   int _timeToMinutes(String hhmm) {
@@ -548,334 +469,82 @@ class _AdminWebAccountState extends State<WebAccount> {
     return conflicts;
   }
 
-  // =========================================================================
-  // OFF DAYS (Calendar) Helpers + Actions
-  // =========================================================================
-  String _ymd(DateTime d) {
-    final y = d.year.toString().padLeft(4, '0');
-    final m = d.month.toString().padLeft(2, '0');
-    final da = d.day.toString().padLeft(2, '0');
-    return '$y-$m-$da';
-  }
-
-  int _daysInMonth(DateTime firstOfMonth) {
-    final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
-    final lastCurrent = firstNext.subtract(const Duration(days: 1));
-    return lastCurrent.day;
-  }
-
-  int _leadingEmptyCells(DateTime firstOfMonth) {
-    // Sunday=0 .. Saturday=6
-    return firstOfMonth.weekday % 7;
-  }
-
-  String _monthName(int m) {
-    const names = [
-      'January','February','March','April','May','June',
-      'July','August','September','October','November','December'
-    ];
-    return names[m - 1];
-  }
-
-  void _prevMonthOffCal() {
-    final f = _offCalVisibleMonthFirst;
-    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month - 1, 1));
-  }
-
-  void _nextMonthOffCal() {
-    final f = _offCalVisibleMonthFirst;
-    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month + 1, 1));
-  }
-
-  Future<void> _toggleOffDay(DateTime date) async {
-    final today = DateTime.now();
-    final todayStart = DateTime(today.year, today.month, today.day);
-    final dateStart = DateTime(date.year, date.month, date.day);
-    if (dateStart.isBefore(todayStart)) {
-      // past days disabled
-      return;
-    }
-
-    final ymd = _ymd(date);
-    final bool willAdd = !_offDaysYMD.contains(ymd);
-
-    // Optimistic UI update
-    setState(() {
-      if (willAdd) {
-        _offDaysYMD.add(ymd);
-      } else {
-        _offDaysYMD.remove(ymd);
-      }
-    });
-
-    try {
-      final ref = _firestore.collection('SystemInformation').doc('OffDays');
-      if (willAdd) {
-        await ref.set({'offDays': FieldValue.arrayUnion([ymd])}, SetOptions(merge: true));
-      } else {
-        await ref.set({'offDays': FieldValue.arrayRemove([ymd])}, SetOptions(merge: true));
-      }
-    } catch (_) {
-      // revert on failure
-      setState(() {
-        if (willAdd) {
-          _offDaysYMD.remove(ymd);
-        } else {
-          _offDaysYMD.add(ymd);
-        }
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update off day. Please try again.')),
-        );
-      }
-    }
-  }
-
-  Future<void> _updateNotif(String field, bool value) async {
-    if (userDocId == null) return;
-
-    setState(() {
-      switch (field) {
-        case 'notifAll':
-          notifAll = value;
-          break;
-        case 'notifNewBooking':
-          notifNewBooking = value;
-          break;
-        case 'notifPending':
-          notifPending = value;
-          break;
-        case 'notifIssue':
-          notifIssue = value;
-          break;
-      }
-    });
-
-    await _firestore
-        .collection('UserInformation')
-        .doc(userDocId)
-        .set(<String, dynamic>{field: value}, SetOptions(merge: true));
-  }
-
-
   // ---------------------------------------------------------------------------
-// BOOKING TIME HELPERS (very simple + beginner style)
-// ---------------------------------------------------------------------------
-
-  /// read booking start/end time from many possible field names
-  /// return a map with 'start' and 'end' both as strings (can be empty)
+  // BOOKING TIME HELPERS (simple)
+  // ---------------------------------------------------------------------------
   Map<String, String> _readBookingTimes(Map<String, dynamic> m) {
-    // start and end as empty first
     String s = '';
     String e = '';
+    if (m.containsKey('time') && m['time'] is Map<String, dynamic>) {
+      final Map<String, dynamic> tm = m['time'] as Map<String, dynamic>;
+      if (tm['start'] is String) s = (tm['start'] as String).trim();
+      if (tm['end'] is String) e = (tm['end'] as String).trim();
+    }
+    if (s.isEmpty && m['start'] is String) s = (m['start'] as String).trim();
+    if (e.isEmpty && m['end'] is String) e = (m['end'] as String).trim();
 
-    // 1) nested map case: { "time": { "start": "...", "end": "..." } }
-    if (m.containsKey('time')) {
-      if (m['time'] is Map<String, dynamic>) {
-        final Map<String, dynamic> tm = m['time'] as Map<String, dynamic>;
-        if (tm.containsKey('start')) {
-          if (tm['start'] is String) {
-            s = (tm['start'] as String).trim();
-          }
-        }
-        if (tm.containsKey('end')) {
-          if (tm['end'] is String) {
-            e = (tm['end'] as String).trim();
-          }
-        }
-      }
-    }
-
-    // 2) flat fields "start" and "end"
-    if (s.isEmpty) {
-      if (m.containsKey('start')) {
-        if (m['start'] is String) {
-          s = (m['start'] as String).trim();
-        }
-      }
-    }
-    if (e.isEmpty) {
-      if (m.containsKey('end')) {
-        if (m['end'] is String) {
-          e = (m['end'] as String).trim();
-        }
-      }
-    }
-
-    // 3) other common names "startTime" / "endTime"
-    if (s.isEmpty) {
-      if (m.containsKey('startTime')) {
-        if (m['startTime'] is String) {
-          s = (m['startTime'] as String).trim();
-        }
-      }
-    }
-    if (e.isEmpty) {
-      if (m.containsKey('endTime')) {
-        if (m['endTime'] is String) {
-          e = (m['endTime'] as String).trim();
-        }
-      }
-    }
-
-    // return whatever we found ("" is ok, means unknown)
+    if (s.isEmpty && m['startTime'] is String) s = (m['startTime'] as String).trim();
+    if (e.isEmpty && m['endTime'] is String) e = (m['endTime'] as String).trim();
     return <String, String>{'start': s, 'end': e};
   }
 
-  /// normalize a raw time like "13:30", "1330", "13.30", "7", "730"
-  /// to a strict "HH:mm" string so our _timeToMinutes() can parse it
   String _normalizeToHHmm(String raw) {
-    if (raw.isEmpty) {
-      return '';
-    }
-
-    // make lower, trim spaces
+    if (raw.isEmpty) return '';
     String s = raw.toLowerCase().trim();
-
-    // unify separators (turn "." or "-" into ":")
-    s = s.replaceAll('.', ':');
-    s = s.replaceAll('-', ':');
-
-    // if already looks like H:MM or HH:MM -> split and pad
+    s = s.replaceAll('.', ':').replaceAll('-', ':');
     if (s.contains(':')) {
-      final List<String> p = s.split(':');
-      if (p.isNotEmpty) {
-        String hh = p[0].trim();
-        String mm = '00';
-        if (p.length > 1) {
-          mm = p[1].trim();
-        }
-        if (hh.isEmpty) {
-          hh = '0';
-        }
-        // pad HH and MM to 2 digits
-        int hNum = 0;
-        int mNum = 0;
-        try {
-          hNum = int.parse(hh);
-        } catch (_) {}
-        try {
-          mNum = int.parse(mm);
-        } catch (_) {}
-
-        if (hNum < 0) hNum = 0;
-        if (hNum > 23) hNum = 23;
-        if (mNum < 0) mNum = 0;
-        if (mNum > 59) mNum = 59;
-
-        final String outH = hNum.toString().padLeft(2, '0');
-        final String outM = mNum.toString().padLeft(2, '0');
-        return '$outH:$outM';
-      } else {
-        return '';
-      }
+      final p = s.split(':');
+      String hh = p[0].trim();
+      String mm = p.length > 1 ? p[1].trim() : '00';
+      int h = int.tryParse(hh) ?? 0;
+      int m = int.tryParse(mm) ?? 0;
+      h = h.clamp(0, 23);
+      m = m.clamp(0, 59);
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
     }
-
-    // no ":", keep only digits
-    final String digits = s.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) {
-      return '';
-    }
-
-    // if length == 1 or 2 -> treat as hour only (minute = 00)
+    final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '';
     if (digits.length <= 2) {
-      int h = 0;
-      try {
-        h = int.parse(digits);
-      } catch (_) {}
-      if (h < 0) h = 0;
-      if (h > 23) h = 23;
+      int h = int.tryParse(digits) ?? 0;
+      h = h.clamp(0, 23);
       return '${h.toString().padLeft(2, '0')}:00';
     }
-
-    // if length >= 3 -> last two digits are minutes, the rest are hours
-    final String hh = digits.substring(0, digits.length - 2);
-    final String mm = digits.substring(digits.length - 2);
-
-    int hNum = 0;
-    int mNum = 0;
-    try {
-      hNum = int.parse(hh);
-    } catch (_) {}
-    try {
-      mNum = int.parse(mm);
-    } catch (_) {}
-
-    if (hNum < 0) hNum = 0;
-    if (hNum > 23) hNum = 23;
-    if (mNum < 0) mNum = 0;
-    if (mNum > 59) mNum = 59;
-
-    final String outH = hNum.toString().padLeft(2, '0');
-    final String outM = mNum.toString().padLeft(2, '0');
-    return '$outH:$outM';
+    final hh = digits.substring(0, digits.length - 2);
+    final mm = digits.substring(digits.length - 2);
+    int h = int.tryParse(hh) ?? 0;
+    int m = int.tryParse(mm) ?? 0;
+    h = h.clamp(0, 23);
+    m = m.clamp(0, 59);
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 
-  /// safe convert any raw time into minutes since midnight by
-  /// 1) normalize to "HH:mm" then 2) reuse your _timeToMinutes()
   int _safeMinutes(String raw) {
-    final String hhmm = _normalizeToHHmm(raw);
-    if (hhmm.isEmpty) {
-      return -1; // -1 means "cannot parse"
-    }
+    final hhmm = _normalizeToHHmm(raw);
+    if (hhmm.isEmpty) return -1;
     return _timeToMinutes(hhmm);
   }
 
-  /// read bookingDate from the booking Map in a simple way
-  /// supports Firestore Timestamp or String "YYYY-MM-DD"
-  /// return DateTime? (null if cannot read)
-  DateTime? _readBookingDate(Map<String, dynamic> m) {
-    // try "bookingDate" first
-    if (m.containsKey('bookingDate')) {
-      final dynamic v = m['bookingDate'];
-
-      // if Timestamp (from cloud_firestore)
-      if (v is Timestamp) {
-        // convert to DateTime directly
-        return v.toDate();
-      }
-
-      // if String "YYYY-MM-DD"
-      if (v is String) {
-        final String s = v.trim();
-        if (s.isNotEmpty) {
-          try {
-            // expect "2025-08-31"
-            final List<String> p = s.split('-');
-            if (p.length == 3) {
-              final int y = int.parse(p[0]);
-              final int mo = int.parse(p[1]);
-              final int d = int.parse(p[2]);
-              return DateTime(y, mo, d);
-            }
-          } catch (_) {
-            // ignore parsing error
-          }
-        }
-      }
+  DateTime? _readBookingDateFromAny(Map<String, dynamic> m) {
+    final v = m['bookingDate'] ?? m['booking_date'] ?? m['date'];
+    if (v is Timestamp) return v.toDate();
+    if (v is String && v.trim().isNotEmpty) {
+      try {
+        final p = DateTime.tryParse(v.trim());
+        if (p != null) return DateTime(p.year, p.month, p.day);
+      } catch (_) {}
     }
-
-    // if needed later, you can add more keys like "date"
-    // now we just return null to say "unknown"
     return null;
   }
 
-  /// check all docs inside "Bookings"
-  /// ignore bookings that are older than 8 days from today
-  /// if a booking start/end sits OUTSIDE newStart..newEnd window, we flag it
-  /// return a simple list of conflicting booking doc IDs
+  // === existing booking conflict finder (kept) ===
   Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
-    // convert system "HH:mm" to minutes
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
 
-    // compute cutoff date: today at 00:00 minus 8 days
     final DateTime now = DateTime.now();
     final DateTime todayStart = DateTime(now.year, now.month, now.day);
     final DateTime cutoff = todayStart.subtract(const Duration(days: 8));
 
-    // read bookings (simple: one shot get)
     final QuerySnapshot<Map<String, dynamic>> qs =
     await _firestore.collection('Bookings').get();
 
@@ -884,65 +553,302 @@ class _AdminWebAccountState extends State<WebAccount> {
     for (final doc in qs.docs) {
       final Map<String, dynamic> m = doc.data();
 
-      // skip soft-deleted bookings
-      if (m.containsKey('deleted')) {
-        if (m['deleted'] is bool) {
-          if (m['deleted'] == true) {
-            continue;
-          }
-        }
-      }
+      if (m['deleted'] == true) continue;
+      final String appr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
+      if (appr.contains('reject')) continue;
+      final String status = (m['status'] ?? '').toString().toLowerCase();
+      if (status == 'ended') continue;
 
-      // read and filter by bookingDate: ignore if older than 8 days
-      final DateTime? bDate = _readBookingDate(m);
-      if (bDate != null) {
-        final DateTime bStart = DateTime(bDate.year, bDate.month, bDate.day);
-        if (bStart.isBefore(cutoff)) {
-          // older than 8 days -> ignore this booking
-          continue;
-        }
-      } else {
-        // if no bookingDate is stored, you can choose to:
-        // 1) evaluate anyway, or 2) skip. We skip to be safe.
-        continue;
-      }
+      final DateTime? bDate = _readBookingDateFromAny(m);
+      if (bDate == null) continue;
 
-      // read booking times
-      final Map<String, String> tt = _readBookingTimes(m);
-      final String sRaw = (tt['start'] ?? '').trim();
-      final String eRaw = (tt['end'] ?? '').trim();
+      final DateTime bStart = DateTime(bDate.year, bDate.month, bDate.day);
+      if (bStart.isBefore(cutoff)) continue;
 
-      if (sRaw.isEmpty) {
-        continue; // cannot evaluate
-      }
-      if (eRaw.isEmpty) {
-        continue; // cannot evaluate
-      }
+      final tt = _readBookingTimes(m);
+      final int bStartMin = _safeMinutes(tt['start'] ?? '');
+      final int bEndMin = _safeMinutes(tt['end'] ?? '');
+      if (bStartMin < 0 || bEndMin < 0) continue;
 
-      // convert to minutes safely
-      final int bStartMin = _safeMinutes(sRaw);
-      final int bEndMin = _safeMinutes(eRaw);
-
-      if (bStartMin < 0) {
-        continue; // bad time format, ignore
-      }
-      if (bEndMin < 0) {
-        continue; // bad time format, ignore
-      }
-
-      // if booking falls outside new system working hour -> conflict
-      if (bStartMin < sysStart) {
+      if (bStartMin < sysStart || bEndMin > sysEnd) {
         conflicts.add(doc.id);
-      } else {
-        if (bEndMin > sysEnd) {
-          conflicts.add(doc.id);
-        }
       }
     }
 
     return conflicts;
   }
 
+  // =========================================================================
+  // NEW: APPLY ACTIONS
+  // =========================================================================
+
+  Future<void> _applyWorkingHours() async {
+    if (startTime == null || endTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select both start and end time.')),
+      );
+      return;
+    }
+
+    final String newStartStr = _formatTime(startTime!);
+    final String newEndStr   = _formatTime(endTime!);
+
+    final int sMin = _timeToMinutes(newStartStr);
+    final int eMin = _timeToMinutes(newEndStr);
+    if (eMin <= sMin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('End time must be later than start time.')),
+      );
+      return;
+    }
+
+    final conflictsFacilities = await _findFacilityConflicts(newStartStr, newEndStr);
+    if (conflictsFacilities.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Some facilities have available time outside the new window. Reverting change.'),
+        ),
+      );
+      return;
+    }
+
+    final conflictsBookings = await _findBookingConflicts(newStartStr, newEndStr);
+    if (conflictsBookings.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('There are bookings outside the new working hour. Change rejected.'),
+        ),
+      );
+      return;
+    }
+
+    await _saveSystemTimes();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Working hour saved')),
+    );
+  }
+
+  Future<void> _applyWorkingDays() async {
+    // write all days at once
+    await _firestore.collection('SystemInformation').doc('Setting').set(
+      Map<String, dynamic>.from(workingDays),
+      SetOptions(merge: true),
+    );
+
+    // figure out which days are disabled now
+    final Set<String> disabled = workingDays.entries
+        .where((e) => e.value == false)
+        .map((e) => e.key)
+        .toSet();
+
+    // only process days that became disabled (optional optimization)
+    final Set<String> newlyDisabled = disabled
+      ..removeWhere((d) => _originalWorkingDays[d] == false);
+
+    // if nothing new disabled, we can still process, but skip for speed
+    final Set<String> targetDays = newlyDisabled.isEmpty ? disabled : newlyDisabled;
+
+    if (targetDays.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Working days saved')),
+      );
+      _originalWorkingDays = Map<String, bool>.from(workingDays);
+      return;
+    }
+
+    await _fanOutRequestUpdatesForDaysOfWeek(targetDays);
+
+    _originalWorkingDays = Map<String, bool>.from(workingDays);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Working days saved & users notified')),
+    );
+  }
+
+  Future<void> _applyHolidays() async {
+    try {
+      // write the entire working list exactly as shown in UI
+      await _firestore
+          .collection('SystemInformation')
+          .doc('OffDays')
+          .set({'offDays': _offDaysYMD.toList()}, SetOptions(merge: true));
+
+      // notify impacted bookings (your existing helper)
+      await _fanOutRequestUpdatesForHolidayDates(_offDaysYMD);
+
+      // update baseline -> no longer dirty
+      setState(() {
+        _offDaysSaved = Set<String>.from(_offDaysYMD);
+        _offDirty = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Holiday changes applied & users notified')),
+      );
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to apply holidays. Please try again.')),
+      );
+    }
+  }
+
+
+  // =========================================================================
+  // NEW: “request_update” fan-out helpers
+  // =========================================================================
+
+  // Build weekday name like 'Monday' from DateTime.weekday (1..7 Mon..Sun)
+  String _weekdayName(int weekday) {
+    const names = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    return names[weekday - 1];
+  }
+
+  bool _isBookingIgnored(Map<String, dynamic> m) {
+    if (m['deleted'] == true) return true;
+    final String appr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
+    if (appr.contains('reject')) return true;
+    final String status = (m['status'] ?? '').toString().toLowerCase();
+    if (status == 'ended') return true;
+    return false;
+  }
+
+  String _readFirstStr(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+      if (v != null) return v.toString();
+    }
+    return '';
+  }
+
+  Future<void> _fanOutRequestUpdatesForDaysOfWeek(Set<String> disabledDays) async {
+    if (disabledDays.isEmpty) return;
+
+    final qs = await _firestore.collection('Bookings').get();
+
+    final List<Future<void>> tasks = [];
+
+    for (final doc in qs.docs) {
+      final Map<String, dynamic> b = doc.data();
+      if (_isBookingIgnored(b)) continue;
+
+      final DateTime? d = _readBookingDateFromAny(b);
+      if (d == null) continue;
+
+      final String dayName = _weekdayName(d.weekday);
+      if (!disabledDays.contains(dayName)) continue;
+
+      tasks.add(_emitRequestUpdateForBooking(doc.id, b));
+    }
+
+    await Future.wait(tasks);
+  }
+
+  Future<void> _fanOutRequestUpdatesForHolidayDates(Set<String> holidaysYmd) async {
+    if (holidaysYmd.isEmpty) return;
+
+    final qs = await _firestore.collection('Bookings').get();
+    final List<Future<void>> tasks = [];
+
+    for (final doc in qs.docs) {
+      final Map<String, dynamic> b = doc.data();
+      if (_isBookingIgnored(b)) continue;
+
+      final DateTime? d = _readBookingDateFromAny(b);
+      if (d == null) continue;
+
+      final String y = d.year.toString().padLeft(4, '0');
+      final String m = d.month.toString().padLeft(2, '0');
+      final String da = d.day.toString().padLeft(2, '0');
+      final String ymd = '$y-$m-$da';
+
+      if (!holidaysYmd.contains(ymd)) continue;
+
+      tasks.add(_emitRequestUpdateForBooking(doc.id, b));
+    }
+
+    await Future.wait(tasks);
+  }
+
+  Future<void> _emitRequestUpdateForBooking(String bookingId, Map<String, dynamic> b) async {
+    final String userUid = _readFirstStr(b, ['bookedBy','bookBy','userUid','userId','uid']);
+    if (userUid.isEmpty) return;
+
+    final String facilityId = _readFirstStr(b, ['facilityId','facilityID','facilityDocId','facility']);
+    if (facilityId.isEmpty) return;
+
+    final String adminUid = _auth.currentUser?.uid ?? '';
+
+    // booking date/time
+    final String bookingDateStr = (b['bookingDate'] ?? b['booking_date'] ?? b['date'] ?? '').toString();
+    final times = _readBookingTimes(b);
+    final String start = (times['start'] ?? '').toString();
+    final String end   = (times['end'] ?? '').toString();
+
+    String seat = '-';
+    if (b['seatIndex'] != null) {
+      seat = b['seatIndex'].toString();
+    } else if (b['slotIndex'] != null) {
+      seat = b['slotIndex'].toString();
+    }
+
+    // (optional) grab a friendly facility name for UI
+    String facilityName = '';
+    try {
+      final snap = await _firestore.collection('Facilities').doc(facilityId).get();
+      final m = snap.data();
+      if (m != null) facilityName = (m['name'] ?? m['title'] ?? '').toString();
+    } catch (_) {}
+
+    // write the inbox doc under the booking owner
+    final inboxRef = _firestore
+        .collection('UserInformation')
+        .doc(userUid)
+        .collection('Inbox')
+        .doc();
+
+    await inboxRef.set({
+      'type': 'request_update',
+
+      // 👇 add the fields Android checks in _canSee(...)
+      'recipientId': userUid,
+      'bookedBy': userUid,
+      'createdBy': adminUid,
+      'managerId': adminUid,
+
+      // keep your existing fields
+      'userId': userUid,
+      'facilityId': facilityId,
+      'facilityName': facilityName, // optional but useful elsewhere
+      'bookingId': bookingId,
+      'bookingDate': bookingDateStr,
+      'start': start,
+      'end': end,
+      'seatIndex': seat,
+
+      'isRead': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await sendRequestUpdateMails(
+      bookingId: bookingId,
+      userId: userUid,
+      facilityId: facilityId,
+      bookingDateIso: bookingDateStr,
+    );
+  }
+
+
+  /// stub — replace body with your existing implementation or Cloud Function call
+  Future<void> sendRequestUpdateMails({
+    required String bookingId,
+    required String userId,
+    required String facilityId,
+    required String bookingDateIso,
+  }) async {
+    // TODO: hook into your existing "sendRequestUpdateMails" implementation.
+    // Left empty on purpose to avoid changing project-wide behavior.
+    return;
+  }
 
   // =========================================================================
   // UI
@@ -956,11 +862,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       isAdmin = role.toLowerCase() == 'admin';
     }
 
-    String emailStr = 'N/A';
-    if (user != null && user!.email != null) {
-      emailStr = user!.email!;
-    }
+    bool isManager = role.trim().toLowerCase() == 'manager';
 
+    String emailStr = (user != null && user!.email != null) ? user!.email! : 'N/A';
     String statusText = (user != null) ? 'Logged In' : 'Logged Out';
 
     return Scaffold(
@@ -970,184 +874,212 @@ class _AdminWebAccountState extends State<WebAccount> {
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            // -----------------------------------------------------------------
-            // LEFT: ACCOUNT
-            // -----------------------------------------------------------------
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 520.w),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Text("Account Settings",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 35.h),
+          : (
+          isAdmin
+          // ===== Admin keeps the 2-column layout =====
+              ? SingleChildScrollPane(
+            isAdmin: isAdmin,
+            leftChild: _buildLeftColumn(isAdmin, screenHeight, emailStr, statusText),
+            rightChild: _buildRightColumn(isAdmin),
+          )
 
-                        Center(
-                          child: _profileAvatarFromName(
-                            isEditing ? _imageNameController.text.trim() : profileImageName,
-                            size: 150,
-                          ),
-                        ),
-                        SizedBox(height: 16.h),
-
-                        Builder(
-                          builder: (BuildContext _) {
-                            if (isEditing) {
-                              return Form(
-                                key: _editFormKey,
-                                autovalidateMode: AutovalidateMode.onUserInteraction,
-                                child: Column(
-                                  children: <Widget>[
-                                    SizedBox(height: 8.h),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 40.h,
-                                      child: OutlinedButton(
-                                        onPressed: _pickImageFileName,
-                                        child: const Text("Choose Image"),
-                                      ),
-                                    ),
-                                    SizedBox(height: 12.h),
-
-                                    TextFormField(
-                                      controller: _usernameController,
-                                      decoration: const InputDecoration(labelText: "Username"),
-                                      validator: (v) {
-                                        if (v == null || v.trim().isEmpty) return 'Username cannot be empty';
-                                        return null;
-                                      },
-                                    ),
-                                    SizedBox(height: 12.h),
-
-                                    TextFormField(
-                                      controller: _contactController,
-                                      keyboardType: TextInputType.number,
-                                      decoration: const InputDecoration(labelText: "Contact"),
-                                      validator: (v) {
-                                        if (v == null || v.trim().isEmpty) return 'Contact cannot be empty';
-                                        return null;
-                                      },
-                                      onChanged: (value) {
-                                        final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
-                                        if (digitsOnly != value) {
-                                          _contactController.text = digitsOnly;
-                                          _contactController.selection =
-                                              TextSelection.collapsed(offset: digitsOnly.length);
-                                        }
-                                      },
-                                    ),
-                                    SizedBox(height: 16.h),
-
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 48.h,
-                                      child: ElevatedButton(
-                                        onPressed: () {
-                                          if (_editFormKey.currentState?.validate() != true) return;
-                                          _saveAccountInfo();
-                                        },
-                                        child: const Text("Save"),
-                                      ),
-                                    ),
-                                    SizedBox(height: 8.h),
-
-                                    TextButton(
-                                      onPressed: () => setState(() => isEditing = false),
-                                      child: const Text("Cancel"),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            } else {
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: <Widget>[
-                                  _detailRow("Username:", username),
-                                  _detailRow("Email:", emailStr),
-                                  _detailRow("Contact:", contact),
-                                  _detailRow("Role:", role),
-                                  _detailRow("Status:", statusText),
-                                  SizedBox(height: 16.h),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 48.h,
-                                    child: ElevatedButton(
-                                      onPressed: () => setState(() => isEditing = true),
-                                      child: const Text("Edit"),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }
-                          },
-                        ),
-
-                        SizedBox(height: 24.h),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48.h,
-                          child: ElevatedButton(
-                            onPressed: _sendPasswordReset,
-                            child: const Text("Change Password"),
-                          ),
-                        ),
-                        SizedBox(height: 16.h),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48.h,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                            onPressed: _logout,
-                            child: const Text("Log Out"),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+          // ===== Manager: show ONLY the Account panel centered =====
+              : Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: 520.w),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+                // reuse the same Account builder you already have
+                child: _buildLeftColumn(false, screenHeight, emailStr, statusText),
               ),
             ),
+          )
+      ),
 
-            // divider
-            Container(width: 1.w, color: Colors.black12, margin: EdgeInsets.symmetric(vertical: 16.h)),
+    );
+  }
 
-            // -----------------------------------------------------------------
-            // MIDDLE: SYSTEM SETTINGS (+ Off Days calendar)
-            // -----------------------------------------------------------------
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 560.w),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                    child: SingleChildScrollView(
-                      primary: false,
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          Text("System Setting",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
-                          SizedBox(height: 35.h),
+  // -------------- layout wrappers --------------
+  Widget _buildLeftColumn(bool isAdmin, double screenHeight, String emailStr, String statusText) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 520.w),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+          child: SingleChildScrollView(
+            primary: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // ---- Account (unchanged) ----
+                Text("Account Settings",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
+                SizedBox(height: 35.h),
 
-                          // Admin-only block
-                          if (isAdmin) ...[
-                            Text("Working Hour", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                Center(
+                  child: _profileAvatarFromName(
+                    isEditing ? _imageNameController.text.trim() : profileImageName,
+                    size: 150,
+                  ),
+                ),
+                SizedBox(height: 16.h),
+
+                Builder(
+                  builder: (BuildContext _) {
+                    if (isEditing) {
+                      return Form(
+                        key: _editFormKey,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        child: Column(
+                          children: <Widget>[
+                            SizedBox(height: 8.h),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 40.h,
+                              child: OutlinedButton(
+                                onPressed: _pickImageFileName,
+                                child: const Text("Choose Image"),
+                              ),
+                            ),
                             SizedBox(height: 12.h),
 
-                            // Start/End on ONE ROW (instant save)
+                            TextFormField(
+                              controller: _usernameController,
+                              decoration: const InputDecoration(labelText: "Username"),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return 'Username cannot be empty';
+                                return null;
+                              },
+                            ),
+                            SizedBox(height: 12.h),
+
+                            TextFormField(
+                              controller: _contactController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: "Contact"),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return 'Contact cannot be empty';
+                                return null;
+                              },
+                              onChanged: (value) {
+                                final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
+                                if (digitsOnly != value) {
+                                  _contactController.text = digitsOnly;
+                                  _contactController.selection =
+                                      TextSelection.collapsed(offset: digitsOnly.length);
+                                }
+                              },
+                            ),
+                            SizedBox(height: 16.h),
+
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48.h,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  if (_editFormKey.currentState?.validate() != true) return;
+                                  _saveAccountInfo();
+                                },
+                                child: const Text("Save"),
+                              ),
+                            ),
+                            SizedBox(height: 8.h),
+
+                            TextButton(
+                              onPressed: () => setState(() => isEditing = false),
+                              child: const Text("Cancel"),
+                            ),
+                          ],
+                        ),
+                      );
+                    } else {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          _detailRow("Username:", username),
+                          _detailRow("Email:", emailStr),
+                          _detailRow("Contact:", contact),
+                          _detailRow("Role:", role),
+                          _detailRow("Status:", statusText),
+                          SizedBox(height: 16.h),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48.h,
+                            child: ElevatedButton(
+                              onPressed: () => setState(() => isEditing = true),
+                              child: const Text("Edit"),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                  },
+                ),
+
+                SizedBox(height: 24.h),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 48.h,
+                  child: ElevatedButton(
+                    onPressed: _sendPasswordReset,
+                    child: const Text("Change Password"),
+                  ),
+                ),
+                SizedBox(height: 16.h),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 48.h,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: _logout,
+                    child: const Text("Log Out"),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRightColumn(bool isAdmin) {
+    if (isAdmin) {
+      return Center(
+        child: ConstrainedBox(
+          // a bit wider so two columns fit nicely
+          constraints: BoxConstraints(maxWidth: 1100.w),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+            child: SingleChildScrollView(
+              primary: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  // Title centered over both inner columns
+                  Text(
+                    "System Setting",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 30.h),
+
+                  // >>> Two-column layout inside the System Setting area <<<
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ---------------- LEFT of System Setting ----------------
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Working Hour
+                            Text("Working Hour",
+                                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                            SizedBox(height: 12.h),
                             Row(
                               children: [
                                 Expanded(
@@ -1185,9 +1117,23 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             ),
-                            SizedBox(height: 20.h),
+                            SizedBox(height: 10.h),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: SizedBox(
+                                height: 40.h,
+                                child: ElevatedButton(
+                                  onPressed: _applyWorkingHours,
+                                  child: const Text('Apply Working Hour'),
+                                ),
+                              ),
+                            ),
 
-                            Text("Working Days", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                            SizedBox(height: 75.h),
+
+                            // Working Days
+                            Text("Working Days",
+                                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             Column(
                               children: workingDays.keys.map((day) {
                                 final bool v = workingDays[day] == true;
@@ -1195,14 +1141,34 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(day),
                                   value: v,
-                                  onChanged: (bool? nv) =>
-                                      _updateWorkingDay(day, nv == true),
+                                  onChanged: (bool? nv) {
+                                    setState(() { workingDays[day] = (nv == true); });
+                                  },
                                 );
                               }).toList(),
                             ),
-                            SizedBox(height: 20.h),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: SizedBox(
+                                height: 40.h,
+                                child: ElevatedButton(
+                                  onPressed: _applyWorkingDays,
+                                  child: const Text('Apply Working Days'),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-                            // -------- Off Days (Holidays) Calendar --------
+                      SizedBox(width: 24.w),
+
+                      // ---------------- RIGHT of System Setting ----------------
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Pick Holiday
                             Text("Pick Off Days (Holidays)",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             SizedBox(height: 10.h),
@@ -1212,153 +1178,139 @@ class _AdminWebAccountState extends State<WebAccount> {
                               'Tip: Click a future day to toggle holiday. Blue = holiday. Past days are disabled.',
                               style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280)),
                             ),
-                            SizedBox(height: 12.h),
+                            SizedBox(height: 8.h),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: SizedBox(
+                                height: 40.h,
+                                child: ElevatedButton(
+                                  onPressed: _applyHolidays,
+                                  child: const Text('Apply Holidays'),
+                                ),
+                              ),
+                            ),
+
+                            SizedBox(height: 24.h),
+
+                            // Time Format (moved to the right column per your spec)
+                            Text("Time Format",
+                                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text("Use 24-Hour Format"),
+                              value: use24HourFormat,
+                              onChanged: (bool? v) => _saveTimeFormat(v ?? true),
+                            ),
                           ],
-
-                          // Time format is for everyone
-                          Text("Time Format", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                          CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text("Use 24-Hour Format"),
-                            value: use24HourFormat,
-                            onChanged: (bool? v) {
-                              bool val = true;
-                              if (v != null) {
-                                val = v;
-                              }
-                              _saveTimeFormat(val);
-                            },
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
+                ],
               ),
             ),
-
-            // divider
-            Container(width: 1.w, color: Colors.black12, margin: EdgeInsets.symmetric(vertical: 16.h)),
-
-            // -----------------------------------------------------------------
-            // RIGHT: NOTIFICATION SETTINGS (replaces the old Menu)
-            // -----------------------------------------------------------------
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: 520.w),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Text(
-                          "Notification Settings",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
-                        ),
-                        SizedBox(height: 35.h),
-
-                        SwitchListTile(
-                          title: const Text("Turn on sound for all notification"),
-                          value: notifAll,
-                          onChanged: (bool v) => _updateNotif('notifAll', v),
-                        ),
-                        SwitchListTile(
-                          title: const Text("Turn on sound for new booking"),
-                          value: notifNewBooking,
-                          onChanged: (bool v) => _updateNotif('notifNewBooking', v),
-                        ),
-                        SwitchListTile(
-                          title: const Text("Turn on sound for new pending booking"),
-                          value: notifPending,
-                          onChanged: (bool v) => _updateNotif('notifPending', v),
-                        ),
-                        SwitchListTile(
-                          title: const Text("Turn on sound for new reported issue"),
-                          value: notifIssue,
-                          onChanged: (bool v) => _updateNotif('notifIssue', v),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-
-  // =========================================================================
-  // Profile avatar helpers (unchanged)
-  // =========================================================================
-  Widget _profileAvatar(String path, {double size = 90}) {
-    if (path.isEmpty) {
-      return CircleAvatar(
-        radius: size,
-        backgroundColor: Colors.grey.shade300,
-        child: const Text('empty'),
       );
     }
 
-    return CircleAvatar(
-      radius: size,
-      backgroundColor: Colors.grey.shade200,
-      child: ClipOval(
-        child: Image.asset(
-          path,
-          width: size * 2,
-          height: size * 2,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stack) => const Center(child: Text('empty')),
+    // Non-admin path unchanged
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 520.w),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text("Notification Settings",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
+              SizedBox(height: 35.h),
+              SwitchListTile(
+                title: const Text("Turn on sound for all notification"),
+                value: notifAll,
+                onChanged: (bool v) => _updateNotif('notifAll', v),
+              ),
+              SwitchListTile(
+                title: const Text("Turn on sound for new booking"),
+                value: notifNewBooking,
+                onChanged: (bool v) => _updateNotif('notifNewBooking', v),
+              ),
+              SwitchListTile(
+                title: const Text("Turn on sound for new pending booking"),
+                value: notifPending,
+                onChanged: (bool v) => _updateNotif('notifPending', v),
+              ),
+              SwitchListTile(
+                title: const Text("Turn on sound for new reported issue"),
+                value: notifIssue,
+                onChanged: (bool v) => _updateNotif('notifIssue', v),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  String _assetFromName(String name) {
-    if (name.isEmpty) return '';
-    return 'asset/image/$name';
+
+  // =========================================================================
+  // Existing methods kept (some repositioned in UI)
+  // =========================================================================
+
+  Future<void> _updateNotif(String field, bool value) async {
+    if (userDocId == null) return;
+
+    setState(() {
+      switch (field) {
+        case 'notifAll':
+          notifAll = value;
+          break;
+        case 'notifNewBooking':
+          notifNewBooking = value;
+          break;
+        case 'notifPending':
+          notifPending = value;
+          break;
+        case 'notifIssue':
+          notifIssue = value;
+          break;
+      }
+    });
+
+    await _firestore
+        .collection('UserInformation')
+        .doc(userDocId)
+        .set(<String, dynamic>{field: value}, SetOptions(merge: true));
   }
 
-  Widget _profileAvatarFromName(String name, {double size = 60}) {
-    final String path = _assetFromName(name);
+  // NOTE: _pickTime now ONLY sets state; saving happens on _applyWorkingHours()
+  Future<void> _pickTime({required bool isStart}) async {
+    final TimeOfDay initial = isStart
+        ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
+        : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
 
-    if (path.isEmpty) {
-      return Container(
-        width: size * 2,
-        height: size * 2,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.black12, width: 2),
-          color: Colors.grey.shade300,
-        ),
-        alignment: Alignment.center,
-        child: const Text('empty'),
-      );
-    }
-
-    return Container(
-      width: size * 2,
-      height: size * 2,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.black12, width: 2),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.asset(
-        path,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stack) => const Center(child: Text('empty')),
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
       ),
     );
+    if (picked == null) return;
+
+    setState(() {
+      if (isStart) {
+        startTime = picked;
+      } else {
+        endTime = picked;
+      }
+    });
   }
 
-  // =========================================================================
-  // Off Days Calendar UI (matching Booking List style)
-  // =========================================================================
+  // -------------------- Off Days Calendar UI (unchanged) --------------------
   Widget _buildOffDaysCalendarCard() {
     return Container(
       decoration: BoxDecoration(
@@ -1517,10 +1469,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     if (!inMonth) text = const Color(0xFF9CA3AF);
     if (isDisabled && inMonth) text = const Color(0xFF9CA3AF);
 
-    // Holiday = blue
     if (isHoliday) {
-      bg = const Color(0xFFDBEAFE);        // light blue
-      border = const Color(0xFF1D4ED8);    // blue
+      bg = const Color(0xFFDBEAFE);
+      border = const Color(0xFF1D4ED8);
       text = const Color(0xFF1E3A8A);
     }
 
@@ -1551,6 +1502,163 @@ class _AdminWebAccountState extends State<WebAccount> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // -------- off-days helpers (unchanged behavior) --------
+  String _ymd(DateTime d) {
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final da = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$da';
+  }
+
+  int _daysInMonth(DateTime firstOfMonth) {
+    final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
+    final lastCurrent = firstNext.subtract(const Duration(days: 1));
+    return lastCurrent.day;
+  }
+
+  int _leadingEmptyCells(DateTime firstOfMonth) {
+    return firstOfMonth.weekday % 7;
+  }
+
+  String _monthName(int m) {
+    const names = [
+      'January','February','March','April','May','June',
+      'July','August','September','October','November','December'
+    ];
+    return names[m - 1];
+  }
+
+  void _prevMonthOffCal() {
+    final f = _offCalVisibleMonthFirst;
+    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month - 1, 1));
+  }
+
+  void _nextMonthOffCal() {
+    final f = _offCalVisibleMonthFirst;
+    setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month + 1, 1));
+  }
+
+// small helper to compare sets
+  bool _setsEqual(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final x in a) {
+      if (!b.contains(x)) return false;
+    }
+    return true;
+  }
+
+  Future<void> _toggleOffDay(DateTime date) async {
+    // ONLY change local state; do NOT write to Firestore here
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    final dateStart  = DateTime(date.year, date.month, date.day);
+    if (dateStart.isBefore(todayStart)) {
+      return; // past days disabled
+    }
+
+    final ymd = _ymd(date);
+    final willAdd = !_offDaysYMD.contains(ymd);
+
+    setState(() {
+      if (willAdd) {
+        _offDaysYMD.add(ymd);
+      } else {
+        _offDaysYMD.remove(ymd);
+      }
+      _offDirty = !_setsEqual(_offDaysYMD, _offDaysSaved); // mark unsaved changes
+    });
+  }
+
+
+  // ------------------- small UI helpers -------------------
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 10.h),
+      child: Row(
+        children: <Widget>[
+          Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18.sp)),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 18.sp),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SingleChildScrollPane extends StatelessWidget {
+  final bool isAdmin;
+  final Widget leftChild;
+  final Widget rightChild;
+
+  const SingleChildScrollPane({
+    Key? key,
+    required this.isAdmin,
+    required this.leftChild,
+    required this.rightChild,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (isAdmin) {
+      return SingleChildScrollView(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // LEFT 1/3: Account
+            Expanded(flex: 1, child: leftChild),
+            Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
+            // RIGHT 2/3: System Setting
+            Expanded(flex: 2, child: rightChild),
+          ],
+        ),
+      );
+    }
+
+    // Non-admin unchanged (3 columns feel)
+    return SingleChildScrollView(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: leftChild),
+          Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: 560.w),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+                  child: SingleChildScrollView(
+                    primary: false,
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Text("System Setting",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 35.h),
+                        Text("Working Hour", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 12.h),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
+          Expanded(child: rightChild),
+        ],
       ),
     );
   }

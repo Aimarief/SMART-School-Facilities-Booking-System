@@ -10,7 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';        // to pick image file
 import 'package:image/image.dart' as img;             // to resize/compress
-
+import 'android_notification_setting.dart';
 // bottom bar
 import 'android_bottom_menu.dart';
 
@@ -688,7 +688,10 @@ class _AndroidAccountState extends State<AndroidAccount> {
                 _actionBox(
                   title: "Notification Settings",
                   onTap: () {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidNotifications()));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const NotificationSetting()),
+                    );
                   },
                 ),
                 SizedBox(height: 14.h),

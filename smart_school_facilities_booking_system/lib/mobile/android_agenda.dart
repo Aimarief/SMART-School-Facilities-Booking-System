@@ -253,6 +253,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         .collection('Bookings')
         .where('userId', isEqualTo: uid)
         .where('bookingDate', isEqualTo: dayKey)
+        .where('deleted', isEqualTo: false)
         .snapshots();
   }
 
@@ -268,6 +269,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         .collection('Bookings')
         .where('userId', isEqualTo: uid)
         .where('bookingDate', whereIn: keys)   // 7 values (<=10), OK
+        .where('deleted', isEqualTo: false)
         .snapshots();
   }
 

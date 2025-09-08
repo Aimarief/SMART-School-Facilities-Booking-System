@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 import 'web_top_bar.dart';
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 
@@ -651,6 +652,8 @@ class _MakeBookingSectionRestyledState
   // ---------- Booked by email ----------
   final TextEditingController _bookedByEmail = TextEditingController();
   final RegExp _emailRe = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+  String? _validatedUserId;
+  bool _searchingUser = false;
 
   // ---------- selection state ----------
   DateTime? _selectedDate;
@@ -661,7 +664,8 @@ class _MakeBookingSectionRestyledState
   // ---------- facility config ----------
   int _facilitySeatCapacity = 0;
   String? _managerId;
-  final List<Map<String, String>> _timeSlots = <Map<String, String>>[]; // {start,end,key}
+  final List<Map<String, String>> _timeSlots = <Map<String, String>>[
+  ]; // {start,end,key}
   final Map<String, int> _dayBooked = <String, int>{}; // slotKey -> booked
 
   // ---------- seats for chosen slot ----------
@@ -690,12 +694,45 @@ class _MakeBookingSectionRestyledState
     super.dispose();
   }
 
+  // Facility inactive window (inclusive). If either is null, we ignore.
+  DateTime? _inactiveFrom;
+  DateTime? _inactiveTo;
+
+// Coerce Timestamp / DateTime / String -> date-only (yyyy-mm-dd at 00:00)
+  DateTime? _dateOnly(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) {
+      final dt = v.toDate();
+      return DateTime(dt.year, dt.month, dt.day);
+    }
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is String) {
+      final p = DateTime.tryParse(v);
+      if (p != null) return DateTime(p.year, p.month, p.day);
+    }
+    return null;
+  }
+
+
+
   // minutes -> "HH:mm"
   String _minutesToHHmm(int mins) {
     int h = mins ~/ 60;
     int m = mins % 60;
-    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
-    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+    if (h < 0) {
+      h = 0;
+    } else {
+      if (h > 23) {
+        h = 23;
+      }
+    }
+    if (m < 0) {
+      m = 0;
+    } else {
+      if (m > 59) {
+        m = 59;
+      }
+    }
     final hh = h.toString().padLeft(2, '0');
     final mm = m.toString().padLeft(2, '0');
     return '$hh:$mm';
@@ -769,20 +806,9 @@ class _MakeBookingSectionRestyledState
     }
 
     // Resolve effective userId to book for
-    String effectiveUserId = uidCurrent;
-    final emailInput = _bookedByEmail.text.trim();
-    if (emailInput.isNotEmpty) {
-      if (!_emailRe.hasMatch(emailInput)) {
-        _toast('Please enter a valid email address.');
-        return;
-      }
-      final found = await _findUserIdByEmail(emailInput);
-      if (found == null || found.isEmpty) {
-        _toast('No user found for that email.');
-        return;
-      }
-      effectiveUserId = found;
-    }
+    // Use the validated user selected via Search
+    final String effectiveUserId = _validatedUserId!;
+    final String emailInput = _bookedByEmail.text.trim();
 
     // get start/end from selected slot
     final ts = _timeSlots.firstWhere(
@@ -794,7 +820,9 @@ class _MakeBookingSectionRestyledState
     String selEnd = _normalizeHHmm((ts['end'] ?? '').trim());
 
     // compute an end if missing, and normalize
-    String selEndForCheck = selEnd.isEmpty ? _endForStartForConflict(selStart) : selEnd;
+    String selEndForCheck = selEnd.isEmpty
+        ? _endForStartForConflict(selStart)
+        : selEnd;
     selEndForCheck = _normalizeHHmm(selEndForCheck);
 
     // sanity: start < end
@@ -826,8 +854,8 @@ class _MakeBookingSectionRestyledState
         'facilityId': widget.facilityId,
         'managerId': _managerId ?? '',
         'bookingDate': _selectedYMD,
-        'start': selStart,            // ✅ normalized
-        'end': selEndForCheck,        // ✅ normalized & validated
+        'start': selStart, // ✅ normalized
+        'end': selEndForCheck, // ✅ normalized & validated
         'slotKey': _selectedSlotKey,
         'seatIndex': seatIndex1Based,
         'status': 'upcoming',
@@ -836,17 +864,42 @@ class _MakeBookingSectionRestyledState
         'userSeen': false,
         'rated': false,
         'rejectedAt': null,
+        'deleted': false,
         'createdAt': FieldValue.serverTimestamp(),
         if (emailInput.isNotEmpty) 'bookedByEmail': emailInput,
       };
 
-      await BookingService.createBookingPickSeatTx(
+      // after createBookingPickSeatTx returns the new id:
+      final String newBookingId = await BookingService.createBookingPickSeatTx(
         facilityId: widget.facilityId,
         dateYMD: _selectedYMD,
         slotKey: _selectedSlotKey,
         seatIndex: seatIndex1Based,
         bookingBase: bookingBase,
       );
+
+// ids you already have here
+      final String userId = effectiveUserId; // booking owner
+      final String bookedBy = FirebaseAuth.instance.currentUser?.uid ??
+          '-'; // actor
+      final String facility = widget.facilityId;
+      String managerId = _managerId ?? '-';
+
+      await NotificationService.sendBookingCreatedMails(
+        bookingId: newBookingId,
+        userId: userId,
+        bookedBy: bookedBy,
+        facilityId: facility,
+        managerId: managerId,
+        approval: 'accepted', // <-- only this if you want just approval
+
+      );
+
+
+// 5) UI feedback
+      _toast('Booking created.');
+      if (mounted) widget.onClose();
+
 
       _toast('Booking created.');
       if (mounted) widget.onClose();
@@ -887,6 +940,53 @@ class _MakeBookingSectionRestyledState
     return null;
   }
 
+  Future<void> _onSearchUser() async {
+    final email = _bookedByEmail.text.trim();
+    if (email.isEmpty) { _toast('Please enter an email.'); return; }
+    if (!_emailRe.hasMatch(email)) { _toast('Please enter a valid email address.'); return; }
+
+    setState(() { _searchingUser = true; });
+
+    try {
+      // find uid by email
+      final uid = await _findUserIdByEmail(email);
+      if (uid == null || uid.isEmpty) {
+        setState(() { _validatedUserId = null; });
+        _toast('No user exists for that email.');
+        return;
+      }
+
+      // read role and block Admin/Manager
+      String role = '';
+      try {
+        final snap = await FirebaseFirestore.instance.collection('UserInformation').doc(uid).get();
+        role = (snap.data()?['role'] ?? '').toString();
+      } catch (_) {}
+
+      final rl = role.toLowerCase().trim();
+      if (rl == 'admin' || rl == 'manager') {
+        setState(() { _validatedUserId = null; });
+        _toast('Not allowed to book for Admin or Manager accounts.');
+        return;
+      }
+
+      // success → store only the uid, reset downstream choices
+      setState(() {
+        _validatedUserId = uid;
+        _selectedDate = null;
+        _selectedYMD = '';
+        _selectedSlotKey = '';
+        _selectedSeatIndex = -1;
+        _seatTaken.clear();
+        _dayBooked.clear();
+      });
+
+      // ✅ snackbar only (no “selected user” pill)
+      _toast('User found.');
+    } finally {
+      if (mounted) setState(() { _searchingUser = false; });
+    }
+  }
 
 
   // ================================
@@ -1025,6 +1125,9 @@ class _MakeBookingSectionRestyledState
         _timeSlots
           ..clear()
           ..addAll(tmpSlots);
+
+        _inactiveFrom = _dateOnly(fd?['inactiveFrom']);
+        _inactiveTo   = _dateOnly(fd?['inactiveTo']);
       });
     } catch (_) {
       _toast('Failed to load facility settings.');
@@ -1095,7 +1198,8 @@ class _MakeBookingSectionRestyledState
           .collection('Seats')
           .get();
 
-      bool hasZero = false, hasOne = false;
+      bool hasZero = false,
+          hasOne = false;
       for (final d in seatsSnap.docs) {
         if (d.id == '0') hasZero = true;
         if (d.id == '1') hasOne = true;
@@ -1121,6 +1225,40 @@ class _MakeBookingSectionRestyledState
     }
   }
 
+  bool _isSelectable(DateTime d) {
+    if (_isHoliday(d)) return false;
+    if (!_isWorkingDay(d)) return false;
+
+    // Block days within facility inactive window (inclusive) ONLY if both endpoints exist
+    if (_inactiveFrom != null && _inactiveTo != null) {
+      final DateTime dOnly = DateTime(d.year, d.month, d.day);
+      if (!dOnly.isBefore(_inactiveFrom!) && !dOnly.isAfter(_inactiveTo!)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  DateTime? _firstSelectable(DateTime first, DateTime last, DateTime preferred) {
+    // If preferred is ok, use it.
+    if (_isSelectable(preferred)) return preferred;
+
+    // Search forward
+    DateTime cur = preferred;
+    while (!cur.isAfter(last)) {
+      if (_isSelectable(cur)) return cur;
+      cur = cur.add(const Duration(days: 1));
+    }
+    // Search backward
+    cur = preferred;
+    while (!cur.isBefore(first)) {
+      if (_isSelectable(cur)) return cur;
+      cur = cur.subtract(const Duration(days: 1));
+    }
+    return null; // none in range
+  }
+
+
   Future<String> _conflictReasonForInterval({
     required String userId,
     required String dateYMD,
@@ -1131,7 +1269,8 @@ class _MakeBookingSectionRestyledState
       final String nS = _normalizeHHmm(newStartHHmm);
       String nE = _normalizeHHmm(newEndHHmm);
       if (nE.isEmpty) {
-        nE = _endForStartForConflict(nS); // +60 min fallback when slot has no stored end
+        nE = _endForStartForConflict(
+            nS); // +60 min fallback when slot has no stored end
       }
       final int newS = _hmToMinutes(nS);
       final int newE = _hmToMinutes(nE);
@@ -1144,6 +1283,21 @@ class _MakeBookingSectionRestyledState
 
       for (final d in qs.docs) {
         final m = d.data();
+
+        // NEW: ignore soft-deleted bookings
+        bool isDeleted = false;
+        final dynamic del = m['deleted'];
+        if (del is bool) {
+          isDeleted = del;
+        } else if (del is String) {
+          final s = del.toLowerCase().trim();
+          isDeleted = (s == 'true' || s == '1' || s == 'yes');
+        } else if (del is num) {
+          isDeleted = del != 0;
+        }
+        if (isDeleted) continue;
+
+        // keep only accepted/approved/pending (unchanged)
         final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
         final keep = (ap == 'accepted' || ap == 'approved' || ap == 'pending');
         if (!keep) continue;
@@ -1161,7 +1315,9 @@ class _MakeBookingSectionRestyledState
 
         // half-open overlap: [newS,newE) vs [exS,exE), edge-touch OK
         if (newS < exE && newE > exS) {
-          return 'Overlap with other booking ${_fmtHHmm(s)} - ${_fmtHHmm(e)}.';
+          // EXACT message you requested:
+          return 'Overlap with other booking ${_rangeText(s, e)}. '
+              'New time ${_rangeText(nS, nE)} is not allowed.';
         }
       }
       return '';
@@ -1169,6 +1325,8 @@ class _MakeBookingSectionRestyledState
       return 'Could not verify the other bookings. Please try again.';
     }
   }
+
+
 
 
   // ================================
@@ -1201,52 +1359,84 @@ class _MakeBookingSectionRestyledState
               ),
               SizedBox(height: 12.h),
 
-              // Booked by
               _sectionTitle('Booked by'),
               SizedBox(height: 8.h),
-              SizedBox(
-                width: 320.w,
-                child: TextField(
-                  controller: _bookedByEmail,
-                  keyboardType: TextInputType.emailAddress,
-                  inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'email',
-                    contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 40.h,
+                      child: TextField(
+                        controller: _bookedByEmail,
+                        onChanged: (_) {
+                          // typing invalidates previous selection and clears choices
+                          setState(() {
+                            _validatedUserId = null;
+                            _selectedDate = null;
+                            _selectedYMD = '';
+                            _selectedSlotKey = '';
+                            _selectedSeatIndex = -1;
+                            _seatTaken.clear();
+                            _dayBooked.clear();
+                          });
+                        },
+                        keyboardType: TextInputType.emailAddress,
+                        inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'email',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                        ),
+                        style: TextStyle(fontSize: 12.sp),
+                      ),
+                    ),
                   ),
-                  style: TextStyle(fontSize: 12.sp),
-                ),
+                  SizedBox(width: 8.w),
+                  SizedBox(
+                    height: 40.h,
+                    child: ElevatedButton.icon(
+                      onPressed: _searchingUser ? null : _onSearchUser,
+                      icon: _searchingUser
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.search, size: 18),
+                      label: Text('Search', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
               ),
+
+
 
               SizedBox(height: 16.h),
               const Divider(height: 1),
               SizedBox(height: 12.h),
 
               // Step 1: Date
-              _sectionTitle('1) Choose Date'),
-              SizedBox(height: 8.h),
-              Row(
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _openCalendarAndPick,
-                    icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 8.h),
-                      child: Text('Pick Date',
-                          style:
-                          TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
+              if (_validatedUserId == null)
+                _helpText('Pick a user first.')
+              else
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _openCalendarAndPick,
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 8.h),
+                        child: Text('Pick Date',
+                            style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
+                      ),
                     ),
-                  ),
-                  SizedBox(width: 10.w),
-                  Expanded(
-                    child: _pillInfoRow('Selected',
-                        _selectedYMD.isEmpty ? '-' : _selectedYMD),
-                  ),
-                ],
-              ),
+                    SizedBox(width: 10.w),
+                    Expanded(
+                      child: _pillInfoRow('Selected',
+                          _selectedYMD.isEmpty ? '-' : _selectedYMD),
+                    ),
+                  ],
+                ),
+
+
+
               if (_loadingSettings) ...[
                 SizedBox(height: 10.h),
                 _loadingLine('Loading calendar rules...'),
@@ -1538,28 +1728,30 @@ class _MakeBookingSectionRestyledState
   // Calendar
   // ================================
   Future<void> _openCalendarAndPick() async {
-    if (_loadingSettings) {
-      _toast('Loading calendar rules... please try again in a moment.');
-      return;
+    // Kick off rules load if needed, but don't block UI.
+    if (_offDateYMD.isEmpty && !_loadingSettings) {
+      _loadSettingsAndOffDays(); // fire-and-forget
     }
-    if (_offDateYMD.isEmpty) await _loadSettingsAndOffDays();
 
     final today = DateTime.now();
-    final minDate = DateTime(today.year, today.month, today.day);
-    final maxDate = DateTime(today.year + 1, today.month, today.day);
+    final firstDate = DateTime(today.year, today.month, today.day);
+    final lastDate  = DateTime(today.year + 1, today.month, today.day);
 
-    final init = _selectedDate ?? minDate;
+    // Ensure initialDate satisfies the predicate to avoid the assertion.
+    final preferred = _selectedDate ?? firstDate;
+    final safeInit = _firstSelectable(firstDate, lastDate, preferred);
+
+    if (safeInit == null) {
+      _toast('No selectable dates available in the allowed range.');
+      return;
+    }
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: init,
-      firstDate: minDate,
-      lastDate: maxDate,
-      selectableDayPredicate: (d) {
-        if (_isHoliday(d)) return false;
-        if (!_isWorkingDay(d)) return false;
-        return true;
-      },
+      initialDate: safeInit,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      selectableDayPredicate: _isSelectable,
     );
 
     if (picked != null) {
@@ -1575,6 +1767,8 @@ class _MakeBookingSectionRestyledState
       await _loadDayBookedMap(ymd);
     }
   }
+
+
 
   bool _isSelectedDateToday() {
     if (_selectedDate == null) return false;

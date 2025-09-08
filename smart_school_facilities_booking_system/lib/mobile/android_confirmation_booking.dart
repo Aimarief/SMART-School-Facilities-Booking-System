@@ -13,6 +13,7 @@ import 'android_list_of_facilities.dart';
 
 // Booking service (your Firestore write helpers)
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 
 // ------------------------------ widget ------------------------------
 class ConfirmBooking extends StatefulWidget {
@@ -75,7 +76,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   // per-slot stats
   bool _loadingSlotStats = false;
   final Map<String, int> _capacityByStart = {}; // per-slot capacity
-  final Map<String, int> _reserveByStart = {};  // accepted/booked count
+  final Map<String, int> _reserveByStart = {}; // accepted/booked count
 
   // approval reason
   final TextEditingController _reasonCtrl = TextEditingController();
@@ -87,14 +88,14 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   // ------------------------------ lifecycle: init ------------------------------
   @override
   void initState() {
-    super.initState();                              // call parent init
+    super.initState(); // call parent init
 
-    _loadUser();                                    // read current user
+    _loadUser(); // read current user
 
     // track reason length live
     _reasonCtrl.addListener(() {
-      final int len = _reasonCtrl.text.characters.length;   // count UTF-16 safely
-      int safe = len;                                       // clamp 0..99
+      final int len = _reasonCtrl.text.characters.length; // count UTF-16 safely
+      int safe = len; // clamp 0..99
       if (safe < 0) {
         safe = 0;
       } else {
@@ -102,17 +103,19 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           safe = 99;
         }
       }
-      setState(() { _reasonLen = safe; });                  // update UI count
+      setState(() {
+        _reasonLen = safe;
+      }); // update UI count
     });
 
-    _loadFacilityThenChain();                      // fetch facility → manager → slot stats → auto seats
+    _loadFacilityThenChain(); // fetch facility → manager → slot stats → auto seats
   }
 
   // ------------------------------ lifecycle: dispose ------------------------------
   @override
   void dispose() {
-    _reasonCtrl.dispose();                         // clean controller
-    super.dispose();                               // call parent dispose
+    _reasonCtrl.dispose(); // clean controller
+    super.dispose(); // call parent dispose
   }
 
   // ------------------------------ user: read current user ------------------------------
@@ -121,13 +124,13 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       final User? u = FirebaseAuth.instance.currentUser; // get firebase user
 
       if (u != null) {
-        _userId = u.uid;                               // store uid
+        _userId = u.uid; // store uid
 
-        if (u.email != null) {                         // read email
+        if (u.email != null) { // read email
           _userEmail = u.email!;
         }
 
-        if (u.displayName != null) {                   // read display name
+        if (u.displayName != null) { // read display name
           final String dn = u.displayName!.trim();
           if (dn.isNotEmpty) {
             _userName = dn;
@@ -135,7 +138,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         }
       }
 
-      if (_userName.isEmpty) {                         // fallback user name
+      if (_userName.isEmpty) { // fallback user name
         if (_userEmail.isNotEmpty) {
           _userName = _userEmail;
         } else {
@@ -143,7 +146,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         }
       }
 
-      if (_userId.isNotEmpty) {                        // read profile doc for contact/name override
+      if (_userId.isNotEmpty) { // read profile doc for contact/name override
         final ds = await FirebaseFirestore.instance
             .collection('UserInformation')
             .doc(_userId)
@@ -175,20 +178,26 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       }
     } catch (_) {}
 
-    if (mounted) { setState(() {}); }                 // refresh UI
+    if (mounted) {
+      setState(() {});
+    } // refresh UI
   }
 
   // ------------------------------ chain: load facility → manager → slot stats → auto seats ------------------------------
   Future<void> _loadFacilityThenChain() async {
-    await _loadFacilityOnce();                        // read facility fields
-    await _loadManagerOnce();                         // read manager profile
-    await _prefetchSlotStats();                       // per-slot capacity + booked
-    if (widget.autoAssign) { await _prefetchAutoSeats(); } // seat preview only for auto-assign
+    await _loadFacilityOnce(); // read facility fields
+    await _loadManagerOnce(); // read manager profile
+    await _prefetchSlotStats(); // per-slot capacity + booked
+    if (widget.autoAssign) {
+      await _prefetchAutoSeats();
+    } // seat preview only for auto-assign
   }
 
   // ------------------------------ facility: read once ------------------------------
   Future<void> _loadFacilityOnce() async {
-    setState(() { _loadingFacility = true; });        // show loading
+    setState(() {
+      _loadingFacility = true;
+    }); // show loading
 
     try {
       final snap = await FirebaseFirestore.instance
@@ -199,15 +208,18 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       if (snap.exists) {
         final Map<String, dynamic>? data = snap.data();
         if (data != null) {
-          _facility = data;                           // keep whole map
+          _facility = data; // keep whole map
 
           // name
           _facilityName = (data['name'] as String?) ?? '';
-          if (_facilityName.isEmpty) { _facilityName = widget.facilityName; }
+          if (_facilityName.isEmpty) {
+            _facilityName = widget.facilityName;
+          }
 
           // image path
           final String imageName = (data['imageName'] as String?)?.trim() ?? '';
-          _facilityImagePath = imageName.isNotEmpty ? 'asset/image/$imageName' : '';
+          _facilityImagePath =
+          imageName.isNotEmpty ? 'asset/image/$imageName' : '';
 
           // location / description
           _location = (data['location'] as String?) ?? '';
@@ -220,9 +232,13 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
             _facilityCapacity = cap;
           } else {
             final int? parsed = int.tryParse('$cap');
-            if (parsed != null) { _facilityCapacity = parsed; }
+            if (parsed != null) {
+              _facilityCapacity = parsed;
+            }
           }
-          if (_facilityCapacity <= 0) { _facilityCapacity = 1; }
+          if (_facilityCapacity <= 0) {
+            _facilityCapacity = 1;
+          }
 
           // manager id
           _managerId = (data['managerId'] as String?) ?? '';
@@ -235,19 +251,29 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           } else {
             if (r is String) {
               final String s = r.toLowerCase().trim();
-              if (s == 'true') { _requireApproval = true; } else { _requireApproval = false; }
+              if (s == 'true') {
+                _requireApproval = true;
+              } else {
+                _requireApproval = false;
+              }
             }
           }
         }
       }
     } catch (_) {}
 
-    if (mounted) { setState(() { _loadingFacility = false; }); } // hide loading
+    if (mounted) {
+      setState(() {
+        _loadingFacility = false;
+      });
+    } // hide loading
   }
 
   // ------------------------------ manager: read once ------------------------------
   Future<void> _loadManagerOnce() async {
-    setState(() { _loadingManager = true; });         // show loading
+    setState(() {
+      _loadingManager = true;
+    }); // show loading
 
     try {
       if (_managerId.isNotEmpty) {
@@ -258,26 +284,34 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
         if (snap.exists) {
           final Map<String, dynamic>? m = snap.data();
-          if (m != null) { _manager = m; }            // store manager map
+          if (m != null) {
+            _manager = m;
+          } // store manager map
         }
       }
     } catch (_) {}
 
-    if (mounted) { setState(() { _loadingManager = false; }); } // hide loading
+    if (mounted) {
+      setState(() {
+        _loadingManager = false;
+      });
+    } // hide loading
   }
 
   // ------------------------------ per-slot stats: capacity + booked for each selected start ------------------------------
   Future<void> _prefetchSlotStats() async {
-    setState(() { _loadingSlotStats = true; });       // show loading
+    setState(() {
+      _loadingSlotStats = true;
+    }); // show loading
 
     try {
       int i = 0;
       while (i < widget.startTimes.length) {
-        final String start = widget.startTimes[i];                        // "HH:mm"
-        final String key = start.replaceAll(':', '').padLeft(4, '0');     // "HHmm"
+        final String start = widget.startTimes[i]; // "HH:mm"
+        final String key = start.replaceAll(':', '').padLeft(4, '0'); // "HHmm"
 
-        int cap = _facilityCapacity;                                      // default to facility cap
-        int res = 0;                                                      // default 0 booked
+        int cap = _facilityCapacity; // default to facility cap
+        int res = 0; // default 0 booked
 
         try {
           final slotRef = FirebaseFirestore.instance
@@ -285,31 +319,43 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
               .collection('Days').doc(widget.dateYMD)
               .collection('Slots').doc(key);
 
-          final slotSnap = await slotRef.get();                           // read slot doc
+          final slotSnap = await slotRef.get(); // read slot doc
           if (slotSnap.exists) {
             final Map<String, dynamic>? s = slotSnap.data();
             if (s != null) {
               // capacity override
               if (s.containsKey('capacity')) {
                 final dynamic c = s['capacity'];
-                if (c is int) { cap = c; } else {
+                if (c is int) {
+                  cap = c;
+                } else {
                   final int? p = int.tryParse('$c');
-                  if (p != null) { cap = p; }
+                  if (p != null) {
+                    cap = p;
+                  }
                 }
               }
               // booked/reserve count
               if (s.containsKey('reserve')) {
                 final dynamic r = s['reserve'];
-                if (r is int) { res = r; } else {
+                if (r is int) {
+                  res = r;
+                } else {
                   final int? p = int.tryParse('$r');
-                  if (p != null) { res = p; }
+                  if (p != null) {
+                    res = p;
+                  }
                 }
               } else {
                 if (s.containsKey('booked')) {
                   final dynamic b = s['booked'];
-                  if (b is int) { res = b; } else {
+                  if (b is int) {
+                    res = b;
+                  } else {
                     final int? p = int.tryParse('$b');
-                    if (p != null) { res = p; }
+                    if (p != null) {
+                      res = p;
+                    }
                   }
                 }
               }
@@ -317,31 +363,40 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           }
         } catch (_) {}
 
-        if (cap <= 0) { cap = 1; }                                       // guard invalid cap
-        if (res < 0) { res = 0; }                                        // guard invalid count
+        if (cap <= 0) {
+          cap = 1;
+        } // guard invalid cap
+        if (res < 0) {
+          res = 0;
+        } // guard invalid count
 
-        _capacityByStart[start] = cap;                                   // cache cap for start
-        _reserveByStart[start] = res;                                    // cache booked for start
+        _capacityByStart[start] = cap; // cache cap for start
+        _reserveByStart[start] = res; // cache booked for start
 
-        i = i + 1;                                                       // move next
+        i = i + 1; // move next
       }
     } catch (_) {}
 
-    if (mounted) { setState(() { _loadingSlotStats = false; }); }        // hide loading
+    if (mounted) {
+      setState(() {
+        _loadingSlotStats = false;
+      });
+    } // hide loading
   }
 
   // ------------------------------ auto-assign: find first seat not taken for a start ------------------------------
   Future<int?> _autoAssignSeatIndex(String start, int capacity) async {
-    final String key = start.replaceAll(':', '').padLeft(4, '0');         // normalize to "HHmm"
+    final String key = start.replaceAll(':', '').padLeft(
+        4, '0'); // normalize to "HHmm"
 
     final qs = await FirebaseFirestore.instance
         .collection('Facilities').doc(widget.facilityId)
         .collection('Days').doc(widget.dateYMD)
         .collection('Slots').doc(key)
         .collection('Seats')
-        .get();                                                           // read all seat docs
+        .get(); // read all seat docs
 
-    final Set<int> hardTaken = <int>{};                                   // seats with taken==true
+    final Set<int> hardTaken = <int>{}; // seats with taken==true
 
     for (final d in qs.docs) {
       final int? idx = int.tryParse(d.id);
@@ -351,40 +406,55 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         if (data.containsKey('taken')) {
           final dynamic t = data['taken'];
           if (t is bool) {
-            if (t == true) { isTaken = true; }
+            if (t == true) {
+              isTaken = true;
+            }
           }
         }
-        if (isTaken) { hardTaken.add(idx); }                              // mark hard taken
+        if (isTaken) {
+          hardTaken.add(idx);
+        } // mark hard taken
       }
     }
 
     int i = 1;
     while (i <= capacity) {
-      if (!hardTaken.contains(i)) { return i; }                           // pick first free
+      if (!hardTaken.contains(i)) {
+        return i;
+      } // pick first free
       i = i + 1;
     }
 
-    return null;                                                          // no free seats
+    return null; // no free seats
   }
 
   // ------------------------------ auto-assign: prefetch preview for each selected start ------------------------------
   Future<void> _prefetchAutoSeats() async {
-    setState(() { _loadingAutoSeats = true; });                           // show loading
+    setState(() {
+      _loadingAutoSeats = true;
+    }); // show loading
     try {
       int i = 0;
       while (i < widget.startTimes.length) {
         final String s = widget.startTimes[i];
 
-        int cap = _facilityCapacity;                                      // fallback
-        if (_capacityByStart.containsKey(s)) { cap = _capacityByStart[s]!; }
+        int cap = _facilityCapacity; // fallback
+        if (_capacityByStart.containsKey(s)) {
+          cap = _capacityByStart[s]!;
+        }
 
-        final int? idx = await _autoAssignSeatIndex(s, cap);              // preview seat index
-        _autoSeatByStart[s] = idx;                                        // can be null (full)
+        final int? idx = await _autoAssignSeatIndex(
+            s, cap); // preview seat index
+        _autoSeatByStart[s] = idx; // can be null (full)
 
         i = i + 1;
       }
     } catch (_) {}
-    if (mounted) { setState(() { _loadingAutoSeats = false; }); }         // hide loading
+    if (mounted) {
+      setState(() {
+        _loadingAutoSeats = false;
+      });
+    } // hide loading
   }
 
   // ------------------------------ formatting: "HH:mm" -> "hh:mm am/pm" ------------------------------
@@ -394,14 +464,22 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     int m = 0;
 
     if (p.isNotEmpty) {
-      final int? hh = int.tryParse(p[0]); if (hh != null) { h = hh; }
+      final int? hh = int.tryParse(p[0]);
+      if (hh != null) {
+        h = hh;
+      }
     }
     if (p.length > 1) {
-      final int? mm = int.tryParse(p[1]); if (mm != null) { m = mm; }
+      final int? mm = int.tryParse(p[1]);
+      if (mm != null) {
+        m = mm;
+      }
     }
 
     String suffix = 'am';
-    if (h >= 12) { suffix = 'pm'; }
+    if (h >= 12) {
+      suffix = 'pm';
+    }
 
     final String hh2 = h.toString().padLeft(2, '0');
     final String mm2 = m.toString().padLeft(2, '0');
@@ -417,8 +495,8 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       final int d = int.parse(parts[2]);
 
       const List<String> months = <String>[
-        'January','February','March','April','May','June',
-        'July','August','September','October','November','December'
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
       ];
 
       return '$d ${months[m - 1]} $y';
@@ -430,25 +508,29 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   // ------------------------------ time utils: normalize "HH:mm" from variants ------------------------------
   String _normalizeHHmm(String s) {
     String txt = s.trim();
-    if (txt.contains(':')) {                                             // already HH:mm-ish
+    if (txt.contains(':')) { // already HH:mm-ish
       final List<String> p = txt.split(':');
       String hh = '00';
       String mm = '00';
-      if (p.isNotEmpty) { hh = p[0].padLeft(2, '0'); }
-      if (p.length > 1) { mm = p[1].padLeft(2, '0'); }
+      if (p.isNotEmpty) {
+        hh = p[0].padLeft(2, '0');
+      }
+      if (p.length > 1) {
+        mm = p[1].padLeft(2, '0');
+      }
       return '$hh:$mm';
     } else {
-      if (txt.contains('.')) {                                           // allow HH.mm
+      if (txt.contains('.')) { // allow HH.mm
         txt = txt.replaceAll('.', ':');
         return _normalizeHHmm(txt);
       } else {
-        final String only = txt.replaceAll(' ', '');                     // allow HHmm
+        final String only = txt.replaceAll(' ', ''); // allow HHmm
         if (only.length >= 4) {
           final String hh = only.substring(0, 2);
           final String mm = only.substring(2, 4);
           return '${hh.padLeft(2, '0')}:${mm.padLeft(2, '0')}';
         } else {
-          return '00:00';                                                // safe fallback
+          return '00:00'; // safe fallback
         }
       }
     }
@@ -462,14 +544,32 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     int m = 0;
 
     if (p.isNotEmpty) {
-      final int? hh = int.tryParse(p[0]); if (hh != null) { h = hh; }
+      final int? hh = int.tryParse(p[0]);
+      if (hh != null) {
+        h = hh;
+      }
     }
     if (p.length > 1) {
-      final int? mm = int.tryParse(p[1]); if (mm != null) { m = mm; }
+      final int? mm = int.tryParse(p[1]);
+      if (mm != null) {
+        m = mm;
+      }
     }
 
-    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
-    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+    if (h < 0) {
+      h = 0;
+    } else {
+      if (h > 23) {
+        h = 23;
+      }
+    }
+    if (m < 0) {
+      m = 0;
+    } else {
+      if (m > 59) {
+        m = 59;
+      }
+    }
 
     return h * 60 + m;
   }
@@ -478,8 +578,20 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   String _minutesToHHmm(int mins) {
     int h = mins ~/ 60;
     int m = mins % 60;
-    if (h < 0) { h = 0; } else { if (h > 23) { h = 23; } }
-    if (m < 0) { m = 0; } else { if (m > 59) { m = 59; } }
+    if (h < 0) {
+      h = 0;
+    } else {
+      if (h > 23) {
+        h = 23;
+      }
+    }
+    if (m < 0) {
+      m = 0;
+    } else {
+      if (m > 59) {
+        m = 59;
+      }
+    }
     final String hh = h.toString().padLeft(2, '0');
     final String mm = m.toString().padLeft(2, '0');
     return '$hh:$mm';
@@ -487,9 +599,9 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
   // ------------------------------ time utils: get end for start (facility template or +60m) ------------------------------
   String _endForStartForConflict(String startHHmm) {
-    String end = _lookupEndFromFacilityByStart(startHHmm);               // try template
+    String end = _lookupEndFromFacilityByStart(startHHmm); // try template
     if (end.isEmpty) {
-      final int sM = _hmToMinutes(_normalizeHHmm(startHHmm));           // fallback +60
+      final int sM = _hmToMinutes(_normalizeHHmm(startHHmm)); // fallback +60
       final int eM = sM + 60;
       end = _minutesToHHmm(eM);
     } else {
@@ -501,7 +613,11 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
   // ------------------------------ time utils: overlap check [aStart,aEnd) vs [bStart,bEnd) ------------------------------
   bool _rangesOverlap(int aStart, int aEnd, int bStart, int bEnd) {
     if (aStart < bEnd) {
-      if (aEnd > bStart) { return true; } else { return false; }
+      if (aEnd > bStart) {
+        return true;
+      } else {
+        return false;
+      }
     } else {
       return false;
     }
@@ -530,7 +646,9 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
                 if (stNorm == want) {
                   if (item.containsKey('end')) {
                     final dynamic ed = item['end'];
-                    if (ed is String) { end = _normalizeHHmm(ed); }
+                    if (ed is String) {
+                      end = _normalizeHHmm(ed);
+                    }
                   }
                 }
               }
@@ -545,37 +663,39 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
   // ------------------------------ bookings: get user's bookings on same day (accepted + pending) ------------------------------
   Future<List<Map<String, dynamic>>> _getMyBookingsSameDay() async {
-    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+    final out = <Map<String, dynamic>>[];
     try {
-      if (_userId.isEmpty) { return out; }
+      if (_userId.isEmpty) return out;
 
       final qs = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('userId', isEqualTo: _userId)
           .where('bookingDate', isEqualTo: widget.dateYMD)
-          .get();                                                        // equality-only filters
+      // OPTIONAL (requires backfill + index):
+      // .where('deleted', isEqualTo: false)
+          .get();
 
       for (final d in qs.docs) {
-        final Map<String, dynamic>? m = d.data();
-        if (m != null) {
-          String ap = '';
-          if (m.containsKey('approval')) {
-            final dynamic a = m['approval'];
-            if (a is String) { ap = a.toLowerCase().trim(); }
-          }
-          bool keep = false;
-          if (ap == 'accepted') { keep = true; } else { if (ap == 'pending') { keep = true; } }
-          if (keep) { out.add(m); }                                      // keep accepted/pending only
-        }
+        final m = d.data();
+        if (m == null) continue;
+
+        // Skip soft-deleted
+        if (m['deleted'] == true) continue;
+
+        final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
+        final keep = (ap == 'accepted' || ap == 'pending');
+        if (keep) out.add(m);
       }
     } catch (_) {}
     return out;
   }
 
+
   // ------------------------------ confirm: conflict reason vs existing bookings for a new start ------------------------------
-  String _conflictReasonForStart(List<Map<String, dynamic>> existing, String newStart) {
-    final String newS = _normalizeHHmm(newStart);                        // normalize start
-    final int newM = _hmToMinutes(newS);                                 // to minutes
+  String _conflictReasonForStart(List<Map<String, dynamic>> existing,
+      String newStart) {
+    final String newS = _normalizeHHmm(newStart); // normalize start
+    final int newM = _hmToMinutes(newS); // to minutes
 
     int i = 0;
     while (i < existing.length) {
@@ -584,70 +704,89 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       String s = '';
       if (b.containsKey('start')) {
         final dynamic st = b['start'];
-        if (st is String) { s = _normalizeHHmm(st); }
+        if (st is String) {
+          s = _normalizeHHmm(st);
+        }
       }
-      if (s.isEmpty) { i = i + 1; continue; }                            // skip invalid
+      if (s.isEmpty) {
+        i = i + 1;
+        continue;
+      } // skip invalid
 
       String e = '';
       if (b.containsKey('end')) {
         final dynamic ed = b['end'];
-        if (ed is String) { e = _normalizeHHmm(ed); }
+        if (ed is String) {
+          e = _normalizeHHmm(ed);
+        }
       }
       if (e.isEmpty) {
         final String fromFac = _lookupEndFromFacilityByStart(s);
-        if (fromFac.isNotEmpty) { e = fromFac; }
+        if (fromFac.isNotEmpty) {
+          e = fromFac;
+        }
       }
 
       final int sM = _hmToMinutes(s);
-      final int eM = e.isNotEmpty ? _hmToMinutes(e) : sM + 60;           // 60m default
+      final int eM = e.isNotEmpty ? _hmToMinutes(e) : sM + 60; // 60m default
 
-      if (newM == sM) {                                                  // same start
+      if (newM == sM) { // same start
         return 'You already have a booking ${_toAmPm(s)} - ${_toAmPm(e)}.';
       }
 
-      if (newM > sM) {                                                   // inside interval
-        if (newM < eM) { return 'You already have a booking ${_toAmPm(s)} - ${_toAmPm(e)}.'; }
+      if (newM > sM) { // inside interval
+        if (newM < eM) {
+          return 'You already have a booking ${_toAmPm(s)} - ${_toAmPm(e)}.';
+        }
       }
 
       i = i + 1;
     }
-    return '';                                                            // ok
+    return ''; // ok
   }
 
   // ------------------------------ confirm: tap handler to create bookings ------------------------------
   Future<void> _onConfirmPressed() async {
-    if (_saving) { return; }                                             // ignore double taps
+    if (_saving) {
+      return;
+    } // ignore double taps
 
-    if (_loadingFacility) {                                              // wait facility
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait, loading facility.')));
+    if (_loadingFacility) { // wait facility
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please wait, loading facility.')));
       return;
     }
 
-    if (widget.autoAssign) {                                             // need stats if auto + approval
+    if (widget.autoAssign) { // need stats if auto + approval
       if (_requireApproval) {
         if (_loadingSlotStats) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait, checking availability.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Please wait, checking availability.')));
           return;
         }
       }
     }
 
-    if (_requireApproval) {                                              // reason required
+    if (_requireApproval) { // reason required
       final String reason = _reasonCtrl.text.trim();
       if (reason.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter your reason')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Please enter your reason')));
         return;
       }
     }
 
     // strict conflict checks
     try {
-      final List<Map<String, dynamic>> existing = await _getMyBookingsSameDay();  // user's bookings for the day
+      final List<Map<String,
+          dynamic>> existing = await _getMyBookingsSameDay(); // user's bookings for the day
 
       int i = 0;
       while (i < widget.startTimes.length) {
-        final String newStart = _normalizeHHmm(widget.startTimes[i]);    // normalize new start
-        final String newEnd = _endForStartForConflict(newStart);         // compute new end
+        final String newStart = _normalizeHHmm(
+            widget.startTimes[i]); // normalize new start
+        final String newEnd = _endForStartForConflict(
+            newStart); // compute new end
         final int newS = _hmToMinutes(newStart);
         final int newE = _hmToMinutes(newEnd);
 
@@ -658,18 +797,27 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           String s = '';
           if (b.containsKey('start')) {
             final dynamic st = b['start'];
-            if (st is String) { s = _normalizeHHmm(st); }
+            if (st is String) {
+              s = _normalizeHHmm(st);
+            }
           }
-          if (s.isEmpty) { j = j + 1; continue; }
+          if (s.isEmpty) {
+            j = j + 1;
+            continue;
+          }
 
           String e = '';
           if (b.containsKey('end')) {
             final dynamic ed = b['end'];
-            if (ed is String) { e = _normalizeHHmm(ed); }
+            if (ed is String) {
+              e = _normalizeHHmm(ed);
+            }
           }
           if (e.isEmpty) {
             final String fromFac = _lookupEndFromFacilityByStart(s);
-            if (fromFac.isNotEmpty) { e = _normalizeHHmm(fromFac); } else {
+            if (fromFac.isNotEmpty) {
+              e = _normalizeHHmm(fromFac);
+            } else {
               final int sM = _hmToMinutes(s);
               e = _minutesToHHmm(sM + 60);
             }
@@ -678,10 +826,12 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           final int oldS = _hmToMinutes(s);
           final int oldE = _hmToMinutes(e);
 
-          if (_rangesOverlap(newS, newE, oldS, oldE) == true) {          // overlap found
-            final String msg = 'Overlap with your existing booking ${_rangeText(s, e)}. '
+          if (_rangesOverlap(newS, newE, oldS, oldE) == true) { // overlap found
+            final String msg = 'Overlap with your existing booking ${_rangeText(
+                s, e)}. '
                 'New request ${_rangeText(newStart, newEnd)} is not allowed.';
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg, style: TextStyle(fontSize: 13.sp))));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(msg, style: TextStyle(fontSize: 13.sp))));
             return;
           }
 
@@ -706,9 +856,11 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           final int bS = _hmToMinutes(bStart);
           final int bE = _hmToMinutes(bEnd);
 
-          if (_rangesOverlap(aS, aE, bS, bE) == true) {                  // overlap among picks
-            final String msg = 'Your selected times overlap: ${_rangeText(aStart, aEnd)} vs ${_rangeText(bStart, bEnd)}.';
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg, style: TextStyle(fontSize: 13.sp))));
+          if (_rangesOverlap(aS, aE, bS, bE) == true) { // overlap among picks
+            final String msg = 'Your selected times overlap: ${_rangeText(
+                aStart, aEnd)} vs ${_rangeText(bStart, bEnd)}.';
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(msg, style: TextStyle(fontSize: 13.sp))));
             return;
           }
 
@@ -718,7 +870,9 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         a = a + 1;
       }
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not verify your other bookings. Try again.', style: TextStyle(fontSize: 13.sp))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          'Could not verify your other bookings. Try again.',
+          style: TextStyle(fontSize: 13.sp))));
       return;
     }
 
@@ -733,14 +887,18 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
           final String s = widget.startTimes[i];
 
           int cap = _facilityCapacity;
-          if (_capacityByStart.containsKey(s)) { cap = _capacityByStart[s]!; }
+          if (_capacityByStart.containsKey(s)) {
+            cap = _capacityByStart[s]!;
+          }
 
-          final int? idx = await _autoAssignSeatIndex(s, cap);           // preview seat index
+          final int? idx = await _autoAssignSeatIndex(
+              s, cap); // preview seat index
           if (idx == null) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Time ${_toAmPm(s)} is full. Choose another.')));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Time ${_toAmPm(s)} is full. Choose another.')));
             return;
           } else {
-            seatByStart[s] = idx;                                        // keep temp seat
+            seatByStart[s] = idx; // keep temp seat
           }
           i = i + 1;
         }
@@ -750,11 +908,13 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
     } else {
       // manual picks must cover all starts
       if (widget.seatPicks == null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Please pick a seat for every time.')));
         return;
       }
       if (widget.seatPicks!.length != widget.startTimes.length) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Please pick a seat for every time.')));
         return;
       }
 
@@ -763,17 +923,20 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         final String s = widget.startTimes[i];
         final int? idx = widget.seatPicks![s];
         if (idx == null) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a seat for every time.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Please pick a seat for every time.')));
           return;
         } else {
-          seatByStart[s] = idx;                                          // keep manual seat
+          seatByStart[s] = idx; // keep manual seat
         }
         i = i + 1;
       }
     }
 
     // start saving
-    setState(() { _saving = true; });                                     // lock button
+    setState(() {
+      _saving = true;
+    }); // lock button
 
     try {
       // optional manager name from facility
@@ -782,99 +945,128 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       int i = 0;
       while (i < widget.startTimes.length) {
         final String start = widget.startTimes[i];
-        final String slotKey = start.replaceAll(':', '').padLeft(4, '0'); // "HHmm"
+        final String slotKey = start.replaceAll(':', '').padLeft(
+            4, '0'); // "HHmm"
 
         // try end from template
         String end = '';
         final dynamic raw = _facility['customTimeSlots'];
         if (raw is List) {
-          int k = 0;
-          while (k < raw.length) {
-            final dynamic item = raw[k];
+          for (final item in raw) {
             if (item is Map<String, dynamic>) {
-              final dynamic st = item['start'];
-              if (st is String) {
-                if (st == start) {
-                  final dynamic ed = item['end'];
-                  if (ed is String) { end = ed; }
-                }
+              final st = item['start'];
+              if (st is String && st == start) {
+                final ed = item['end'];
+                if (ed is String) end = ed;
               }
             }
-            k = k + 1;
           }
         }
 
-        // base fields
-        final Map<String, dynamic> bookingBase = <String, dynamic>{};
-        bookingBase['userId'] = _userId;
-        bookingBase['userName'] = _userName;
-        bookingBase['userEmail'] = _userEmail;
-        bookingBase['userContact'] = _userContact;
-        bookingBase['facilityId'] = widget.facilityId;
-        bookingBase['facilityName'] = _facilityName;
-        bookingBase['managerId'] = _managerId;
-        bookingBase['managerName'] = managerName;
-        bookingBase['bookingDate'] = widget.dateYMD;
-        bookingBase['slotKey'] = slotKey;
-        bookingBase['start'] = start;
-        bookingBase['rated'] = false;
-        if (end.isNotEmpty) { bookingBase['end'] = end; }
-        bookingBase['autoAssigned'] = widget.autoAssign;
-        bookingBase['createdAt'] = FieldValue.serverTimestamp();
+
+        // right after you validated reason is required & non-empty
+        final String approvalReason =
+        _requireApproval ? _reasonCtrl.text.trim() : '';
+
+        // base fields (unchanged)
+        final Map<String, dynamic> bookingBase = <String, dynamic>{
+          'userId': _userId,
+          'userName': _userName,
+          'userEmail': _userEmail,
+          'userContact': _userContact,
+          'facilityId': widget.facilityId,
+          'facilityName': _facilityName,
+          'managerId': _managerId,
+          'managerName': managerName,
+          'bookingDate': widget.dateYMD,
+          'slotKey': slotKey,
+          'start': start,
+          'rated': false,
+          'autoAssigned': widget.autoAssign,
+          'createdAt': FieldValue.serverTimestamp(),
+          'deleted':false,
+          if (end.isNotEmpty) 'end': end,
+          if (_requireApproval && approvalReason.isNotEmpty) 'approvalReason': approvalReason,
+        };
+
+        late String bookingId;
 
         if (_requireApproval) {
           // pending path
           bookingBase['approval'] = 'pending';
-          bookingBase['approvalReason'] = _reasonCtrl.text.trim();
-          bookingBase['status'] = 'upcoming';
+          bookingBase['status']   = 'upcoming';
 
-          // seatIndex must be stored even when pending
+          // keep your current seatIndex behavior for pending
           if (widget.autoAssign) {
             final int? tempSeat = seatByStart[start];
-            if (tempSeat != null) { bookingBase['seatIndex'] = tempSeat; }
+            if (tempSeat != null) bookingBase['seatIndex'] = tempSeat;
           } else {
             final int? manualSeat = seatByStart[start];
-            if (manualSeat != null) { bookingBase['seatIndex'] = manualSeat; }
+            if (manualSeat != null) bookingBase['seatIndex'] = manualSeat;
           }
 
-          await BookingService.createBookingPending(bookingBase: bookingBase); // write pending
+          bookingId = await BookingService.createBookingPending(bookingBase: bookingBase);
+
+          // inbox mail (PENDING)
+          try {
+            await NotificationService.sendBookingCreatedMails(
+              bookingId: bookingId,
+              userId: _userId,
+              bookedBy: _userId,
+              facilityId: widget.facilityId,
+              managerId: _managerId,
+              approval: 'pending',
+            );
+          } catch (_) {}
 
         } else {
-          // accepted now path
+          // accepted now
           bookingBase['approval'] = 'accepted';
-          bookingBase['status'] = 'upcoming';
+          bookingBase['status']   = 'upcoming';
 
           if (widget.autoAssign) {
-            await BookingService.createBookingAutoAssignTx(
+            bookingId = await BookingService.createBookingAutoAssignTx(
               facilityId: widget.facilityId,
               dateYMD: widget.dateYMD,
               slotKey: slotKey,
               bookingBase: bookingBase,
-            ); // tx assigns seat
+            );
           } else {
             final int seatIdx = seatByStart[start]!;
             bookingBase['seatIndex'] = seatIdx;
 
-            await BookingService.createBookingPickSeatTx(
+            bookingId = await BookingService.createBookingPickSeatTx(
               facilityId: widget.facilityId,
               dateYMD: widget.dateYMD,
               slotKey: slotKey,
               seatIndex: seatIdx,
               bookingBase: bookingBase,
-            ); // tx reserves chosen seat
+            );
           }
+
+          // inbox mail (ACCEPTED)
+          try {
+            await NotificationService.sendBookingCreatedMails(
+              bookingId: bookingId,
+              userId: _userId,
+              bookedBy: _userId,
+              facilityId: widget.facilityId,
+              managerId: _managerId,
+              approval: 'accepted',
+            );
+          } catch (_) {}
         }
 
-        i = i + 1;
+        i++;
       }
 
       if (mounted) {
-        String msg;
-        if (_requireApproval) { msg = 'Request sent. An admin will review it.'; } else { msg = 'Booking created'; }
-
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));   // show result
-
-        Navigator.pushAndRemoveUntil(                                              // go to My Bookings
+        final msg = _requireApproval
+            ? 'Request sent. An admin will review it.'
+            : 'Booking created';
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg)));
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => AndroidViewBooking()),
               (route) => false,
@@ -882,9 +1074,13 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to create booking: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+            SnackBar(content: Text('Failed to create booking: $e')));
       }
     }
+
+
 
     if (mounted) { setState(() { _saving = false; }); }                             // unlock button
   }
@@ -989,22 +1185,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       }
       timeRows.add(_kvLine(label: _toAmPm(start), value: seatTxt));      // add seat line
 
-      // reserve stats line
-      int cap = _facilityCapacity;
-      if (_capacityByStart.containsKey(start)) { cap = _capacityByStart[start]!; }
-      int res = 0;
-      if (_reserveByStart.containsKey(start)) { res = _reserveByStart[start]!; }
 
-      bool isFull = false;
-      if (res >= cap) { isFull = true; }
-
-      String statText = 'Taken: $res / $cap';
-      if (isFull) { statText = 'Taken: $res / $cap (Full)'; }
-
-      Color? statColor = isFull ? Colors.red : null;
-
-      timeRows.add(_kvLine(label: 'Status', value: statText, color: statColor));  // add status line
-      timeRows.add(SizedBox(height: 8.h));                                        // spacing
       t = t + 1;
     }
 
@@ -1067,6 +1248,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       );
       approvalWidgets.add(SizedBox(height: 18.h));                                                                   // space under
     }
+
 
     // body content
     Widget bodyChild;

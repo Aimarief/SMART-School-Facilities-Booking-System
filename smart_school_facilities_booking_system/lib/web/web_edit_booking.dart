@@ -2,7 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';        // to know who pressed Confirm
+import 'package:smart_school_facilities_booking_system/notification_service.dart';                       // our mail writer
 import 'web_booking_details.dart'; // for openWebBookingDetailsDialog()
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 // ---------- helper to open the EDIT popup (keep simple; styling lives inside the widget) ----------
@@ -13,6 +14,7 @@ Future<void> openWebEditBookingDialog({
   required String facilityId,
   required String bookedByUid,
   required String managerUid,
+  required String userUid,
   required String dateYMD,
   required String timeStart,
   required String timeEnd,
@@ -33,6 +35,7 @@ Future<void> openWebEditBookingDialog({
           facilityId: facilityId,
           bookedByUid: bookedByUid,
           managerUid: managerUid,
+          userUid: userUid,
           dateYMD: dateYMD,
           timeStart: timeStart,
           timeEnd: timeEnd,
@@ -53,6 +56,7 @@ class WebEditBooking extends StatefulWidget {
   final String facilityId;
   final String bookedByUid;
   final String managerUid;
+  final String userUid;
   final String dateYMD;   // current booked date (YYYY-MM-DD)
   final String timeStart; // current time label shown in details
   final String timeEnd;   // current time label shown in details
@@ -68,6 +72,7 @@ class WebEditBooking extends StatefulWidget {
     required this.facilityId,
     required this.bookedByUid,
     required this.managerUid,
+    required this.userUid,
     required this.dateYMD,
     required this.timeStart,
     required this.timeEnd,
@@ -142,6 +147,58 @@ class _WebEditBookingState extends State<WebEditBooking> {
     });
   }
 
+  // ---- Inactive window from Facilities doc (inclusive). If either end missing -> ignore.
+  DateTime? _inactiveFrom;
+  DateTime? _inactiveTo;
+
+// Convert Firestore Timestamp / DateTime / ISO string to date-only (local 00:00)
+  DateTime? _dateOnly(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) {
+      final dt = v.toDate();
+      return DateTime(dt.year, dt.month, dt.day);
+    }
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is String) {
+      final p = DateTime.tryParse(v);
+      if (p != null) return DateTime(p.year, p.month, p.day);
+    }
+    return null;
+  }
+
+// Inside inactive range (inclusive) only when BOTH endpoints exist.
+  bool _isWithinInactiveRange(DateTime d) {
+    if (_inactiveFrom == null || _inactiveTo == null) return false;
+    final dd = DateTime(d.year, d.month, d.day);
+    return !dd.isBefore(_inactiveFrom!) && !dd.isAfter(_inactiveTo!);
+  }
+
+// One place to decide if a date is selectable in the calendar
+  bool _isSelectable(DateTime d) {
+    if (_isHoliday(d)) return false;
+    if (!_isWorkingDay(d)) return false;
+    if (_isWithinInactiveRange(d)) return false;
+    return true;
+  }
+
+// Pick an initialDate that satisfies selectableDayPredicate to avoid assertion
+  DateTime? _firstSelectable(DateTime first, DateTime last, DateTime preferred) {
+    if (_isSelectable(preferred)) return preferred;
+
+    var cur = preferred;
+    while (!cur.isAfter(last)) {
+      if (_isSelectable(cur)) return cur;
+      cur = cur.add(const Duration(days: 1));
+    }
+    cur = preferred;
+    while (!cur.isBefore(first)) {
+      if (_isSelectable(cur)) return cur;
+      cur = cur.subtract(const Duration(days: 1));
+    }
+    return null; // none in range
+  }
+
+
   Future<String> _checkUserConflictForInterval({
     required String userId,
     required String dateYMD,
@@ -152,105 +209,55 @@ class _WebEditBookingState extends State<WebEditBooking> {
       // normalize new interval
       final String nS = _normalizeHHmm(newStartHHmm);
       String nE = _normalizeHHmm(newEndHHmm);
-      if (nE.isEmpty == true) {
-        nE = _endForStartForConflict(nS);
-      }
+      if (nE.isEmpty) nE = _endForStartForConflict(nS);
       final int newS = _hmToMinutes(nS);
       final int newE = _hmToMinutes(nE);
 
-      // read user's other bookings that day (exclude this booking)
-      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+      final qs = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('userId', isEqualTo: userId)
           .where('bookingDate', isEqualTo: dateYMD)
+      // OPTIONAL: enable if all docs have `deleted:false` and you’ve added the composite index
+      // .where('deleted', isEqualTo: false)
           .get();
 
-      int j = 0;
-      while (j < qs.docs.length) {
-        final d = qs.docs[j];
-        if (d.id == widget.bookingId) {
-          j = j + 1;
-          continue;
-        }
+      for (final d in qs.docs) {
+        if (d.id == widget.bookingId) continue;        // ignore this booking
+        final m = d.data();
 
-        final Map<String, dynamic> m = d.data();
+        // 👉 skip soft-deleted bookings
+        if ((m['deleted'] ?? false) == true) continue;
 
         // keep only accepted/approved/pending
-        String ap = '';
-        if (m.containsKey('approval')) {
-          final dynamic v = m['approval'];
-          if (v != null) { ap = v.toString().toLowerCase().trim(); }
-        }
-        bool keep = false;
-        if (ap == 'accepted') {
-          keep = true;
-        } else {
-          if (ap == 'approved') {
-            keep = true;
-          } else {
-            if (ap == 'pending') {
-              keep = true;
-            }
-          }
-        }
-        if (keep == false) {
-          j = j + 1;
-          continue;
-        }
+        final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
+        final keep = ap == 'accepted' || ap == 'approved' || ap == 'pending';
+        if (!keep) continue;
 
         // existing start
-        String s = '';
-        if (m.containsKey('start')) {
-          final dynamic v = m['start'];
-          if (v != null) { s = v.toString(); }
-        } else {
-          if (m.containsKey('startTime')) {
-            final dynamic v = m['startTime'];
-            if (v != null) { s = v.toString(); }
-          }
-        }
+        String s = ((m['start'] ?? m['startTime']) ?? '').toString();
         s = _normalizeHHmm(s);
-        if (s.isEmpty == true) {
-          j = j + 1;
-          continue;
-        }
+        if (s.isEmpty) continue;
 
-        // existing end (from doc or from facility map; fallback +60)
-        String e = '';
-        if (m.containsKey('end')) {
-          final dynamic v = m['end'];
-          if (v != null) { e = v.toString(); }
-        } else {
-          if (m.containsKey('endTime')) {
-            final dynamic v = m['endTime'];
-            if (v != null) { e = v.toString(); }
-          }
-        }
+        // existing end (doc -> facility map -> +60)
+        String e = ((m['end'] ?? m['endTime']) ?? '').toString();
         e = _normalizeHHmm(e);
-        if (e.isEmpty == true) {
-          final String byMap = _endForStartForConflict(s);
-          e = byMap;
-        }
+        if (e.isEmpty) e = _endForStartForConflict(s);
 
         final int exS = _hmToMinutes(s);
         final int exE = _hmToMinutes(e);
 
-        // block if intervals overlap
-        if (_rangesOverlapStrict(newS, newE, exS, exE) == true) {
-          final String msg = 'Overlap with other booking ' + _rangeText(s, e) +
-              '. New time ' + _rangeText(nS, nE) + ' is not allowed.';
-          return msg;
+        if (_rangesOverlapStrict(newS, newE, exS, exE)) {
+          return 'Overlap with other booking ${_rangeText(s, e)}. '
+              'New time ${_rangeText(nS, nE)} is not allowed.';
         }
-
-        j = j + 1;
       }
 
       return '';
     } catch (_) {
-      // if we fail to read, do not falsely allow; safer to block
       return 'Could not verify other bookings. Please try again.';
     }
   }
+
 
 
   // turn minutes back to "HH:mm"
@@ -393,8 +400,23 @@ class _WebEditBookingState extends State<WebEditBooking> {
       );
     });
 
+    if (!ok) return; // only if txn succeeded
 
-    if (!ok) return;
+    final String bookedBy = FirebaseAuth.instance.currentUser?.uid ?? '-'; // actor doing the edit
+    final String userId   = widget.userUid;                                // owner passed into dialog
+    final String facility = widget.facilityId;
+    String managerId = widget.managerUid.trim().isEmpty ? '-' : widget.managerUid.trim();
+
+    await NotificationService.sendBookingUpdatedMails(
+      bookingId: widget.bookingId,  // known on edit
+      userId: userId,
+      bookedBy: bookedBy,
+      facilityId: facility,
+      managerId: managerId,
+      approval: "accepted",
+    );
+
+
 
     // Update local copy so Details popup shows new info immediately
     final updated = Map<String, dynamic>.from(widget.rawBooking);
@@ -1010,27 +1032,22 @@ class _WebEditBookingState extends State<WebEditBooking> {
     final DateTime minDate = DateTime(today.year, today.month, today.day);
     final DateTime maxDate = DateTime(today.year + 1, today.month, today.day);
 
-    DateTime init;
-    if (_selectedDate == null) {
-      init = minDate;
-    } else {
-      init = _selectedDate!;
+    // prefer current selection; otherwise today
+    final DateTime preferred = _selectedDate ?? minDate;
+
+    // ensure initialDate satisfies selectableDayPredicate to avoid assertion crash
+    final DateTime? safeInit = _firstSelectable(minDate, maxDate, preferred);
+    if (safeInit == null) {
+      _toast('No selectable dates available in the allowed range.');
+      return;
     }
 
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: init,
+      initialDate: safeInit,
       firstDate: minDate,
       lastDate: maxDate,
-      selectableDayPredicate: (DateTime d) {
-        if (_isHoliday(d)) {
-          return false;
-        }
-        if (!_isWorkingDay(d)) {
-          return false;
-        }
-        return true;
-      },
+      selectableDayPredicate: _isSelectable, // unified rule: holidays + weekdays + inactive range
     );
 
     if (picked != null) {
@@ -1046,6 +1063,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
       await _loadDayBookedMap(ymd);
     }
   }
+
 
   // ================================
   // Firestore loaders
@@ -1301,6 +1319,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
         _timeSlots
           ..clear()
           ..addAll(tmpSlots);
+
+        _inactiveFrom = _dateOnly(fd?['inactiveFrom']);
+        _inactiveTo   = _dateOnly(fd?['inactiveTo']);
+
+        if (_selectedDate != null && !_isSelectable(_selectedDate!)) {
+          setState(() {
+            _selectedDate = null;
+            _selectedYMD = '';
+            _selectedSlotKey = '';
+            _selectedSeatIndex = -1;
+            _seatTaken.clear();
+            _dayBooked.clear();
+          });
+        }
       });
     } catch (e) {
       _toast('Failed to load facility settings.');

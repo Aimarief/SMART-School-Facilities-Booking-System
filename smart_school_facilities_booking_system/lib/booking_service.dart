@@ -204,9 +204,10 @@ class BookingService {
   // -------- Public APIs (ORIGINAL ONES — kept) --------
 
   // PENDING booking (no counter change)
-  static Future<void> createBookingPending({
+  static Future<String> createBookingPending({
     required Map<String, dynamic> bookingBase,
   }) async {
+    // keep your existing field normalisation
     if (!bookingBase.containsKey('createdAt')) {
       bookingBase['createdAt'] = FieldValue.serverTimestamp();
     }
@@ -229,14 +230,18 @@ class BookingService {
       bookingBase['approval'] = 'pending';
     }
 
-    // NEW: mark unseen on create
+    // (unchanged) – mark unseen on create
     bookingBase['seen'] = false;
 
     final FirebaseFirestore db = FirebaseFirestore.instance;
-    final bookingRef = db.collection(_bookingsCol).doc();
+
+    // IMPORTANT: allocate the doc BEFORE writing so we can return the id
+    final DocumentReference<Map<String, dynamic>> bookingRef =
+    db.collection(_bookingsCol).doc();
+
     await bookingRef.set(bookingBase);
 
-    // Optional soft seat doc (range-checked). Do this OUTSIDE a transaction.
+    // (unchanged) optional soft seat doc
     try {
       int seatIdx = 0;
       bool hasSeat = false;
@@ -258,20 +263,12 @@ class BookingService {
         String facilityId = '';
         if (bookingBase.containsKey('facilityId')) {
           final dynamic f = bookingBase['facilityId'];
-          if (f is String) {
-            facilityId = f;
-          } else if (f != null) {
-            facilityId = f.toString();
-          }
+          facilityId = f is String ? f : (f?.toString() ?? '');
         }
         String dateYMD = '';
         if (bookingBase.containsKey('bookingDate')) {
           final dynamic d = bookingBase['bookingDate'];
-          if (d is String) {
-            dateYMD = d;
-          } else if (d != null) {
-            dateYMD = d.toString();
-          }
+          dateYMD = d is String ? d : (d?.toString() ?? '');
         }
 
         if (facilityId.isNotEmpty && dateYMD.isNotEmpty) {
@@ -301,143 +298,166 @@ class BookingService {
         }
       }
     } catch (_) {}
+
+    // NEW: return the real id so callers can use it in Inbox mails
+    return bookingRef.id;
   }
 
   // ACCEPT immediately (auto-assign)
-  static Future<void> createBookingAutoAssignTx({
+  static Future<String> createBookingAutoAssignTx({
     required String facilityId,
     required String dateYMD,
     required String slotKey,
     required Map<String, dynamic> bookingBase,
   }) async {
-    final String key = _normalizeSlotKey(slotKey);
-    final FirebaseFirestore db = FirebaseFirestore.instance;
+    final db  = FirebaseFirestore.instance;
+    final key = _normalizeSlotKey(slotKey);
 
+    // make sure base has normalized slotKey + createdAt
     bookingBase['slotKey'] = key;
     if (!bookingBase.containsKey('createdAt')) {
       bookingBase['createdAt'] = FieldValue.serverTimestamp();
     }
 
+    // PRE-ALLOCATE so we can return the real id
+    final bookingRef = db.collection(_bookingsCol).doc();
+    String createdId = bookingRef.id;
+
     await db.runTransaction((txn) async {
       final facRef = db.collection('Facilities').doc(facilityId);
       final slotRef = facRef
-          .collection('Days')
-          .doc(dateYMD)
-          .collection('Slots')
-          .doc(key);
+          .collection('Days').doc(dateYMD)
+          .collection('Slots').doc(key);
 
-      // ---- READS (all before writes) ----
-      final int capacity = await _txReadCapacity(
-        txn,
-        slotRef: slotRef,
-        facRef: facRef,
-      );
-      final int booked = await _txReadBooked(txn, slotRef);
-      if (booked >= capacity) {
-        throw Exception('Slot is full');
-      }
+      // ---- READS ----
+      final capacity = await _txReadCapacity(txn, slotRef: slotRef, facRef: facRef);
+      final booked   = await _txReadBooked(txn, slotRef);
+      if (booked >= capacity) throw Exception('Slot is full');
 
-      // Find first free seat
+      // pick first free seat
       int? chosen;
-      int i = 1;
-      while (i <= capacity) {
+      for (int i = 1; i <= capacity; i++) {
         final seatRef = slotRef.collection('Seats').doc(i.toString());
-        final bool free = await _txSeatIsFree(txn, seatRef);
-        if (free) {
-          chosen = i;
-          break;
-        }
-        i = i + 1;
+        if (await _txSeatIsFree(txn, seatRef)) { chosen = i; break; }
       }
-      if (chosen == null) {
-        throw Exception('No free seat found');
-      }
+      if (chosen == null) throw Exception('No free seat found');
 
       // ---- WRITES ----
       final chosenSeatRef = slotRef.collection('Seats').doc(chosen.toString());
       _txSetSeatTaken(txn, chosenSeatRef, true);
 
-      // bump booked by 1 (clamp)
       int nextBooked = booked + 1;
       if (nextBooked > capacity) nextBooked = capacity;
       _txSetBooked(txn, slotRef, nextBooked);
 
-      // write booking
-      final bookingRef = db.collection(_bookingsCol).doc();
-      final Map<String, dynamic> data = Map<String, dynamic>.from(bookingBase);
-      data['seatIndex'] = chosen;
-      data['approval'] = 'accepted';
-      data['status'] = 'upcoming';
-      // NEW: mark unseen on create
-      data['seen'] = false;
+      final data = Map<String, dynamic>.from(bookingBase)
+        ..['seatIndex'] = chosen
+        ..['approval']  = 'accepted'
+        ..['status']    = 'upcoming'
+        ..['seen']      = false;
+
       txn.set(bookingRef, data);
     });
+
+    return createdId;
   }
 
   // ACCEPT immediately (manual seatIndex)
-  static Future<void> createBookingPickSeatTx({
-    required String facilityId,
-    required String dateYMD,
-    required String slotKey,
-    required int seatIndex,
-    required Map<String, dynamic> bookingBase,
+  static Future<String> createBookingPickSeatTx({
+    required String facilityId,                 // facility to book
+    required String dateYMD,                    // date "YYYY-MM-DD"
+    required String slotKey,                    // slot key like "0930"
+    required int seatIndex,                     // 1-based seat index chosen by user
+    required Map<String, dynamic> bookingBase,  // base fields for the booking doc
   }) async {
+    // we store the new booking id here and return it after transaction
+    String createdBookingId = '';
+
+    // normalize the slot key once (e.g., "9:30" -> "0930")
     final String key = _normalizeSlotKey(slotKey);
+
+    // get the Firestore instance (we will run a transaction)
     final FirebaseFirestore db = FirebaseFirestore.instance;
 
-    bookingBase['slotKey'] = key;
-    if (!bookingBase.containsKey('createdAt')) {
+    // make sure the base map has the slotKey and createdAt
+    bookingBase['slotKey'] = key;                                // store normalized key
+    if (!bookingBase.containsKey('createdAt')) {                 // add createdAt if missing
       bookingBase['createdAt'] = FieldValue.serverTimestamp();
     }
 
+    // run everything atomically inside a transaction
     await db.runTransaction((txn) async {
+      // references for facility, day and slot documents (where seats live)
       final facRef = db.collection('Facilities').doc(facilityId);
       final slotRef = facRef
           .collection('Days')
           .doc(dateYMD)
           .collection('Slots')
           .doc(key);
-      final seatRef = slotRef.collection('Seats').doc(seatIndex.toString());
 
-      // ---- READS ----
+      // -------------------------
+      // READS (checks before write)
+      // -------------------------
+
+      // read capacity from slot (or facility fallback) using your helper
       final int capacity = await _txReadCapacity(
         txn,
         slotRef: slotRef,
         facRef: facRef,
       );
 
-      bool inRange = false;
-      if (seatIndex >= 1 && seatIndex <= capacity) inRange = true;
-      if (!inRange) {
+      // seat index must be between 1 and capacity
+      final int seatIdx = seatIndex;
+      if (!(seatIdx >= 1 && seatIdx <= capacity)) {
         throw Exception('Seat index out of range');
       }
 
+      // read current "booked" counter on this slot
       final int booked = await _txReadBooked(txn, slotRef);
+
+      // stop if slot is already full
       if (booked >= capacity) {
         throw Exception('Slot is full');
       }
 
+      // read the chosen seat doc to see if free
+      final seatRef = slotRef.collection('Seats').doc(seatIdx.toString());
       final bool free = await _txSeatIsFree(txn, seatRef);
       if (!free) {
-        throw Exception('Seat already taken');
+        throw Exception('Seat is already taken');
       }
 
-      // ---- WRITES ----
+      // -------------------------
+      // WRITES (apply the changes)
+      // -------------------------
+
+      // mark the chosen seat as taken
       _txSetSeatTaken(txn, seatRef, true);
 
+      // increase the booked counter (clamp to capacity)
       int nextBooked = booked + 1;
-      if (nextBooked > capacity) nextBooked = capacity;
+      if (nextBooked > capacity) {
+        nextBooked = capacity;
+      }
       _txSetBooked(txn, slotRef, nextBooked);
 
+      // create the booking doc with a pre-generated id so we can return it
       final bookingRef = db.collection(_bookingsCol).doc();
+      createdBookingId = bookingRef.id; // <-- SAVE the id to return later
+
+      // clone the base map and fill required booking fields
       final Map<String, dynamic> data = Map<String, dynamic>.from(bookingBase);
-      data['seatIndex'] = seatIndex;
-      data['approval'] = 'accepted';
-      data['status'] = 'upcoming';
-      // NEW: mark unseen on create
-      data['seen'] = false;
+      data['seatIndex'] = seatIdx;        // store the chosen 1-based seat index
+      data['approval'] = 'accepted';      // accept immediately in this flow
+      data['status'] = 'upcoming';        // upcoming by default
+      data['seen'] = false;               // unseen on create (for your UI)
+
+      // write the booking inside the transaction
       txn.set(bookingRef, data);
     });
+
+    // after the transaction completes OK, return the new id
+    return createdBookingId;
   }
 
   // APPROVE pending -> accepted
@@ -720,46 +740,77 @@ class BookingService {
 
   /// DELETE accepted & UPCOMING booking (by id):
   /// Decrement booked by 1, set Seats/{seatIndex}.taken=false, and delete Bookings/{bookingId}.
+// SOFT-DELETE by id.
+// - Always sets Bookings/{id}.deleted=true (+deletedAt)
+// - If approval in [accepted/approved] AND status == upcoming -> free seat + booked -= 1
+  // SOFT-DELETE by id.
+// - Always sets Bookings/{id}.deleted=true (+deletedAt)
+// - If approval in [accepted/approved] AND status == upcoming -> free seat + booked -= 1
+// Soft-delete by id.
+// - Always sets deleted=true (+ deletedAt).
+// - If the booking actually holds a seat (accepted/approved + upcoming),
+//   also frees the seat and decrements booked by 1 (clamped >= 0).
   static Future<void> deleteAcceptedBookingByIdTx({required String bookingId}) async {
     final db = FirebaseFirestore.instance;
+
     await db.runTransaction((txn) async {
       final bookingRef = db.collection(_bookingsCol).doc(bookingId);
 
-      // Read booking
+      // ---- READS (all reads before any writes) ----
       final bSnap = await txn.get(bookingRef);
       if (!bSnap.exists) throw Exception('Booking not found');
       final b = bSnap.data() as Map<String, dynamic>?;
 
-      final approval = _pickStr(b, ['approval']).toLowerCase();
-      final status   = _pickStr(b, ['status']).toLowerCase();
-      if (approval != 'accepted' && approval != 'approved') {
-        throw Exception('Only accepted bookings can be deleted.');
+      final approval  = _pickStr(b, ['approval']).toLowerCase();
+      final status    = _pickStr(b, ['status']).toLowerCase();
+      final facilityId= _pickStr(b, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final dateYMD   = _toYMD(b?['bookingDate'] ?? _pickStr(b, ['dateYMD','date','day']));
+      final slotKey   = _normalizeSlotKey(_pickStr(b, ['slotKey','slot','start']));
+      final seatIndex = _pickInt(b, ['seatIndex','seat','seatNumber']);
+
+      final bool shouldRelease =
+          (approval == 'accepted' || approval == 'approved') &&
+              status == 'upcoming' &&
+              facilityId.isNotEmpty &&
+              dateYMD.isNotEmpty &&
+              slotKey.isNotEmpty &&
+              seatIndex != null &&
+              seatIndex! > 0;
+
+      // Pre-read slot.booked if we will touch it (still no writes yet)
+      int bookedCount = 0;
+      DocumentReference<Map<String, dynamic>>? slotRef;
+      DocumentReference<Map<String, dynamic>>? seatRef;
+
+      if (shouldRelease) {
+        final facRef = db.collection('Facilities').doc(facilityId);
+        slotRef = facRef.collection('Days').doc(dateYMD).collection('Slots').doc(slotKey);
+        seatRef = slotRef.collection('Seats').doc(seatIndex!.toString());
+        bookedCount = await _txReadBooked(txn, slotRef);
+        // (We don't need to read the seat doc; setting taken=false with merge is safe.)
       }
-      if (status != 'upcoming') {
-        throw Exception('Only upcoming bookings can be deleted.');
+
+      // ---- WRITES (after all reads) ----
+      // Always soft-delete the booking
+      txn.set(
+        bookingRef,
+        {
+          'deleted': true,
+          'deletedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (shouldRelease) {
+        // Free the seat and decrement booked (clamped in _txSetBooked)
+        _txSetSeatTaken(txn, seatRef!, false);
+        _txSetBooked(txn, slotRef!, bookedCount - 1);
       }
-
-      final facilityId = _pickStr(b, ['facilityId', 'facilityID', 'facilityDocId', 'facility_id']);
-      final dateYMD   = _toYMD(b?['bookingDate'] ?? _pickStr(b, ['dateYMD', 'date', 'day']));
-      final slotKey   = _normalizeSlotKey(_pickStr(b, ['slotKey', 'slot', 'start']));
-      final seatIndex = _pickInt(b, ['seatIndex', 'seat', 'seatNumber']) ?? -1;
-
-      if (facilityId.isEmpty || dateYMD.isEmpty || slotKey.isEmpty || seatIndex < 1) {
-        throw Exception('Booking missing facility/date/slot/seat.');
-      }
-
-      final facRef  = db.collection('Facilities').doc(facilityId);
-      final slotRef = facRef.collection('Days').doc(dateYMD).collection('Slots').doc(slotKey);
-      final seatRef = slotRef.collection('Seats').doc(seatIndex.toString());
-
-      final bookedCount = await _txReadBooked(txn, slotRef);
-
-      // Writes
-      _txSetSeatTaken(txn, seatRef, false);
-      _txSetBooked(txn, slotRef, bookedCount - 1);
-      txn.delete(bookingRef);
     });
   }
+
+
+
 
   // -------- Move/Reschedule accepted booking (by id) --------
   /// Move an ACCEPTED + UPCOMING booking to a new (facilityId/date/slot/seat).

@@ -971,6 +971,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                   stream: FirebaseFirestore.instance
                       .collection('Bookings')
                       .where('userId', isEqualTo: user.uid)
+                      .where('deleted', isEqualTo: false)
                       .snapshots(),
                   builder: (context, snap) {
                     // loading spinner while waiting for first snapshot

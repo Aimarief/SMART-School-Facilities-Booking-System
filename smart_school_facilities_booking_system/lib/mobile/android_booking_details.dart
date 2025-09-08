@@ -198,6 +198,20 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     return null;
   }
 
+  bool _isEditLocked(DateTime? startDT) {
+    if (startDT == null) {
+      return false; // cannot decide, so do not lock
+    } else {
+      final DateTime now = DateTime.now();                           // get current local time
+      final DateTime deadline = startDT.subtract(const Duration(hours: 3)); // 3 hours before start
+      if (now.isAfter(deadline)) {
+        return true;  // already inside last 3 hours (or past), lock it
+      } else {
+        return false; // still earlier than (start - 3h), allow edit
+      }
+    }
+  }
+
   // approval text to lowercase string
   String _approvalText(dynamic v) {
     if (v is bool) {
@@ -386,10 +400,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               final DateTime? startDT = _composeFromBookingDate(bookingDateField, bk['start'] ?? bk['startTime']);
               final DateTime? endDT   = _composeFromBookingDate(bookingDateField, bk['end']   ?? bk['endTime']);
 
+              final bool editLocked = _isEditLocked(startDT);
+
               String startStr = '--.--';
               if (startDT != null) { startStr = _formatTime12(startDT); }
               String endStr = '--.--';
               if (endDT != null) { endStr = _formatTime12(endDT); }
+
+
 
               String seatText = '-';
               if (bk.containsKey('seatIndex')) {
@@ -455,15 +473,22 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                     showRate = false;
                   } else {
                     if (isPending == true) {
-                      showEdit = true;
+                      showEdit = true; // pending can edit
                     } else {
                       if (requireApproval == true) {
-                        showEdit = false;
+                        showEdit = false; // approved + requireApproval => do not edit
                       } else {
-                        showEdit = true;
+                        showEdit = true;  // normal case => can edit
                       }
                     }
                   }
+                }
+              }
+
+// APPLY THE 3-HOUR LOCK (final gate):
+              if (showEdit == true) {
+                if (editLocked == true) {
+                  showEdit = false; // hide Edit once we are within 3 hours to start
                 }
               }
 
@@ -568,7 +593,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                       ),
                                       Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text('|', style: TextStyle(fontSize: 16.sp, color: Colors.black45)),
+                                        child: Text('      |', style: TextStyle(fontSize: 16.sp, color: Colors.black45)),
                                       ),
                                       Align(
                                         alignment: Alignment.bottomLeft,
