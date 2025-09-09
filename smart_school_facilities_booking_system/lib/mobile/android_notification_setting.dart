@@ -142,6 +142,7 @@ class _NotificationSettingState extends State<NotificationSetting> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+
             // -------- All Notifications --------
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

@@ -1,24 +1,6 @@
-// booking_service.dart
-//
-// Firestore helpers for booking + seat management.
-// -------------------------------------------------
-// Your original APIs (kept intact):
-// - createBookingPending
-// - createBookingAutoAssignTx
-// - createBookingPickSeatTx
-// - approvePendingBookingTx
-// - cancelAcceptedBookingTx
-// - cancelPendingBooking
-//
-// New id-only APIs (added at the bottom):
-// - approveBookingByIdTx           // approval -> accepted, status -> upcoming, booked += 1, seat taken = true
-// - rejectBookingByIdSimple        // approval -> rejected, status -> "-" (no counters)
-// - deleteAcceptedBookingByIdTx    // only when status == upcoming; booked -= 1, seat taken = false, delete booking
-//
-// Notes:
-// - Transactions read everything before any write (avoid ABORTED).
-// - Slot keys are 4-digit "HHmm".
-// - bookingDate accepted as Timestamp/DateTime/"YYYY-MM-DD"/"DD/MM/YYYY".
+import 'package:flutter/foundation.dart' show kIsWeb;     // to skip on web
+import 'package:firebase_auth/firebase_auth.dart';        // (optional) if you want uid checks later
+
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -89,6 +71,42 @@ class BookingService {
     if (cap <= 0) cap = 1;
     return cap;
   }
+
+  // Make a local DateTime "YYYY-MM-DD" + "HHmm"/"HH:MM"
+// Returns null if input is invalid.
+  static DateTime? _startAtLocalFromYMDAndTime(String dateYMD, {String? slotKey, String? startStr}) {
+    try {
+      // ---- parse date ----
+      final parts = dateYMD.split('-');            // "2025-09-10"
+      if (parts.length != 3) return null;
+      final int y = int.parse(parts[0]);
+      final int m = int.parse(parts[1]);
+      final int d = int.parse(parts[2]);
+
+      // ---- decide time string ----
+      String time = '';
+      if (startStr != null && startStr.trim().isNotEmpty) {
+        time = startStr.trim();                    // e.g. "09:30"
+      } else if (slotKey != null && slotKey.trim().isNotEmpty) {
+        final String k = _normalizeSlotKey(slotKey); // e.g. "0930"
+        time = k.substring(0, 2) + ':' + k.substring(2, 4);
+      } else {
+        return null;
+      }
+
+      // ---- parse time ----
+      final tp = time.contains(':') ? time.split(':') : [time.substring(0,2), time.substring(2,4)];
+      if (tp.length != 2) return null;
+      final int hh = int.parse(tp[0]);
+      final int mm = int.parse(tp[1]);
+
+      // ---- build local DateTime ----
+      return DateTime(y, m, d, hh, mm);
+    } catch (_) {
+      return null;
+    }
+  }
+
 
   // -------- Transaction helpers (ONLY use txn.get inside a txn) --------
 
@@ -241,6 +259,9 @@ class BookingService {
 
     await bookingRef.set(bookingBase);
 
+
+    await bookingRef.set({'reminderSent': {}}, SetOptions(merge: true));
+
     // (unchanged) optional soft seat doc
     try {
       int seatIdx = 0;
@@ -357,8 +378,15 @@ class BookingService {
         ..['seen']      = false;
 
       txn.set(bookingRef, data);
+
     });
 
+
+
+    await FirebaseFirestore.instance
+        .collection(_bookingsCol)
+        .doc(createdId)
+        .set({'reminderSent': {}}, SetOptions(merge: true));
     return createdId;
   }
 
@@ -456,6 +484,9 @@ class BookingService {
       txn.set(bookingRef, data);
     });
 
+
+
+
     // after the transaction completes OK, return the new id
     return createdBookingId;
   }
@@ -534,6 +565,10 @@ class BookingService {
         SetOptions(merge: true),
       );
     });
+
+
+
+
   }
 
   // CANCEL accepted -> booked -= 1
@@ -582,6 +617,7 @@ class BookingService {
         );
       }
     });
+
   }
 
   // CANCEL pending (no counter change)
@@ -604,6 +640,8 @@ class BookingService {
         SetOptions(merge: true),
       );
     }
+
+
   }
 
   // -------- Extra helpers for id-only actions --------
@@ -667,8 +705,10 @@ class BookingService {
   /// Uses fields inside the booking doc: facilityId, bookingDate, slotKey, seatIndex.
   static Future<void> approveBookingByIdTx({required String bookingId}) async {
     final db = FirebaseFirestore.instance;
+    DateTime? _approvedStart;    // capture start to schedule after txn
     await db.runTransaction((txn) async {
       final bookingRef = db.collection(_bookingsCol).doc(bookingId);
+
 
       // Read booking
       final bSnap = await txn.get(bookingRef);
@@ -710,6 +750,7 @@ class BookingService {
       // Writes
       _txSetSeatTaken(txn, seatRef, true);
       _txSetBooked(txn, slotRef, (bookedCount + 1 > capacity ? capacity : bookedCount + 1));
+      _approvedStart = _startAtLocalFromYMDAndTime(dateYMD, slotKey: slotKey);
 
       txn.set(
         bookingRef,
@@ -723,6 +764,7 @@ class BookingService {
         SetOptions(merge: true),
       );
     });
+
   }
 
   /// REJECT (by id): approval='rejected', status='-'. No counters.
@@ -736,6 +778,8 @@ class BookingService {
       },
       SetOptions(merge: true),
     );
+
+
   }
 
   /// DELETE accepted & UPCOMING booking (by id):
@@ -807,6 +851,8 @@ class BookingService {
         _txSetBooked(txn, slotRef!, bookedCount - 1);
       }
     });
+
+
   }
 
 
@@ -952,6 +998,7 @@ class BookingService {
 
       txn.set(bookingRef, patch, SetOptions(merge: true));
     });
+
   }
 
 // Convert "HHmm" -> "HH:MM"

@@ -539,7 +539,7 @@ class _HomepageState extends State<Homepage> {
       child: (items.isEmpty)
           ? const SizedBox.shrink()
           : Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: List.generate(items.length, (i) {
           final m = items[i];
           final uid = _readFirstStr(
@@ -572,8 +572,8 @@ class _HomepageState extends State<Homepage> {
           }
 
           return Container(
-            margin:
-            EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6.h),
+            width: double.infinity,
+            margin: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6.h),
             padding: EdgeInsets.all(8.w),
             decoration: BoxDecoration(
               color: bg,
@@ -639,7 +639,7 @@ class _HomepageState extends State<Homepage> {
       child: items.isEmpty
           ? const SizedBox.shrink()
           : Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: List.generate(items.length, (i) {
           final m = items[i];
           final uid = _readFirstStr(
@@ -667,6 +667,7 @@ class _HomepageState extends State<Homepage> {
           final double chipMinH = 52.h; // min chip height (tweak 48–56.h as you like)
 
           return Container(
+            width: double.infinity,
             margin: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6.h),
             padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h), // use .h vertically
             constraints: BoxConstraints(minHeight: chipMinH),              // no fixed height
