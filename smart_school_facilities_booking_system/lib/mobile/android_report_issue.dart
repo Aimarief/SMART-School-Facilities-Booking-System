@@ -375,7 +375,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
             ElevatedButton(
               onPressed: () { Navigator.pop(context, true); },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
+                backgroundColor: Color(0xFF8620E5),
                 foregroundColor: Colors.white,
                 shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
               ),

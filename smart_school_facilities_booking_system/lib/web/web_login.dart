@@ -60,7 +60,6 @@ class _WebLoginPageState extends State<WebLoginPage> {
 
       // Fetch user role
       // Block Manager login if not verified
-      // Block Manager login if not verified
       if (!isAdminSelected) {
         await user.reload(); // refresh
         if (!user.emailVerified) {
@@ -107,7 +106,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
 
 // If logging in as Manager, sync Auth.emailVerified -> Firestore.isVerified
       if (!isAdminSelected) {
-        await _syncVerifiedFlag();  // <- This will now correctly refresh and update
+        await _syncVerifiedFlag();  // update isverified to true in firestore
       }
 
       if (isAdminSelected) {
@@ -148,9 +147,6 @@ class _WebLoginPageState extends State<WebLoginPage> {
     }
   }
 
-
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -184,7 +180,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
 
           // Center box, moved slightly upward
           Align(
-            alignment: Alignment(0, -0.4), // -0.1 moves it up
+            alignment: Alignment(0, -0.4), // 0 =  at the center, -0.4 to move it up a little
             child: Container(
               width: 1177.w,
               height: 637.h,
@@ -334,7 +330,11 @@ class _WebLoginPageState extends State<WebLoginPage> {
                                       ),
                                       onPressed: () {
                                         setState(() {
-                                          _obscurePassword = !_obscurePassword;
+                                          if (_obscurePassword == true) {
+                                            _obscurePassword = false;
+                                          } else {
+                                            _obscurePassword = true;
+                                          }
                                         });
                                       },
                                     ),
@@ -379,8 +379,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
                                     ),
                                   ),
 
-                                SizedBox(height: 20.h),
-                                SizedBox(height: 20.h),
+                                SizedBox(height: 40.h),
 
 
                                 ElevatedButton(

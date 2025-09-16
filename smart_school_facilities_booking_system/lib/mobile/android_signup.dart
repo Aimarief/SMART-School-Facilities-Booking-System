@@ -12,6 +12,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';         // For .w .
 // These are your other screens/files
 import 'android_login.dart';                                         // Your Android Login page
 import 'android_list_of_facilities.dart';
+import 'android_tnc.dart';
+import 'android_privacy_policy.dart';
 
 // --------------
 // Main Page UI
@@ -134,30 +136,43 @@ class SignupInformation extends StatefulWidget {
 }
 
 class _SignupInformationState extends State<SignupInformation> {
-  // TextEditingController = read text from TextFields
+  // -------------------------
+  // Controllers for TextField
+  // -------------------------
   final TextEditingController _usernameController = TextEditingController(); // username input
   final TextEditingController _emailController = TextEditingController();    // email input
   final TextEditingController _contactController = TextEditingController();  // contact input
   final TextEditingController _passwordController = TextEditingController(); // password input
+  final TextEditingController _confirmController = TextEditingController();  // confirm password input (NEW)
 
-  // FirebaseAuth instance = we use this to create account and send verify email
+  // -------------------------
+  // Firebase Auth instance
+  // -------------------------
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Local UI states
-  bool _obscurePassword = true; // show/hide password
-  String? _selectedRole;        // Student or Lecturer
+  // -------------------------
+  // Simple UI states
+  // -------------------------
+  bool _obscurePassword = true;          // show/hide password
+  bool _obscureConfirmPassword = true;   // show/hide confirm password (NEW)
+  String? _selectedRole;                 // Student or Lecturer
   bool _isTermsAccepted = false;
   bool _isPrivacyAccepted = false;
 
-  // Error message strings (show under each field)
+  // -------------------------
+  // Error message strings
+  // -------------------------
   String? _usernameError;
   String? _emailError;
   String? _contactError;
   String? _passwordError;
+  String? _confirmPasswordError; // (NEW)
   String? _roleError;
   String? _termsError;
 
-  // After we send verification email, we show the "I have verified" button
+  // -------------------------
+  // After verification email sent
+  // -------------------------
   bool _isVerificationSent = false;
 
   // -------------------------
@@ -185,6 +200,8 @@ class _SignupInformationState extends State<SignupInformation> {
         _contactError = message;
       } else if (field == "password") {
         _passwordError = message;
+      } else if (field == "confirm") { // (NEW) support confirm password
+        _confirmPasswordError = message;
       } else if (field == "role") {
         _roleError = message;
       } else if (field == "terms") {
@@ -210,12 +227,13 @@ class _SignupInformationState extends State<SignupInformation> {
   // MAIN: Validate form and create user
   // ------------------------------------
   Future<void> _validateAndSignUp() async {
-    // Reset old errors
+    // Reset old errors (include confirm error)
     setState(() {
       _usernameError = null;
       _emailError = null;
       _contactError = null;
       _passwordError = null;
+      _confirmPasswordError = null; // (NEW)
       _roleError = null;
       _termsError = null;
     });
@@ -251,6 +269,20 @@ class _SignupInformationState extends State<SignupInformation> {
     } else {
       _showError("password", "Password must be at least 8 characters, include 1 uppercase letter and 1 special character");
       isValid = false;
+    }
+
+    // (NEW) Confirm password cannot be empty
+    if (_confirmController.text.isEmpty) {
+      _showError("confirm", "Confirm password cannot be empty");
+      isValid = false;
+    } else {
+      // (NEW) Confirm password must match password
+      if (_confirmController.text == _passwordController.text) {
+        // ok
+      } else {
+        _showError("confirm", "Passwords do not match");
+        isValid = false;
+      }
     }
 
     // Check role selected (Student or Lecturer)
@@ -296,7 +328,7 @@ class _SignupInformationState extends State<SignupInformation> {
 
           // Show a small message to user (Snackbar)
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Verification email sent. Please check your inbox.')),
+            SnackBar(content: Text('Verification email sent. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
           );
 
           // Show the "I already verified" button on screen
@@ -324,10 +356,6 @@ class _SignupInformationState extends State<SignupInformation> {
 
   // ------------------------------------------------------------
   // Called when user presses "I already verified, continue" button
-  // This reloads the Firebase user, checks verification, then:
-  // - writes the Firestore document
-  // - sets isVerified: true (because email is verified now)
-  // - navigates to AndroidListOfFacilities
   // ------------------------------------------------------------
   Future<void> _checkEmailVerified() async {
     User? user = _auth.currentUser;
@@ -344,19 +372,19 @@ class _SignupInformationState extends State<SignupInformation> {
         } else {
           // Not verified yet
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Email not verified yet. Please check your inbox.')),
+            SnackBar(content: Text('Email not verified yet. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
           );
         }
       } else {
         // No user in auth
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No user found. Please sign up again.')),
+          SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
         );
       }
     } else {
       // No user in auth
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No user found. Please sign up again.')),
+        SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
@@ -392,7 +420,7 @@ class _SignupInformationState extends State<SignupInformation> {
 
       // Tell user verification success
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Email verified! Account created.')),
+        SnackBar(content: Text('Email verified! Account created.', style: TextStyle(fontSize: 14.sp))),
       );
 
       // Go straight to Facilities page
@@ -403,7 +431,7 @@ class _SignupInformationState extends State<SignupInformation> {
     } catch (e) {
       // If Firestore write fails, show message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save account. Please try again.')),
+        SnackBar(content: Text('Failed to save account. Please try again.', style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
@@ -419,21 +447,21 @@ class _SignupInformationState extends State<SignupInformation> {
         if (user.emailVerified == false) {
           await user.sendEmailVerification();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Verification email sent!")),
+            SnackBar(content: Text("Verification email sent!", style: TextStyle(fontSize: 14.sp))),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Email is already verified.")),
+            SnackBar(content: Text("Email is already verified.", style: TextStyle(fontSize: 14.sp))),
           );
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("No user found.")),
+          SnackBar(content: Text("No user found.", style: TextStyle(fontSize: 14.sp))),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to send verification email.")),
+        SnackBar(content: Text("Failed to send verification email.", style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
@@ -445,20 +473,36 @@ class _SignupInformationState extends State<SignupInformation> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text("Sign Up Failed"),
-        content: Text("Please check your input and try again."),
+        title: Text("Sign Up Failed", style: TextStyle(fontSize: 16.sp)),
+        content: Text("Please check your input and try again.", style: TextStyle(fontSize: 14.sp)),
         actions: [
           TextButton(
             onPressed: () {
               // Close dialog
               Navigator.pop(context);
             },
-            child: Text("OK"),
+            child: Text("OK", style: TextStyle(fontSize: 14.sp)),
           ),
         ],
       ),
     );
   }
+  // Open Terms & Conditions page (no login required)
+  void _openTncPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AndroidTNC()),
+    );
+  }
+
+// Open Privacy Policy page (no login required)
+  void _openPrivacyPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AndroidPrivacyPolicy()),
+    );
+  }
+
 
   // -----------------------------------------
   // BUILD: Draw the Sign Up form to the screen
@@ -496,7 +540,7 @@ class _SignupInformationState extends State<SignupInformation> {
                 decoration: InputDecoration(border: OutlineInputBorder()),
               ),
               if (_usernameError != null)
-                Text(_usernameError!, style: TextStyle(color: Colors.red)),
+                Text(_usernameError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
               // Email
@@ -507,7 +551,7 @@ class _SignupInformationState extends State<SignupInformation> {
                 decoration: InputDecoration(border: OutlineInputBorder()),
               ),
               if (_emailError != null)
-                Text(_emailError!, style: TextStyle(color: Colors.red)),
+                Text(_emailError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
               // Contact Number (digits only)
@@ -519,7 +563,7 @@ class _SignupInformationState extends State<SignupInformation> {
                 decoration: InputDecoration(border: OutlineInputBorder()),
               ),
               if (_contactError != null)
-                Text(_contactError!, style: TextStyle(color: Colors.red)),
+                Text(_contactError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
               // Password
@@ -547,13 +591,43 @@ class _SignupInformationState extends State<SignupInformation> {
                 ),
               ),
               if (_passwordError != null)
-                Text(_passwordError!, style: TextStyle(color: Colors.red)),
-              SizedBox(height: 20.h),
+                Text(_passwordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
+              SizedBox(height: 20.h), // spacing before Confirm Password (NEW)
+
+              // -------------------------
+              // (NEW) Confirm Password
+              // -------------------------
+              Text("Confirm Password", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
+              TextField(
+                controller: _confirmController,
+                obscureText: _obscureConfirmPassword, // hide/show confirm password
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () {
+                      // Toggle confirm obscure using if/else
+                      if (_obscureConfirmPassword == true) {
+                        setState(() {
+                          _obscureConfirmPassword = false;
+                        });
+                      } else {
+                        setState(() {
+                          _obscureConfirmPassword = true;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ),
+              if (_confirmPasswordError != null)
+                Text(_confirmPasswordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
+              SizedBox(height: 20.h), // spacing after Confirm Password (NEW)
 
               // Role Selection
               Text("Select Role", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               RadioListTile<String>(
-                title: Text("Student"),
+                title: Text("Student", style: TextStyle(fontSize: 14.sp)),
                 value: "Student",
                 groupValue: _selectedRole,
                 onChanged: (value) {
@@ -563,7 +637,7 @@ class _SignupInformationState extends State<SignupInformation> {
                 },
               ),
               RadioListTile<String>(
-                title: Text("Lecturer"),
+                title: Text("Lecturer", style: TextStyle(fontSize: 14.sp)),
                 value: "Lecturer",
                 groupValue: _selectedRole,
                 onChanged: (value) {
@@ -573,7 +647,7 @@ class _SignupInformationState extends State<SignupInformation> {
                 },
               ),
               if (_roleError != null)
-                Text(_roleError!, style: TextStyle(color: Colors.red)),
+                Text(_roleError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
 
               // Agreements
               CheckboxListTile(
@@ -589,13 +663,15 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
+                // Terms and Conditions checkbox title
                 title: GestureDetector(
-                  onTap: _openTermsPage,
+                  onTap: _openTncPage, // open T&C page
                   child: Text(
                     "Terms and Conditions",
-                    style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue),
+                    style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue, fontSize: 14.sp),
                   ),
                 ),
+
               ),
               CheckboxListTile(
                 value: _isPrivacyAccepted,
@@ -610,16 +686,18 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
+                // Privacy Policy checkbox title
                 title: GestureDetector(
-                  onTap: _openTermsPage,
+                  onTap: _openPrivacyPage, // open Privacy Policy page
                   child: Text(
                     "Privacy Policy",
-                    style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue),
+                    style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue, fontSize: 14.sp),
                   ),
                 ),
+
               ),
               if (_termsError != null)
-                Text(_termsError!, style: TextStyle(color: Colors.red)),
+                Text(_termsError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
 
               SizedBox(height: 20.h),
 
@@ -634,7 +712,7 @@ class _SignupInformationState extends State<SignupInformation> {
                       onPressed: _validateAndSignUp, // create auth user and send verify email
                       child: Text(
                         "Sign Up",
-                        style: TextStyle(color: Colors.white),
+                        style: TextStyle(color: Colors.white, fontSize: 14.sp),
                       ),
                     ),
                   ),
@@ -644,10 +722,13 @@ class _SignupInformationState extends State<SignupInformation> {
                 Center(
                   child: Column(
                     children: [
-                      Text(
-                        "A verification email has been sent. Please check your inbox and click the link to verify your email.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8.w),
+                        child: Text(
+                          "A verification email has been sent. Please check your inbox and click the link to verify your email.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16.sp),
+                        ),
                       ),
                       SizedBox(height: 20.h),
                       SizedBox(
@@ -658,14 +739,14 @@ class _SignupInformationState extends State<SignupInformation> {
                           onPressed: _checkEmailVerified, // check if verified, then write Firestore, then go
                           child: Text(
                             "I have verified. Continue",
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.sp),
                           ),
                         ),
                       ),
                       SizedBox(height: 10.h),
                       TextButton(
                         onPressed: resendVerificationEmail, // resend verify email
-                        child: Text("Resend Verification Email"),
+                        child: Text("Resend Verification Email", style: TextStyle(fontSize: 14.sp)),
                       ),
                     ],
                   ),

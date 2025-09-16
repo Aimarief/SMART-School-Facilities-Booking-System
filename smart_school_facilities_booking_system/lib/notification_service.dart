@@ -64,7 +64,6 @@ class NotificationService {
     await _inboxOf(toUid).add(payload);
   }
 
-  // ------------------ existing mails (unchanged) ------------------
   static Future<void> sendBookingCreatedMails({
     required String bookingId,
     required String userId,
@@ -72,11 +71,16 @@ class NotificationService {
     required String facilityId,
     required String managerId,
     required String approval,
+    int?    seatIndex,                 // NEW (optional)
+    String? bookingDate,               // NEW (optional, "YYYY-MM-DD")
+    String? start,                     // NEW (optional, "HH:mm")
+    String? end,                       // NEW (optional, "HH:mm")
+    String? amendmentId,               // NEW (optional, when sending for an amendment)
   }) async {
-    final String userName = await _readUserName(userId);
-    final String bookedByName = await _readUserName(bookedBy);
-    final String managerName = await _readUserName(managerId);
-    final String facilityName = await _readFacilityName(facilityId);
+    final String userName      = await _readUserName(userId);
+    final String bookedByName  = await _readUserName(bookedBy);
+    final String managerName   = await _readUserName(managerId);
+    final String facilityName  = await _readFacilityName(facilityId);
 
     final Map<String, dynamic> base = <String, dynamic>{
       'type': 'booking_created',
@@ -90,8 +94,20 @@ class NotificationService {
       'managerName': managerName,
       'facilityName': facilityName,
       'approval': approval,
+      if (seatIndex != null) 'seatIndex': seatIndex,
+      if (bookingDate != null) 'bookingDate': bookingDate,
+      if (start != null) 'start': start,
+      if (end != null) 'end': end,
+
+      if (amendmentId != null && amendmentId.trim().isNotEmpty) ...{
+        'amendmentId': amendmentId.trim(),
+        'isAmendment': true,
+        'requestType': 'amendment',
+      },
+      'createdAt': FieldValue.serverTimestamp(),
     };
 
+    // write to your inbox collection / topic as you already do
     final Set<String> recipients = <String>{
       if (userId.trim().isNotEmpty) userId.trim(),
       if (managerId.trim().isNotEmpty) managerId.trim(),
@@ -101,33 +117,53 @@ class NotificationService {
     for (final to in recipients) {
       await _sendToOneInbox(toUid: to, payload: Map<String, dynamic>.from(base));
     }
+
   }
+
+// _readUserName, _readFacilityName … unchanged
+
 
   static Future<void> sendBookingUpdatedMails({
     required String bookingId,
-    required String userId,
-    required String bookedBy, // actor (who edited)
+    required String userId,        // owner (booker)
+    required String bookedBy,      // actor who edited
     required String facilityId,
     required String managerId,
     required String approval,
+
+    // NEW required details
+    required int seatIndex,        // 1-based
+    required String bookingDate,   // "YYYY-MM-DD"
+    required String start,         // "HH:MM"
+    required String end,           // "HH:MM"
   }) async {
-    final String userName = await _readUserName(userId);
+    final String userName     = await _readUserName(userId);
     final String bookedByName = await _readUserName(bookedBy);
-    final String managerName = await _readUserName(managerId);
+    final String managerName  = await _readUserName(managerId);
     final String facilityName = await _readFacilityName(facilityId);
 
     final Map<String, dynamic> base = <String, dynamic>{
       'type': 'booking_updated',
       'bookingId': bookingId,
-      'bookBy': userId,             // (kept same keys as your edit mail)
+
+      // who/what
+      'bookBy': userId,            // (kept same keys as before for Android)
       'createdBy': bookedBy,
       'facilityId': facilityId,
       'managerId': managerId,
+
+      // friendly labels
       'bookByName': userName,
       'createdByName': bookedByName,
       'managerName': managerName,
       'facilityName': facilityName,
+
+      // approval + NEW details
       'approval': approval,
+      'seatIndex': seatIndex,
+      'bookingDate': bookingDate,  // "YYYY-MM-DD"
+      'start': start,              // "HH:MM"
+      'end': end,                  // "HH:MM"
     };
 
     final Set<String> recipients = <String>{
@@ -141,36 +177,55 @@ class NotificationService {
     }
   }
 
+
   // ------------------ NEW: approval status mails ------------------
   // type = 'approval_status', same payload as "edit booking", PLUS approval & reason
   static Future<void> sendBookingApprovalMails({
     required String bookingId,
-    required String userId,     // end-user (owner of booking)
-    required String bookedBy,   // actor who approved/rejected (manager/admin)
+    required String userId,        // booking owner
+    required String bookedBy,      // actor who approved/rejected
     required String facilityId,
     required String managerId,
-    required String approval,   // 'accepted' | 'rejected'
-    String? approvalReason,     // optional note typed by admin
+    required String approval,      // 'accepted' | 'rejected'
+    String? approvalReason,
+
+    // NEW required details
+    required int seatIndex,        // 1-based
+    required String bookingDate,   // "YYYY-MM-DD"
+    required String start,         // "HH:MM"
+    required String end,           // "HH:MM"
   }) async {
-    final String userName = await _readUserName(userId);
+    final String userName     = await _readUserName(userId);
     final String bookedByName = await _readUserName(bookedBy);
-    final String managerName = await _readUserName(managerId);
+    final String managerName  = await _readUserName(managerId);
     final String facilityName = await _readFacilityName(facilityId);
 
     final Map<String, dynamic> base = <String, dynamic>{
-      'type': 'approval_status', // <-- new type
+      'type': 'approval_status',
       'bookingId': bookingId,
-      'bookBy': userId,          // keep SAME keys as edit mail
+
+      // who/what
+      'bookBy': userId,            // keep SAME keys used elsewhere
       'createdBy': bookedBy,
       'facilityId': facilityId,
       'managerId': managerId,
+
+      // friendly labels
       'bookByName': userName,
       'createdByName': bookedByName,
       'managerName': managerName,
       'facilityName': facilityName,
-      'approval': approval,                       // accepted | rejected
+
+      // status + reason
+      'approval': approval,        // accepted | rejected
       if (approvalReason != null)
         'approvalReason': approvalReason.trim().isEmpty ? '-' : approvalReason.trim(),
+
+      // NEW details
+      'seatIndex': seatIndex,
+      'bookingDate': bookingDate,  // "YYYY-MM-DD"
+      'start': start,              // "HH:MM"
+      'end': end,                  // "HH:MM"
     };
 
     final Set<String> recipients = <String>{

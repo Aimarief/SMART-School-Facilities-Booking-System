@@ -200,7 +200,17 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
         SizedBox(height: 35.h),
         _menuItem("Statistic", () {
           Navigator.of(context).pop();
-          context.go('/statistic');
+          context.go('/webstatistic');
+        }),
+        SizedBox(height: 35.h),
+        _menuItem("FAQ", () {
+          Navigator.of(context).pop();
+          context.go('/webfaq');
+        }),
+        SizedBox(height: 35.h),
+        _menuItem("Terms & Condition", () {
+          Navigator.of(context).pop();
+          context.go('/webtnc');
         }),
       ]);
     } else if (_role == 'Manager') {
@@ -315,7 +325,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
               GestureDetector(
                 onTap: () => context.go('/webnotification'),
                 child: Icon(
-                  Icons.notifications,
+                  Icons.mail,
                   size: 40.w,
                 ),
               ),

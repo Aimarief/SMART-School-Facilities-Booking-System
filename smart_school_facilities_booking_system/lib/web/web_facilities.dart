@@ -433,7 +433,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
   List<Map<String, int>> _customSlots = <Map<String, int>>[];
-  bool _requireApproval = false;
   bool _disableFacility = false;
   bool _isRangePickerOpen = false;
   DateTimeRange? _inactiveRange;
@@ -803,7 +802,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     _slots = 1;
     _requiredCapacity = 1;
     _maxCapacity = 1;
-    _requireApproval = false;
     _disableFacility = false;
 
     _startTime = null;
@@ -966,7 +964,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     }
     _managerName = managerName;
 
-    _requireApproval = (d['requireApproval'] == true);
 
     final Timestamp? fromTs =
     (d['inactiveFrom'] is Timestamp) ? d['inactiveFrom'] as Timestamp : null;
@@ -1076,8 +1073,10 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return FirebaseFirestore.instance
         .collection('UserInformation')
         .where('role', isEqualTo: 'Manager')
+        .where('deleted', isEqualTo: false) // only active managers
         .snapshots();
   }
+
 
   // ---------- existence checks ----------
   Future<bool> _facilityNameExists(String name, {String? ignoreId}) async {
@@ -1200,6 +1199,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         'imageName': _pickedImageName,
         'location': _locationCtrl.text.trim(),
         'categoryId': _catId,
+        'deleted':false,
         'categoryName': _catName, // keeping existing field if you still want it
         'details': _detailsCtrl.text.trim(),
         'availableSlots': _slots,
@@ -1215,7 +1215,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         'bookingDurationHours': dur,
         'managerId': _managerId,
         'managerName': _managerName, // keeping existing field if you still want it
-        'requireApproval': _requireApproval,
+        'requireApproval': true,
         'enabled': true,
         'active': !_disableFacility,
         'inactiveReason': null,
@@ -1350,7 +1350,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       'bookingDurationHours': int.tryParse(_durationCtrl.text.trim()) ?? 1,
       'managerId': _managerId,
       'managerName': _managerName, // optional legacy
-      'requireApproval': _requireApproval,
+      'requireApproval': true,
+
     };
 
     if (_disableFacility) {
@@ -1599,21 +1600,37 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
   Future<bool> _confirmDelete() async {
     final bool? res = await showDialog<bool>(
       context: context,
+      barrierDismissible: false, // don't allow tap-outside to close
       builder: (_) => AlertDialog(
-        title: const Text('Confirm delete'),
-        content: const Text('Are you sure you want to delete this facility?'),
-        actions: <Widget>[
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('No')),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: Text(
+          'Delete facility?',
+          style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          'Are you sure you want to delete this facility?',
+          style: TextStyle(fontSize: 14.sp),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Yes'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF0707), // red confirm
+              foregroundColor: Colors.white,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            ),
+            child: Text('Confirm', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
     );
     return res ?? false;
   }
+
 
   // ---------- small UI helpers ----------
   Widget _ro(String label, String value) {
@@ -1820,7 +1837,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         })()),
         _ro('Booking Duration', '$dur hour'),
         _roManagerLive(managerId),
-        _ro('Require Approval', (d['requireApproval'] == true) ? 'Yes' : 'No'),
         _ro('Status', _statusLabel(dbActive)),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -2338,25 +2354,37 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
+
+              // Build items; stream already filters deleted=false, but keep a guard just in case.
+              final docs = snap.data!.docs.where((d) {
+                final m = d.data();
+                return m['deleted'] != true; // treat null as active
+              }).toList();
+
               final List<DropdownMenuItem<String>> items = <DropdownMenuItem<String>>[];
-              for (final d in snap.data!.docs) {
-                final Map<String, dynamic> m = d.data();
+              for (final d in docs) {
+                final m = d.data();
                 String nm = 'Manager';
-                if (m.containsKey('username') && m['username'] != null) {
+                if (m['username'] != null) {
                   nm = m['username'].toString();
-                } else if (m.containsKey('name') && m['name'] != null) {
+                } else if (m['name'] != null) {
                   nm = m['name'].toString();
                 }
                 items.add(
                   DropdownMenuItem<String>(
                     value: d.id,
-                    child: Text(nm),
+                    child: Text(nm, overflow: TextOverflow.ellipsis),
                     onTap: () => _managerName = nm,
                   ),
                 );
               }
+
+              // If previously selected manager is no longer in the list (deleted), clear the value
+              final bool found = items.any((it) => it.value == _managerId);
+              final String? value = found ? _managerId : null;
+
               return DropdownButtonFormField<String>(
-                value: _managerId,
+                value: value,
                 items: items,
                 onChanged: (v) => setState(() => _managerId = v),
                 validator: (v) {
@@ -2368,20 +2396,10 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
               );
             },
           ),
+
           SizedBox(height: 12.h),
 
-          // approval & disable toggle
-          Row(
-            children: [
-              const Text('Require Approval'),
-              const SizedBox(width: 8),
-              Switch(
-                value: _requireApproval,
-                onChanged: (v) => setState(() => _requireApproval = v),
-              ),
-            ],
-          ),
-          SizedBox(height: 12.h),
+
           if (isEdit) ...[
             Row(
               children: [

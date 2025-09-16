@@ -1,11 +1,9 @@
-// lib/web/web_account.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart' show rootBundle;
-
 
 import 'web_top_bar.dart';
 
@@ -17,24 +15,18 @@ class WebAccount extends StatefulWidget {
 }
 
 class _AdminWebAccountState extends State<WebAccount> {
-  // -------------------------------------------------------------------------
   // FIREBASE REFERENCES
-  // -------------------------------------------------------------------------
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? user;
   String? userDocId;
 
-  // -------------------------------------------------------------------------
   // SIMPLE UI STATE FLAGS
-  // -------------------------------------------------------------------------
   bool isLoading = true;
   bool isEditing = false;
 
-  // -------------------------------------------------------------------------
   // ACCOUNT INFO
-  // -------------------------------------------------------------------------
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
   final TextEditingController _imageNameController = TextEditingController();
@@ -46,14 +38,19 @@ class _AdminWebAccountState extends State<WebAccount> {
   String contact = 'Loading...';
   String role = 'Loading...';
 
-  // -------------------------------------------------------------------------
   // TIME FORMAT (User setting)
-  // -------------------------------------------------------------------------
   bool use24HourFormat = true;
 
-  // -------------------------------------------------------------------------
+  // --- section edit flags ---
+  bool _editWorkingHour = false;
+  bool _editWorkingDays = false;
+  bool _editHolidays = false;
+
+// snapshot for Working Hour cancel
+  TimeOfDay? _origStartTime;
+  TimeOfDay? _origEndTime;
+
   // WORKING TIME & DAYS (SystemInformation/Setting)
-  // -------------------------------------------------------------------------
   TimeOfDay? startTime;
   TimeOfDay? endTime;
   Map<String, bool> workingDays = <String, bool>{
@@ -68,13 +65,7 @@ class _AdminWebAccountState extends State<WebAccount> {
   // keep original working days so we know which were newly disabled on apply
   late Map<String, bool> _originalWorkingDays;
 
-  // -------------------------------------------------------------------------
-  // OFF DAYS (SystemInformation/OffDays.offDays = ["YYYY-MM-DD", ...])
-  // (UI/calendar remains the same, still toggles DB immediately. Apply button
-  // will only fan-out request_update to users who booked on holiday dates.)
-  // -------------------------------------------------------------------------
-  DateTime _offCalVisibleMonthFirst =
-  DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _offCalVisibleMonthFirst = DateTime(DateTime.now().year, DateTime.now().month, 1);
   final Set<String> _offDaysYMD = <String>{};
   bool _loadingOffDays = true;
   Set<String> _offDaysSaved = <String>{};     // snapshot from DB
@@ -86,6 +77,7 @@ class _AdminWebAccountState extends State<WebAccount> {
   bool notifPending = true;
   bool notifIssue = true;
 
+  //init state
   @override
   void initState() {
     super.initState();
@@ -93,21 +85,20 @@ class _AdminWebAccountState extends State<WebAccount> {
     _loadAll();
   }
 
-  // =========================================================================
-  // LOADERS
-  // =========================================================================
   Future<void> _loadAll() async {
-    if (user == null || user!.email == null) {
+    final email = user?.email;
+
+    if (email == null) {
       setState(() {
         isLoading = false;
         username = 'N/A';
         contact = 'N/A';
         role = 'N/A';
       });
-      return;
+      return; // stop here if no user or no email
     }
 
-    await _loadUserInfo(user!.email!);
+    await _loadUserInfo(email);
     await _loadSystemSettings();
     await _loadOffDays();
 
@@ -115,6 +106,7 @@ class _AdminWebAccountState extends State<WebAccount> {
       isLoading = false;
     });
   }
+
 
   Future<void> _loadUserInfo(String email) async {
     final QuerySnapshot<Map<String, dynamic>> qs = await _firestore
@@ -209,24 +201,24 @@ class _AdminWebAccountState extends State<WebAccount> {
     try {
       final doc = await _firestore.collection('SystemInformation').doc('OffDays').get();
 
-      final Set<String> tmp = <String>{};
+      final Set<String> tmp = <String>{};// make a set, set will not have duplicate
       if (doc.exists) {
         final data = doc.data();
-        if (data != null && data['offDays'] is List) {
-          for (final v in (data['offDays'] as List)) {
-            final s = v?.toString().trim();
-            if (s != null && s.isNotEmpty) tmp.add(s);
+        if (data != null && data['offDays'] is List) { //if it is no null means not empty
+          for (final v in (data['offDays'] as List)) { //for all the off day,
+            final s = v?.toString().trim(); //will be turn into string and trim so that there is no spacing
+            if (s != null && s.isNotEmpty) tmp.add(s); // check again makesure not null then add into temp so the set can prevent duplicate off day
           }
         }
       }
 
-      // baseline from DB
+      // all of it will save into the this offdayssaved
       _offDaysSaved = Set<String>.from(tmp);
 
       // working copy for UI
       _offDaysYMD
-        ..clear()
-        ..addAll(tmp);
+        ..clear() //clear all old value
+        ..addAll(tmp); // add the new off day
 
       _offDirty = false; // nothing pending
     } catch (_) {
@@ -234,6 +226,36 @@ class _AdminWebAccountState extends State<WebAccount> {
     } finally {
       if (mounted) setState(() => _loadingOffDays = false);
     }
+  }
+
+  //End of init
+
+  Future<bool> _confirmAction(String title, String message) async {
+    final bool? res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: Text(title, style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
+        content: Text(message, style: TextStyle(fontSize: 14.sp)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF0707),
+              foregroundColor: Colors.white,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Confirm', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    return res ?? false;
   }
 
   String _assetFromName(String name) {
@@ -274,10 +296,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-
-  // =========================================================================
   // SAVERS
-  // =========================================================================
   Future<void> _saveAccountInfo() async {
     if (userDocId == null) return;
 
@@ -370,10 +389,6 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-
-  // =========================================================================
-  // AUTH / MISC
-  // =========================================================================
   Future<void> _sendPasswordReset() async {
     if (user == null || user!.email == null) return;
     await _auth.sendPasswordResetEmail(email: user!.email!);
@@ -388,9 +403,6 @@ class _AdminWebAccountState extends State<WebAccount> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  // =========================================================================
-  // HELPERS
-  // =========================================================================
   TimeOfDay _parseTime(String hhmm) {
     final p = hhmm.split(':');
     return TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
@@ -418,19 +430,10 @@ class _AdminWebAccountState extends State<WebAccount> {
     String s = '';
     String e = '';
 
-    if (data.containsKey('availableTime') &&
-        data['availableTime'] is Map<String, dynamic>) {
-      final at = data['availableTime'] as Map<String, dynamic>;
-      if (at['start'] is String) s = (at['start'] as String).trim();
-      if (at['end'] is String) e = (at['end'] as String).trim();
-    }
+    final at = data['availableTime'] as Map<String, dynamic>;
 
-    if (s.isEmpty && data['availableTimeStart'] is String) {
-      s = (data['availableTimeStart'] as String).trim();
-    }
-    if (e.isEmpty && data['availableTimeEnd'] is String) {
-      e = (data['availableTimeEnd'] as String).trim();
-    }
+      s = (at['start'] as String).trim();
+      e = (at['end'] as String).trim();
 
     return <String, String>{'start': s, 'end': e};
   }
@@ -449,9 +452,7 @@ class _AdminWebAccountState extends State<WebAccount> {
       if (m['deleted'] is bool && m['deleted'] == true) continue;
 
       String name = d.id;
-      if (m['name'] is String && (m['name'] as String).trim().isNotEmpty) {
         name = (m['name'] as String).trim();
-      }
 
       final at = _readFacilityAvailableTimes(m);
       final fs = (at['start'] ?? '').trim();
@@ -469,53 +470,27 @@ class _AdminWebAccountState extends State<WebAccount> {
     return conflicts;
   }
 
-  // ---------------------------------------------------------------------------
-  // BOOKING TIME HELPERS (simple)
-  // ---------------------------------------------------------------------------
   Map<String, String> _readBookingTimes(Map<String, dynamic> m) {
     String s = '';
     String e = '';
-    if (m.containsKey('time') && m['time'] is Map<String, dynamic>) {
-      final Map<String, dynamic> tm = m['time'] as Map<String, dynamic>;
-      if (tm['start'] is String) s = (tm['start'] as String).trim();
-      if (tm['end'] is String) e = (tm['end'] as String).trim();
-    }
-    if (s.isEmpty && m['start'] is String) s = (m['start'] as String).trim();
-    if (e.isEmpty && m['end'] is String) e = (m['end'] as String).trim();
 
-    if (s.isEmpty && m['startTime'] is String) s = (m['startTime'] as String).trim();
-    if (e.isEmpty && m['endTime'] is String) e = (m['endTime'] as String).trim();
+    s = (m['start'] as String).trim();
+    e = (m['end'] as String).trim();
+
     return <String, String>{'start': s, 'end': e};
   }
 
   String _normalizeToHHmm(String raw) {
     if (raw.isEmpty) return '';
     String s = raw.toLowerCase().trim();
-    s = s.replaceAll('.', ':').replaceAll('-', ':');
-    if (s.contains(':')) {
+
       final p = s.split(':');
       String hh = p[0].trim();
       String mm = p.length > 1 ? p[1].trim() : '00';
       int h = int.tryParse(hh) ?? 0;
       int m = int.tryParse(mm) ?? 0;
-      h = h.clamp(0, 23);
-      m = m.clamp(0, 59);
       return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-    }
-    final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return '';
-    if (digits.length <= 2) {
-      int h = int.tryParse(digits) ?? 0;
-      h = h.clamp(0, 23);
-      return '${h.toString().padLeft(2, '0')}:00';
-    }
-    final hh = digits.substring(0, digits.length - 2);
-    final mm = digits.substring(digits.length - 2);
-    int h = int.tryParse(hh) ?? 0;
-    int m = int.tryParse(mm) ?? 0;
-    h = h.clamp(0, 23);
-    m = m.clamp(0, 59);
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+
   }
 
   int _safeMinutes(String raw) {
@@ -525,7 +500,7 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
   DateTime? _readBookingDateFromAny(Map<String, dynamic> m) {
-    final v = m['bookingDate'] ?? m['booking_date'] ?? m['date'];
+    final v = m['bookingDate'];
     if (v is Timestamp) return v.toDate();
     if (v is String && v.trim().isNotEmpty) {
       try {
@@ -536,7 +511,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     return null;
   }
 
-  // === existing booking conflict finder (kept) ===
+  // existing booking conflict finder
   Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
@@ -554,9 +529,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       final Map<String, dynamic> m = doc.data();
 
       if (m['deleted'] == true) continue;
-      final String appr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
-      if (appr.contains('reject')) continue;
-      final String status = (m['status'] ?? '').toString().toLowerCase();
+      final String approval = m['approval'] .toString().toLowerCase();
+      if (approval.contains('reject')) continue;
+      final String status = (m['status'] ).toString().toLowerCase();
       if (status == 'ended') continue;
 
       final DateTime? bDate = _readBookingDateFromAny(m);
@@ -578,9 +553,37 @@ class _AdminWebAccountState extends State<WebAccount> {
     return conflicts;
   }
 
-  // =========================================================================
-  // NEW: APPLY ACTIONS
-  // =========================================================================
+  void _defaultWorkingDays() {
+    setState(() {
+      // turn everything OFF in UI only
+      workingDays.updateAll((_, __) => false);
+    });
+  }
+
+  void _cancelWorkingDays() {
+    setState(() {
+      // revert back to DB snapshot
+      workingDays = Map<String, bool>.from(_originalWorkingDays);
+    });
+  }
+
+  void _defaultHolidays() {
+    setState(() {
+      // clear the UI-only set
+      _offDaysYMD.clear();
+      _offDirty = !_setsEqual(_offDaysYMD, _offDaysSaved);
+    });
+  }
+
+  void _cancelHolidays() {
+    setState(() {
+      // revert UI to DB snapshot
+      _offDaysYMD
+        ..clear()
+        ..addAll(_offDaysSaved);
+      _offDirty = false;
+    });
+  }
 
   Future<void> _applyWorkingHours() async {
     if (startTime == null || endTime == null) {
@@ -602,27 +605,48 @@ class _AdminWebAccountState extends State<WebAccount> {
       return;
     }
 
+    // ---- facilities conflict ----
     final conflictsFacilities = await _findFacilityConflicts(newStartStr, newEndStr);
     if (conflictsFacilities.isNotEmpty) {
+      setState(() {
+        // revert UI back to original snapshot
+        startTime = _origStartTime;
+        endTime   = _origEndTime;
+        _editWorkingHour = false; // optional: leave edit mode
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Some facilities have available time outside the new window. Reverting change.'),
+          content: Text('Some facilities have available time outside the new window. Reverted changes.'),
         ),
       );
       return;
     }
 
+    // ---- bookings conflict ----
     final conflictsBookings = await _findBookingConflicts(newStartStr, newEndStr);
     if (conflictsBookings.isNotEmpty) {
+      setState(() {
+        // revert UI back to original snapshot
+        startTime = _origStartTime;
+        endTime   = _origEndTime;
+        _editWorkingHour = false; // optional
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('There are bookings outside the new working hour. Change rejected.'),
+          content: Text('There are bookings outside the new working hour. Reverted changes.'),
         ),
       );
       return;
     }
 
+    // ---- no conflicts: save and update baseline ----
     await _saveSystemTimes();
+    setState(() {
+      // new values become the new "original" baseline for future edits
+      _origStartTime = startTime;
+      _origEndTime   = endTime;
+      _editWorkingHour = false; // exit edit mode after success
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Working hour saved')),
     );
@@ -690,11 +714,6 @@ class _AdminWebAccountState extends State<WebAccount> {
       );
     }
   }
-
-
-  // =========================================================================
-  // NEW: “request_update” fan-out helpers
-  // =========================================================================
 
   // Build weekday name like 'Monday' from DateTime.weekday (1..7 Mon..Sun)
   String _weekdayName(int weekday) {
@@ -809,7 +828,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     await inboxRef.set({
       'type': 'request_update',
 
-      // 👇 add the fields Android checks in _canSee(...)
+      // add the fields Android checks in _canSee(...)
       'recipientId': userUid,
       'bookedBy': userUid,
       'createdBy': adminUid,
@@ -837,8 +856,6 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-
-  /// stub — replace body with your existing implementation or Cloud Function call
   Future<void> sendRequestUpdateMails({
     required String bookingId,
     required String userId,
@@ -850,9 +867,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     return;
   }
 
-  // =========================================================================
-  // UI
-  // =========================================================================
+
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
@@ -864,7 +879,11 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     bool isManager = role.trim().toLowerCase() == 'manager';
 
-    String emailStr = (user != null && user!.email != null) ? user!.email! : 'N/A';
+    // get email
+    final String? email = user?.email; // safe access
+    String emailStr = email ?? 'N/A';
+
+    //get status log in or log out
     String statusText = (user != null) ? 'Logged In' : 'Logged Out';
 
     return Scaffold(
@@ -872,34 +891,230 @@ class _AdminWebAccountState extends State<WebAccount> {
         preferredSize: Size.fromHeight(70.h),
         child: WebCustomTopBar(use24HourFormat: use24HourFormat),
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : (
-          isAdmin
+      body: isLoading ? const Center(child: CircularProgressIndicator()) : ( isAdmin
           // ===== Admin keeps the 2-column layout =====
-              ? SingleChildScrollPane(
-            isAdmin: isAdmin,
-            leftChild: _buildLeftColumn(isAdmin, screenHeight, emailStr, statusText),
-            rightChild: _buildRightColumn(isAdmin),
-          )
-
-          // ===== Manager: show ONLY the Account panel centered =====
-              : Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 520.w),
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                // reuse the same Account builder you already have
-                child: _buildLeftColumn(false, screenHeight, emailStr, statusText),
-              ),
-            ),
-          )
+          ? SingleChildScrollPane(
+        leftChild: _buildLeftColumn(true,  screenHeight, emailStr, statusText),
+        rightChild: _buildRightColumn(true),
+      )
+      // manager: build your separate centered account panel (unchanged)
+          : Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 520.w),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+            child: _buildLeftColumn(false, screenHeight, emailStr, statusText),
+          ),
+        ),
+      )
       ),
 
     );
   }
 
-  // -------------- layout wrappers --------------
+// Simple password rule: min 8 + 1 uppercase + 1 special (match Android)
+  bool _isPasswordStrong(String password) {
+    final RegExp regex =
+    RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
+    return regex.hasMatch(password);
+  }
+
+  Future<void> _openChangePasswordDialog() async {
+    // controllers
+    final TextEditingController _oldCtrl = TextEditingController();
+    final TextEditingController _newCtrl = TextEditingController();
+    final TextEditingController _confirmCtrl = TextEditingController();
+
+    // show/hide toggles
+    bool _hideOld = true;
+    bool _hideNew = true;
+    bool _hideConfirm = true;
+
+    // inline errors (red text under fields)
+    String? _oldErr;
+    String? _newErr;
+    String? _confirmErr;
+
+    await showDialog<void>( //show pop up
+      context: context,
+      barrierDismissible: false, // press outside wont close the pop up
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+
+            Future<void> _attemptChange() async {
+              setStateDialog(() {
+                _oldErr = null;
+                _newErr = null;
+                _confirmErr = null;
+              });
+
+              bool ok = true;
+
+              if (_oldCtrl.text.isEmpty) {
+                _oldErr = "Old password cannot be empty";
+                ok = false;
+              }
+
+              if (!_isPasswordStrong(_newCtrl.text)) {
+                _newErr = "Min 8 chars, 1 uppercase, 1 special";
+                ok = false;
+              }
+
+              if (_confirmCtrl.text.isEmpty) {
+                _confirmErr = "Confirm password cannot be empty";
+                ok = false;
+              } else if (_confirmCtrl.text != _newCtrl.text) {
+                _confirmErr = "Passwords do not match";
+                ok = false;
+              }
+
+              if (!ok) {
+                setStateDialog(() {});
+                return;
+              }
+
+              final user = _auth.currentUser;
+              if (user == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("No user logged in", style: TextStyle(fontSize: 12.sp))),
+                );
+                return;
+              }
+
+              if (user.email == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("This account does not use email/password", style: TextStyle(fontSize: 12.sp))),
+                );
+                return;
+              }
+
+              try {
+                // 1) reauth with OLD password
+                final cred = EmailAuthProvider.credential(
+                  email: user.email!,
+                  password: _oldCtrl.text,
+                );
+                await user.reauthenticateWithCredential(cred);
+
+                // 2) update to NEW password
+                await user.updatePassword(_newCtrl.text);
+
+                Navigator.of(context).pop(); // close dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Password updated successfully", style: TextStyle(fontSize: 12.sp))),
+                );
+              } on FirebaseAuthException catch (e) {
+                if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+                  setStateDialog(() { _oldErr = "Old password is incorrect"; });
+                } else if (e.code == 'weak-password') {
+                  setStateDialog(() { _newErr = "New password too weak"; });
+                } else if (e.code == 'too-many-requests') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Too many attempts. Try again later.", style: TextStyle(fontSize: 12.sp))),
+                  );
+                } else if (e.code == 'requires-recent-login') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Please log in again and retry.", style: TextStyle(fontSize: 12.sp))),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Failed to change password", style: TextStyle(fontSize: 12.sp))),
+                  );
+                }
+              } catch (_) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Unexpected error", style: TextStyle(fontSize: 12.sp))),
+                );
+              }
+            }
+
+            return AlertDialog(
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+              title: Text("Change Password", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Old password
+                      Text("Old Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _oldCtrl,
+                        obscureText: _hideOld,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _oldErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideOld ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () => setStateDialog(() => _hideOld = !_hideOld),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12.h),
+
+                      // New password
+                      Text("New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _newCtrl,
+                        obscureText: _hideNew,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _newErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideNew ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () => setStateDialog(() => _hideNew = !_hideNew),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12.h),
+
+                      // Confirm new password
+                      Text("Confirm New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _confirmCtrl,
+                        obscureText: _hideConfirm,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _confirmErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideConfirm ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () => setStateDialog(() => _hideConfirm = !_hideConfirm),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text("Cancel", style: TextStyle(fontSize: 14.sp)),
+                ),
+                ElevatedButton(
+                  onPressed: _attemptChange, // start to validate all the password stuff
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8620E5),
+                    foregroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  child: Text("Confirm", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // build the left column at the left side of account page
   Widget _buildLeftColumn(bool isAdmin, double screenHeight, String emailStr, String statusText) {
     return Center(
       child: ConstrainedBox(
@@ -1023,10 +1238,13 @@ class _AdminWebAccountState extends State<WebAccount> {
                   width: double.infinity,
                   height: 48.h,
                   child: ElevatedButton(
-                    onPressed: _sendPasswordReset,
+                    onPressed: isAdmin
+                        ? _sendPasswordReset            // admin keeps email reset
+                        : _openChangePasswordDialog,     // user/manager get popup with fields
                     child: const Text("Change Password"),
                   ),
                 ),
+
                 SizedBox(height: 16.h),
 
                 SizedBox(
@@ -1034,7 +1252,15 @@ class _AdminWebAccountState extends State<WebAccount> {
                   height: 48.h,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    onPressed: _logout,
+                    onPressed: () async {
+                      final ok = await _confirmAction(
+                        'Log out?',
+                        'Are you sure you want to log out?',
+                      );
+                      if (!ok) return;
+                      await _logout();
+                    },
+
                     child: const Text("Log Out"),
                   ),
                 ),
@@ -1047,7 +1273,6 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
   Widget _buildRightColumn(bool isAdmin) {
-    if (isAdmin) {
       return Center(
         child: ConstrainedBox(
           // a bit wider so two columns fit nicely
@@ -1067,7 +1292,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                   ),
                   SizedBox(height: 30.h),
 
-                  // >>> Two-column layout inside the System Setting area <<<
+                  // Two-column layout inside the System Setting area
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1080,6 +1305,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                             Text("Working Hour",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             SizedBox(height: 12.h),
+
                             Row(
                               children: [
                                 Expanded(
@@ -1091,7 +1317,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton(
-                                          onPressed: () => _pickTime(isStart: true),
+                                          // DISABLE until Edit is pressed
+                                          onPressed: _editWorkingHour ? () => _pickTime(isStart: true) : null,
                                           child: Text((startTime == null) ? "Select" : _formatTime(startTime!)),
                                         ),
                                       ),
@@ -1108,7 +1335,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton(
-                                          onPressed: () => _pickTime(isStart: false),
+                                          // DISABLE until Edit is pressed
+                                          onPressed: _editWorkingHour ? () => _pickTime(isStart: false) : null,
                                           child: Text((endTime == null) ? "Select" : _formatTime(endTime!)),
                                         ),
                                       ),
@@ -1117,14 +1345,58 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             ),
+
                             SizedBox(height: 10.h),
-                            Align(
+
+// Only the control row changes
+                            _editWorkingHour ?
+                            Row(
+                              children: [
+                                SizedBox(
+                                  height: 40.h,
+                                  child: TextButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        startTime = _origStartTime;
+                                        endTime = _origEndTime;
+                                        _editWorkingHour = false;
+                                      });
+                                    },
+                                    child: const Text('Cancel'),
+                                  ),
+                                ),
+                                const Spacer(), // push the confirm button to the far right
+                                SizedBox(
+                                  height: 40.h,
+                                  child: ElevatedButton(
+                                    onPressed: () async {
+                                      final ok = await _confirmAction(
+                                        'Apply working hour?',
+                                        'Are you sure you want to apply the new working hour?',
+                                      );
+                                      if (!ok) return;
+                                      await _applyWorkingHours();
+                                      if (!mounted) return;
+                                      setState(() => _editWorkingHour = false);
+                                    },
+                                    child: const Text('Apply Working Hour'),
+                                  ),
+                                ),
+                              ],
+                            )
+                                : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
                                 height: 40.h,
                                 child: ElevatedButton(
-                                  onPressed: _applyWorkingHours,
-                                  child: const Text('Apply Working Hour'),
+                                  onPressed: () {
+                                    setState(() {
+                                      _origStartTime = startTime;
+                                      _origEndTime = endTime;
+                                      _editWorkingHour = true;
+                                    });
+                                  },
+                                  child: const Text('Edit'),
                                 ),
                               ),
                             ),
@@ -1132,31 +1404,73 @@ class _AdminWebAccountState extends State<WebAccount> {
                             SizedBox(height: 75.h),
 
                             // Working Days
-                            Text("Working Days",
+                            Text("Workdays",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             Column(
                               children: workingDays.keys.map((day) {
                                 final bool v = workingDays[day] == true;
-                                return CheckboxListTile(
+                                return SwitchListTile(
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(day),
                                   value: v,
-                                  onChanged: (bool? nv) {
-                                    setState(() { workingDays[day] = (nv == true); });
-                                  },
+                                  onChanged: _editWorkingDays
+                                      ? (bool nv) => setState(() { workingDays[day] = nv; })
+                                      : null,
                                 );
                               }).toList(),
                             ),
-                            Align(
+                            _editWorkingDays
+                                ? Row(
+                              children: [
+                                SizedBox(
+                                  height: 40.h,
+                                  child: OutlinedButton(
+                                    onPressed: _defaultWorkingDays,
+                                    child: const Text('Default'),
+                                  ),
+                                ),
+                                SizedBox(width: 8.w),
+                                SizedBox(
+                                  height: 40.h,
+                                  child: TextButton(
+                                    onPressed: () {
+                                      _cancelWorkingDays();
+                                      setState(() => _editWorkingDays = false);
+                                    },
+                                    child: const Text('Cancel'),
+                                  ),
+                                ),
+                                const Spacer(),
+                                SizedBox(
+                                  height: 40.h,
+                                  child: ElevatedButton(
+                                    onPressed: () async {
+                                      final ok = await _confirmAction(
+                                        'Apply working days?',
+                                        'Are you sure you want to apply the new working days?',
+                                      );
+                                      if (!ok) return;
+                                      await _applyWorkingDays();
+                                      if (!mounted) return;
+                                      setState(() => _editWorkingDays = false);
+                                    },
+                                    child: const Text('Apply Working Days'),
+                                  ),
+                                ),
+                              ],
+                            )
+                                : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
                                 height: 40.h,
                                 child: ElevatedButton(
-                                  onPressed: _applyWorkingDays,
-                                  child: const Text('Apply Working Days'),
+                                  onPressed: () => setState(() => _editWorkingDays = true),
+                                  child: const Text('Edit'),
                                 ),
                               ),
                             ),
+
+
                           ],
                         ),
                       ),
@@ -1179,16 +1493,57 @@ class _AdminWebAccountState extends State<WebAccount> {
                               style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280)),
                             ),
                             SizedBox(height: 8.h),
-                            Align(
+                            _editHolidays
+                                ? Row(
+                              children: [
+                                SizedBox(
+                                  height: 40.h,
+                                  child: OutlinedButton(
+                                    onPressed: _defaultHolidays,
+                                    child: const Text('Default'),
+                                  ),
+                                ),
+                                SizedBox(width: 8.w),
+                                SizedBox(
+                                  height: 40.h,
+                                  child: TextButton(
+                                    onPressed: () {
+                                      _cancelHolidays();
+                                      setState(() => _editHolidays = false);
+                                    },
+                                    child: const Text('Cancel'),
+                                  ),
+                                ),
+                                const Spacer(),
+                                SizedBox(
+                                  height: 40.h,
+                                  child: ElevatedButton(
+                                    onPressed: () async {
+                                      final ok = await _confirmAction(
+                                        'Apply holidays?',
+                                        'Are you sure you want to apply the selected holidays?',
+                                      );
+                                      if (!ok) return;
+                                      await _applyHolidays();
+                                      if (!mounted) return;
+                                      setState(() => _editHolidays = false);
+                                    },
+                                    child: const Text('Apply Holidays'),
+                                  ),
+                                ),
+                              ],
+                            )
+                                : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
                                 height: 40.h,
                                 child: ElevatedButton(
-                                  onPressed: _applyHolidays,
-                                  child: const Text('Apply Holidays'),
+                                  onPressed: () => setState(() => _editHolidays = true),
+                                  child: const Text('Edit'),
                                 ),
                               ),
                             ),
+
 
                             SizedBox(height: 24.h),
 
@@ -1212,81 +1567,12 @@ class _AdminWebAccountState extends State<WebAccount> {
           ),
         ),
       );
-    }
-
-    // Non-admin path unchanged
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 520.w),
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Text("Notification Settings",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
-              SizedBox(height: 35.h),
-              SwitchListTile(
-                title: const Text("Turn on sound for all notification"),
-                value: notifAll,
-                onChanged: (bool v) => _updateNotif('notifAll', v),
-              ),
-              SwitchListTile(
-                title: const Text("Turn on sound for new booking"),
-                value: notifNewBooking,
-                onChanged: (bool v) => _updateNotif('notifNewBooking', v),
-              ),
-              SwitchListTile(
-                title: const Text("Turn on sound for new pending booking"),
-                value: notifPending,
-                onChanged: (bool v) => _updateNotif('notifPending', v),
-              ),
-              SwitchListTile(
-                title: const Text("Turn on sound for new reported issue"),
-                value: notifIssue,
-                onChanged: (bool v) => _updateNotif('notifIssue', v),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
-
-  // =========================================================================
-  // Existing methods kept (some repositioned in UI)
-  // =========================================================================
-
-  Future<void> _updateNotif(String field, bool value) async {
-    if (userDocId == null) return;
-
-    setState(() {
-      switch (field) {
-        case 'notifAll':
-          notifAll = value;
-          break;
-        case 'notifNewBooking':
-          notifNewBooking = value;
-          break;
-        case 'notifPending':
-          notifPending = value;
-          break;
-        case 'notifIssue':
-          notifIssue = value;
-          break;
-      }
-    });
-
-    await _firestore
-        .collection('UserInformation')
-        .doc(userDocId)
-        .set(<String, dynamic>{field: value}, SetOptions(merge: true));
-  }
 
   // NOTE: _pickTime now ONLY sets state; saving happens on _applyWorkingHours()
   Future<void> _pickTime({required bool isStart}) async {
+    if (!_editWorkingHour) return;
     final TimeOfDay initial = isStart
         ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
         : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
@@ -1423,12 +1709,11 @@ class _AdminWebAccountState extends State<WebAccount> {
                     final DateTime? cellDate =
                     inMonth ? DateTime(f.year, f.month, dayNum) : null;
 
-                    final today = DateTime.now();
-                    final todayStart = DateTime(today.year, today.month, today.day);
-                    final isDisabled = cellDate == null
-                        ? true
-                        : DateTime(cellDate.year, cellDate.month, cellDate.day)
-                        .isBefore(todayStart);
+                    final todayOnly = DateUtils.dateOnly(DateTime.now());
+                    final cellOnly  = (cellDate == null) ? null : DateUtils.dateOnly(cellDate);
+                    final bool isDisabled = (cellOnly == null) ? true : !cellOnly.isAfter(todayOnly);
+// past days disabled; TODAY and future enabled
+
 
                     final String ymd = (cellDate != null) ? _ymd(cellDate) : '';
                     final bool isHoliday =
@@ -1483,9 +1768,10 @@ class _AdminWebAccountState extends State<WebAccount> {
         borderRadius: BorderRadius.circular(8.r),
         child: InkWell(
           borderRadius: BorderRadius.circular(8.r),
-          onTap: (!inMonth || isDisabled || date == null)
+          onTap: (!inMonth || isDisabled || date == null || !_editHolidays)
               ? null
               : () => _toggleOffDay(date),
+
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8.r),
@@ -1553,12 +1839,13 @@ class _AdminWebAccountState extends State<WebAccount> {
 
   Future<void> _toggleOffDay(DateTime date) async {
     // ONLY change local state; do NOT write to Firestore here
-    final today = DateTime.now();
-    final todayStart = DateTime(today.year, today.month, today.day);
-    final dateStart  = DateTime(date.year, date.month, date.day);
-    if (dateStart.isBefore(todayStart)) {
-      return; // past days disabled
+    final todayOnly = DateUtils.dateOnly(DateTime.now());
+    final dateOnly  = DateUtils.dateOnly(date);
+    if (!dateOnly.isAfter(todayOnly)) {
+      return; // block past days AND today
+
     }
+
 
     final ymd = _ymd(date);
     final willAdd = !_offDaysYMD.contains(ymd);
@@ -1595,71 +1882,51 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 }
 
+// This widget builds the Admin layout only: LEFT = Account, RIGHT = System Settings.
+
 class SingleChildScrollPane extends StatelessWidget {
-  final bool isAdmin;
+  // left side content (Account panel)
   final Widget leftChild;
+  // right side content (System Settings panel)
   final Widget rightChild;
 
   const SingleChildScrollPane({
     Key? key,
-    required this.isAdmin,
+    // required = must pass a value (beginner friendly)
     required this.leftChild,
     required this.rightChild,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    if (isAdmin) {
-      return SingleChildScrollView(
+    // SingleChildScrollView = allow page to scroll vertically if content is tall
+    return SingleChildScrollView(
+      // Padding = give space around content that scales with screen
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
+        // Row = horizontal layout (two columns)
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // LEFT 1/3: Account
-            Expanded(flex: 1, child: leftChild),
-            Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
-            // RIGHT 2/3: System Setting
-            Expanded(flex: 2, child: rightChild),
+          crossAxisAlignment: CrossAxisAlignment.start, // align to top
+          children: <Widget>[
+            // LEFT 1/3: Account panel
+            Expanded(
+              flex: 1,            // take 1 part of the width
+              child: leftChild,   // show left panel content
+            ),
+
+            SizedBox(width: 12.w),                       // small gap
+            Container(width: 1.w, color: Colors.black12),// vertical divider
+            SizedBox(width: 12.w),                       // small gap
+
+            // RIGHT 2/3: System Settings panel
+            Expanded(
+              flex: 2,             // take 2 parts of the width
+              child: rightChild,   // show right panel content
+            ),
           ],
         ),
-      );
-    }
-
-    // Non-admin unchanged (3 columns feel)
-    return SingleChildScrollView(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: leftChild),
-          Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
-          Expanded(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 560.w),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-                  child: SingleChildScrollView(
-                    primary: false,
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Text("System Setting",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 35.h),
-                        Text("Working Hour", style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                        SizedBox(height: 12.h),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Container(width: 1, color: Colors.black12, margin: const EdgeInsets.symmetric(vertical: 16)),
-          Expanded(child: rightChild),
-        ],
       ),
     );
   }
 }
+

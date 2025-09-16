@@ -438,8 +438,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
   }
 
   // -------------------- small chip UI helper --------------------
-  Widget _buildChip(String text, Color fill, Color border) {
-    // pill chip with border and bold text
+  Widget _buildChip(String text, Color fill, Color border, {Color? textColor}) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
       margin: EdgeInsets.only(right: 8.w, top: 6.h),
@@ -450,10 +449,15 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600, color: Colors.black87),
+        style: TextStyle(
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w600,
+          color: textColor ?? Colors.black87,
+        ),
       ),
     );
   }
+
 
   // -------------------- status-to-color pair --------------------
   List<Color> _chipColors(String labelLower) {
@@ -510,15 +514,27 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
 
     // assemble status/approval chips (pending/rejected suppresses status chip)
+    // assemble status/approval chips
+    final bool hasAmendment =
+        (m['hasPendingAmendment'] == true) ||
+            (m['amendmentPreview'] is Map && (m['amendmentPreview'] as Map).isNotEmpty);
+
     final List<Widget> chips = [];
-    if (approval.isNotEmpty == true) {
-      final List<Color> c = _chipColors(approval);
-      chips.add(_buildChip(_capitalize(approval), c[0], c[1]));
-    }
-    if (approval != 'pending' && approval != 'rejected') {
-      if (status.isNotEmpty == true) {
-        final List<Color> s = _chipColors(status);
-        chips.add(_buildChip(_capitalize(status), s[0], s[1]));
+    if (hasAmendment) {
+      // white box, blue outline, blue text saying "Amendment"
+      const Color amendBlue = Color(0xFF1D4ED8);
+      chips.add(_buildChip('Amendment', Colors.white, amendBlue, textColor: amendBlue));
+    } else {
+      // normal behaviour
+      if (approval.isNotEmpty == true) {
+        final List<Color> c = _chipColors(approval);
+        chips.add(_buildChip(_capitalize(approval), c[0], c[1]));
+      }
+      if (approval != 'pending' && approval != 'rejected') {
+        if (status.isNotEmpty == true) {
+          final List<Color> s = _chipColors(status);
+          chips.add(_buildChip(_capitalize(status), s[0], s[1]));
+        }
       }
     }
 

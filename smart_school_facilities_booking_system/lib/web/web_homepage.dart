@@ -235,6 +235,17 @@ class _HomepageState extends State<Homepage> {
       _selectedFacilityIds.clear();
     });
   }
+  Widget _legendSwatch(Color fill, Color border) {
+    return Container(
+      width: 16.w,
+      height: 16.w,
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(4.r),
+        border: Border.all(color: border, width: 1),
+      ),
+    );
+  }
 
   // -------- UI BUILD --------
   @override
@@ -269,8 +280,7 @@ class _HomepageState extends State<Homepage> {
                   _buildStatusFilter(),
                   SizedBox(height: 12.h),
                   _buildCategoryOrFacilityFilter(),
-                  SizedBox(height: 16.h),
-                  _buildRoleInfo(),
+
                 ],
               ),
             ),
@@ -707,6 +717,14 @@ class _HomepageState extends State<Homepage> {
   }
 
   Widget _buildStatusFilter() {
+    // Same colors you use in the chips:
+    const upcomingFill  = Color(0xFFD1FAE5);
+    const upcomingBd    = Color(0xFF10B981);
+    const ongoingFill   = Color(0xFFFEF3C7);
+    const ongoingBd     = Color(0xFFF59E0B);
+    const endedFill     = Color(0xFFE5E7EB);
+    const endedBd       = Color(0xFF9CA3AF);
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(12.w),
@@ -720,6 +738,7 @@ class _HomepageState extends State<Homepage> {
         children: <Widget>[
           Text('Status', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
           SizedBox(height: 6.h),
+
           CheckboxListTile(
             value: _stUpcoming,
             onChanged: _tapStUpcoming,
@@ -727,7 +746,10 @@ class _HomepageState extends State<Homepage> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
+            // swatch on the right
+            secondary: _legendSwatch(upcomingFill, upcomingBd),
           ),
+
           CheckboxListTile(
             value: _stOngoing,
             onChanged: _tapStOngoing,
@@ -735,7 +757,9 @@ class _HomepageState extends State<Homepage> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
+            secondary: _legendSwatch(ongoingFill, ongoingBd),
           ),
+
           CheckboxListTile(
             value: _stEnded,
             onChanged: _tapStEnded,
@@ -743,14 +767,19 @@ class _HomepageState extends State<Homepage> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
+            secondary: _legendSwatch(endedFill, endedBd),
           ),
+
           SizedBox(height: 4.h),
-          Text('Tip: If none is ticked, it means All.',
-              style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280))),
+          Text(
+            'Tip: If none is ticked, it means All.',
+            style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280)),
+          ),
         ],
       ),
     );
   }
+
 
   Widget _buildCategoryOrFacilityFilter() {
     return (_role.toLowerCase() == 'manager')

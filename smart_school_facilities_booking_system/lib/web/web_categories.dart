@@ -244,24 +244,47 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
   /// Confirm delete dialog (returns true if Yes)
+  /// Confirm delete dialog (same design as logout dialog)
   Future<bool> _confirmDelete() async {
     final bool? res = await showDialog<bool>(
       context: context,
+      barrierDismissible: false, // cannot close by tapping outside
       builder: (_) => AlertDialog(
-        title: const Text('Confirm delete'),
-        content: const Text('Are you sure you want to delete this category?'),
+        // square corners
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: Text(
+          'Delete category?',
+          style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          'Are you sure you want to delete this category?',
+          style: TextStyle(fontSize: 14.sp),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('No')),
-          ElevatedButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Yes, delete')),
+          TextButton(
+            onPressed: () { Navigator.of(context).pop(false); },
+            child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () { Navigator.of(context).pop(true); },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF0707), // red confirm
+              foregroundColor: Colors.white,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            ),
+            child: Text('Confirm', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+          ),
         ],
       ),
     );
+
     if (res == null) {
       return false;
     } else {
       return res;
     }
   }
+
 
   /// Soft delete a category (only if no facilities are inside)
   Future<void> _softDelete() async {

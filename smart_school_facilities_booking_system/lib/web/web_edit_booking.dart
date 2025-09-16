@@ -124,6 +124,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
   bool _loadingDayBooked = false;
   bool _loadingSeats = false;
 
+
   @override
   void initState() {
     super.initState();
@@ -408,13 +409,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
     String managerId = widget.managerUid.trim().isEmpty ? '-' : widget.managerUid.trim();
 
     await NotificationService.sendBookingUpdatedMails(
-      bookingId: widget.bookingId,  // known on edit
-      userId: userId,
-      bookedBy: bookedBy,
+      bookingId: widget.bookingId,
+      userId: userId,                     // owner (booker)
+      bookedBy: bookedBy,                 // actor who edited
       facilityId: facility,
       managerId: managerId,
-      approval: "accepted",
+      approval: widget.approval,          // keep current approval; use "pending" if you want to re-approve
+      seatIndex: seatIndex1Based,         // 1-based
+      bookingDate: _selectedYMD,          // "YYYY-MM-DD"
+      start: _normalizeHHmm(selStart),    // "HH:MM"
+      end: selEndForCheck,                // "HH:MM"
     );
+
+
+
 
 
 
@@ -423,8 +431,8 @@ class _WebEditBookingState extends State<WebEditBooking> {
     updated['bookingDate'] = _selectedYMD;
     updated['slotKey'] = _selectedSlotKey;
     updated['seatIndex'] = seatIndex1Based;
-    if (selStart.isNotEmpty) updated['start'] = selStart;
-    if (selEnd.isNotEmpty) updated['end'] = selEnd;
+    updated['start'] = _normalizeHHmm(selStart);
+    updated['end'] = selEndForCheck; // always a normalized, non-empty end
 
     if (!mounted) return;
     Navigator.of(context).pop(); // close edit

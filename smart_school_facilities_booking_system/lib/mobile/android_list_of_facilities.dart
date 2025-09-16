@@ -757,6 +757,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
   }
 
   // build capacity input with +/- controls
+  // build capacity input with +/- controls (smaller number so no overlap)
   Widget _buildCapacityField() {
     return Container(
       height: 44.h,
@@ -775,6 +776,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       padding: EdgeInsets.symmetric(horizontal: 6.w),
       child: Row(
         children: [
+          // minus button (slightly smaller icon)
           InkWell(
             onTap: () {
               int v = _currentCapacity();
@@ -788,23 +790,40 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
               );
             },
             borderRadius: BorderRadius.circular(8.r),
-            child: SizedBox(width: 28.w, height: 28.h, child: const Icon(Icons.remove)),
+            child: SizedBox(
+              width: 26.w,
+              height: 26.h,
+              child: Icon(Icons.remove, size: 18.sp),
+            ),
           ),
-          SizedBox(width: 4.w),
+
+          SizedBox(width: 2.w),
+
+          // number field (smaller font, max 3 digits, no counter)
           Expanded(
             child: TextField(
               controller: _capCtrl,
               keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(3), // cap to 3 digits
+              ],
               textAlign: TextAlign.center,
+              // smaller text so "10", "100" won't collide with icons
+              style: TextStyle(fontSize: 12.sp, height: 1.1),
               decoration: const InputDecoration(
                 hintText: '1',
                 border: InputBorder.none,
                 isCollapsed: true,
+                counterText: '',        // hide max-length counter
+                contentPadding: EdgeInsets.zero,
               ),
             ),
           ),
-          SizedBox(width: 4.w),
+
+          SizedBox(width: 2.w),
+
+          // plus button (slightly smaller icon)
           InkWell(
             onTap: () {
               int v = _currentCapacity();
@@ -815,12 +834,17 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
               );
             },
             borderRadius: BorderRadius.circular(8.r),
-            child: SizedBox(width: 28.w, height: 28.h, child: const Icon(Icons.add)),
+            child: SizedBox(
+              width: 26.w,
+              height: 26.h,
+              child: Icon(Icons.add, size: 18.sp),
+            ),
           ),
         ],
       ),
     );
   }
+
 
   // build name search field with stable clear button slot
   Widget _buildSearchField() {

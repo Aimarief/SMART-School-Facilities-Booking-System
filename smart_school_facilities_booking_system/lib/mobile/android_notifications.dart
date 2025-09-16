@@ -240,6 +240,19 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     }
     return '';
   }
+// 1) add this helper near your other helpers
+  bool _isAmendment(Map<String, dynamic> m) {
+    final v = m['isAmendment'] ?? m['amendment'] ?? m['amend'];
+    if (v is bool && v) return true;
+    if (v is String && v.toLowerCase().contains('amend')) return true;
+
+    // also treat presence of amendmentId as amendment
+    final amendId = (m['amendmentId'] ?? '').toString().trim();
+    if (amendId.isNotEmpty) return true;
+
+    final mode = (m['mode'] ?? m['requestType'] ?? m['action'] ?? '').toString().toLowerCase();
+    return mode.contains('amend');
+  }
 
 
 
@@ -265,29 +278,26 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
 
     if (type == 'booking_created') {
       final ap = (m['approval'] ?? '').toString().toLowerCase();
-      if (ap == 'pending') return 'Facility pending request';
+      if (ap == 'pending') {
+        // 👇 Only pending “booking_created” from an amendment gets the suffix
+        return _isAmendment(m)
+            ? 'Facility pending request (Amendment)'
+            : 'Facility pending request';
+      }
       return 'Booked Successfully';
     }
 
     if (type == 'booking_updated') {
+      // leave “update” titles exactly as you have them
       final ap = (m['approval'] ?? '').toString().toLowerCase();
       if (ap == 'pending') return 'Facility pending request';
       return 'Booking updated';
     }
 
-    if (type == 'request_update') {
-      // return a short clear title
-      return 'Action needed';
-    }
-
-    // NEW:
-    if (type == 'booking_deleted') {
-      return 'Delete Booking';
-    }
-
+    if (type == 'request_update') return 'Action needed';
+    if (type == 'booking_deleted') return 'Delete Booking';
     return 'Message';
   }
-
 
 
   // ---------- UI ----------

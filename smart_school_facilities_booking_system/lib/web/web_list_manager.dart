@@ -275,19 +275,7 @@ class _WebListManagerState extends State<WebListManager> {
 
       if (!mounted) return;
 
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Deleted'),
-          content: const Text('Manager has been deleted.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+
 
       setState(() {
         _selectedId = null;
@@ -501,6 +489,8 @@ class _WebListManagerState extends State<WebListManager> {
     );
   }
 
+
+
   Widget _editField(
       String label,
       TextEditingController c, {
@@ -667,28 +657,11 @@ class _WebListManagerState extends State<WebListManager> {
       actions.add(
         TextButton(
           onPressed: () async {
-            final bool? confirm = await showDialog<bool>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Confirm delete'),
-                content: const Text('Are you sure you want to delete this manager?'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text('No'),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    onPressed: () => Navigator.of(context).pop(true),
-                    child: const Text('Yes'),
-                  ),
-                ],
-              ),
-            );
-            if (confirm == true) {
-              await _deleteManager();
-            }
+            final bool ok = await _confirmDeleteManager();
+            if (ok) await _deleteManager();
           },
+
+
           style: TextButton.styleFrom(foregroundColor: Colors.red),
           child: const Text('Delete'),
         ),
@@ -753,6 +726,41 @@ class _WebListManagerState extends State<WebListManager> {
       );
     }
   }
+
+  Future<bool> _confirmDeleteManager() async {
+    final bool? res = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // block tap-outside to close
+      builder: (_) => AlertDialog(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: Text(
+          'Delete manager?',
+          style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          'Are you sure you want to delete this manager?',
+          style: TextStyle(fontSize: 14.sp),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF0707), // red confirm
+              foregroundColor: Colors.white,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            ),
+            child: Text('Confirm', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    return res ?? false;
+  }
+
 
   // ---------- Add form ----------
   Widget _vField(

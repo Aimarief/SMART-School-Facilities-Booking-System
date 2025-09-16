@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
+
 import 'android_edit_booking.dart';
 import 'android_make_rating.dart';
 import 'android_bottom_menu.dart';
@@ -243,7 +244,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
   }
 
   // chip builder
-  Widget _buildChip(String text, Color fill, Color border) {
+  Widget _buildChip(String text, Color fill, Color border, {Color? textColor}) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
       margin: EdgeInsets.only(right: 8.w, top: 6.h),
@@ -254,10 +255,15 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600, color: Colors.black87),
+        style: TextStyle(
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w600,
+          color: textColor ?? Colors.black87,
+        ),
       ),
     );
   }
+
 
   // capitalize first letter
   String _capitalize(String s) {
@@ -267,6 +273,119 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
       return first + rest;
     }
   }
+
+  Future<void> _confirmCancelAmendment() async {
+    // Show confirmation dialog with your saved logout-style design
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // ❗ can't dismiss by tapping outside
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(
+            'Cancel amendment?',
+            style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
+          ),
+          content: Text(
+            'Are you sure you want to cancel this amendment request?',
+            style: TextStyle(fontSize: 14.sp),
+          ),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.zero, // ❗ square corners
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                // Close dialog and do nothing
+                Navigator.of(ctx).pop(false);
+              },
+              child: Text(
+                'Cancel',
+                style: TextStyle(fontSize: 14.sp),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                // Close dialog and confirm
+                Navigator.of(ctx).pop(true);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF0707), // ❗ red
+                foregroundColor: Colors.white,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.zero, // ❗ square corners
+                ),
+              ),
+              child: Text(
+                'Confirm',
+                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    // Keep the existing logic: if user confirms, run the cancellation
+    if (ok == true) {
+      await _performCancelAmendment();
+    }
+  }
+
+
+  Future<void> _performCancelAmendment() async {
+    // small blocking spinner
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId);
+
+      // 1) Clear flags on the booking document
+      await docRef.set({
+        'hasPendingAmendment': false,
+        'amendmentPreview': FieldValue.delete(),
+        'lastActivityAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 2) Hard delete amendment subcollections (both spellings supported)
+      Future<void> wipe(String sub) async {
+        final qs = await docRef.collection(sub).get();
+        if (qs.docs.isEmpty) return;
+        WriteBatch batch = FirebaseFirestore.instance.batch();
+        int i = 0;
+        for (final d in qs.docs) {
+          batch.delete(d.reference);
+          i++;
+          if (i % 450 == 0) {
+            await batch.commit();
+            batch = FirebaseFirestore.instance.batch();
+          }
+        }
+        await batch.commit();
+      }
+
+      await wipe('amendments');
+      await wipe('Amendments');
+
+      if (mounted) {
+        Navigator.of(context).pop(); // close spinner
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Amendment cancelled.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // close spinner
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to cancel amendment: $e')),
+        );
+      }
+    }
+  }
+
 
   // build
   @override
@@ -328,7 +447,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
           }
           String location = fac['location']?.toString() ?? '';
           String description = fac['details']?.toString() ?? '';
-          String managerId = fac['managerId']?.toString() ?? '';
 
           // duration text
           String durationText = '';
@@ -348,28 +466,8 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
             }
           }
 
-          // require approval
-          bool requireApproval = false;
-          final dynamic vRequire = fac['requireApproval'];
-          if (vRequire is bool) {
-            requireApproval = vRequire;
-          } else {
-            if (vRequire is String) {
-              if (vRequire.toLowerCase() == 'true') {
-                requireApproval = true;
-              } else {
-                requireApproval = false;
-              }
-            } else if (vRequire is num) {
-              if (vRequire != 0) {
-                requireApproval = true;
-              } else {
-                requireApproval = false;
-              }
-            }
-          }
-
-          // manager stream
+          // manager stream (id from facility doc)
+          final String managerId = fac['managerId']?.toString() ?? '';
           final Stream<DocumentSnapshot<Map<String, dynamic>>> mgrStream =
           FirebaseFirestore.instance.collection('UserInformation').doc(managerId).snapshots();
 
@@ -389,13 +487,12 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               // booking fields
               dynamic bookingDateField;
               if (bk.containsKey('bookingDate')) { bookingDateField = bk['bookingDate']; }
-              else {
-                if (bk.containsKey('booking_date')) { bookingDateField = bk['booking_date']; }
-                else {
-                  if (bk.containsKey('date')) { bookingDateField = bk['date']; } else { bookingDateField = null; }
-                }
-              }
+              else if (bk.containsKey('booking_date')) { bookingDateField = bk['booking_date']; }
+              else if (bk.containsKey('date')) { bookingDateField = bk['date']; }
+              else { bookingDateField = null; }
+
               final DateTime? bookingDate = _readDateOnly(bookingDateField);
+              DateTime? shownBookingDate = bookingDate;
 
               final DateTime? startDT = _composeFromBookingDate(bookingDateField, bk['start'] ?? bk['startTime']);
               final DateTime? endDT   = _composeFromBookingDate(bookingDateField, bk['end']   ?? bk['endTime']);
@@ -406,8 +503,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               if (startDT != null) { startStr = _formatTime12(startDT); }
               String endStr = '--.--';
               if (endDT != null) { endStr = _formatTime12(endDT); }
-
-
 
               String seatText = '-';
               if (bk.containsKey('seatIndex')) {
@@ -422,35 +517,42 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               String status = '';
               if (bk.containsKey('status')) {
                 if (bk['status'] != null) { status = bk['status'].toString().toLowerCase().trim(); }
-              } else {
-                if (bk.containsKey('state')) {
-                  if (bk['state'] != null) { status = bk['state'].toString().toLowerCase().trim(); }
-                }
+              } else if (bk.containsKey('state')) {
+                if (bk['state'] != null) { status = bk['state'].toString().toLowerCase().trim(); }
               }
-
-              final List<Widget> chips = <Widget>[];
 
               bool isPending = false;
               bool isRejected = false;
               bool isEnded = false;
               bool isOngoing = false;
               bool isAccepted = false;
+              if (approval == 'pending') isPending = true;
+              if (approval == 'rejected') isRejected = true;
+              if (approval == 'approved' || approval == 'accept' || approval == 'accepted') isAccepted = true;
+              if (status == 'ended' || status == 'complete' || status == 'completed') isEnded = true;
+              if (status == 'ongoing') isOngoing = true;
 
-              if (approval == 'pending') { isPending = true; }
-              if (approval == 'rejected') { isRejected = true; }
-              if (approval == 'approved' || approval == 'accept' || approval == 'accepted') { isAccepted = true; }
-              if (status == 'ended' || status == 'complete' || status == 'completed') { isEnded = true; }
-              if (status == 'ongoing') { isOngoing = true; }
+
+              final List<Widget> chips = <Widget>[];
+
+              final bool hasAmendment =
+                  (bk['hasPendingAmendment'] == true) ||
+                      (bk['amendmentPreview'] is Map && (bk['amendmentPreview'] as Map).isNotEmpty);
+
 
               if (isEnded == true) {
                 final List<Color> c = _chipColors('ended');
                 chips.add(_buildChip('Ended', c[0], c[1]));
+              } else if (hasAmendment) {
+                // White box, blue outline/text
+                const Color amendBlue = Color(0xFF1D4ED8);
+                chips.add(_buildChip('Amendment', Colors.white, amendBlue, textColor: amendBlue));
               } else {
                 if (approval.isNotEmpty == true) {
                   final List<Color> a = _chipColors(approval);
                   chips.add(_buildChip(_capitalize(approval), a[0], a[1]));
                 }
-                if (isPending == false && isRejected == false) {
+                if (approval != 'pending' && approval != 'rejected') {
                   if (status.isNotEmpty == true) {
                     final List<Color> s = _chipColors(status);
                     chips.add(_buildChip(_capitalize(status), s[0], s[1]));
@@ -458,58 +560,103 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 }
               }
 
-              bool showEdit = false;
+              bool showEdit = false;     // "Edit" for pending
+              bool showAmend = false;    // "Request amendment" for accepted & upcoming
               bool showRate = false;
+              bool showCancelAmend = hasAmendment;
 
-              if (isEnded == true) {
-                showRate = true;
+// 1) If an amendment exists, ONLY show "Cancel amendment"
+              if (showCancelAmend) {
+                // leave others false
               } else {
-                if (isRejected == true) {
-                  showEdit = false;
-                  showRate = false;
+                // 2) Otherwise decide normally
+                if (isEnded == true) {
+                  showRate = true;
+                } else if (isRejected == true) {
+                  // nothing
+                } else if (isOngoing == true) {
+                  // nothing
                 } else {
-                  if (isOngoing == true) {
-                    showEdit = false;
-                    showRate = false;
-                  } else {
-                    if (isPending == true) {
-                      showEdit = true; // pending can edit
-                    } else {
-                      if (requireApproval == true) {
-                        showEdit = false; // approved + requireApproval => do not edit
-                      } else {
-                        showEdit = true;  // normal case => can edit
-                      }
-                    }
+                  if (isPending == true) {
+                    showEdit = true;
+                  } else if (isAccepted == true && status == 'upcoming') {
+                    showAmend = true; // <-- this brings back your "Request amendment" button
                   }
                 }
               }
 
-// APPLY THE 3-HOUR LOCK (final gate):
-              if (showEdit == true) {
-                if (editLocked == true) {
-                  showEdit = false; // hide Edit once we are within 3 hours to start
-                }
+// 3) The 3-hour lock applies to edit/amend (NOT to cancel amendment)
+              if (_isEditLocked(startDT) == true) {
+                showEdit = false;
+                showAmend = false;
               }
 
               bool ratedAlready = false;
               if (bk.containsKey('rated')) {
                 final dynamic rv = bk['rated'];
                 if (rv is bool) {
-                  if (rv == true) { ratedAlready = true; } else { ratedAlready = false; }
-                } else {
-                  if (rv is String) {
-                    if (rv.toLowerCase() == 'true') { ratedAlready = true; } else { ratedAlready = false; }
-                  } else {
-                    if (rv is num) {
-                      if (rv != 0) { ratedAlready = true; } else { ratedAlready = false; }
-                    }
-                  }
+                  ratedAlready = rv == true;
+                } else if (rv is String) {
+                  ratedAlready = rv.toLowerCase() == 'true';
+                } else if (rv is num) {
+                  ratedAlready = rv != 0;
                 }
               }
 
               double imgH = sw * 0.75;
               if (imgH < 240.h) { imgH = 240.h; } else { if (imgH > 420.h) { imgH = 420.h; } }
+
+
+
+              Map<String, dynamic>? amend;
+              if (bk['amendmentPreview'] is Map) {
+                amend = Map<String, dynamic>.from(bk['amendmentPreview'] as Map);
+              }
+
+              if (hasAmendment && amend != null) {
+                // Use amended bookingDate/start/end/seat for UI display ONLY
+                final dynamic amendDateField = amend['bookingDate'];
+                final DateTime? amendDateOnly = _readDateOnly(amendDateField);
+
+                final DateTime? amendStartDT = _composeFromBookingDate(amendDateField, amend['start']);
+                final DateTime? amendEndDT   = _composeFromBookingDate(amendDateField, amend['end']);
+
+                if (amendDateOnly != null) {
+                  shownBookingDate = amendDateOnly;
+                }
+
+                // Replace the strings used by the card
+                if (amendStartDT != null) {
+                  final String s = _formatTime12(amendStartDT);
+                  startStr = s;
+                }
+                if (amendEndDT != null) {
+                  final String e = _formatTime12(amendEndDT);
+                  endStr = e;
+                }
+
+                // Replace the "Booking Date:" line
+                if (amendDateOnly != null) {
+                  // overwrite local variable used for label
+                  // (we keep the label build code untouched)
+                  // Rebuild bookingDate variable used below
+                  // (shadowing original bookingDate is fine here)
+                  // ignore: unused_local_variable
+                  final DateTime? _ignoredOriginal = bookingDate;
+                  // set bookingDate used by the label:
+                  // (Dart allows reassign because it's not final)
+                  // If yours is final, just introduce a new local var for printing.
+                  // Here it is not final above, so reassign:
+                  // bookingDate = amendDateOnly;  <-- uncomment if 'bookingDate' is not 'final' above
+                }
+
+                // Seat index override
+                final dynamic seatNew = amend['seatIndex'];
+                if (seatNew != null && seatNew.toString().trim().isNotEmpty) {
+                  seatText = seatNew.toString();
+                }
+              }
+
 
               return SingleChildScrollView(
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
@@ -549,9 +696,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                           SizedBox(height: 10.h),
 
                           // booking date
-                          if (bookingDate != null)
+                          if (shownBookingDate != null)
                             Text(
-                              'Booking Date: ${_formatFullDate(bookingDate)}',
+                              'Booking Date: ${_formatFullDate(shownBookingDate!)}',
                               style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w600),
                             ),
 
@@ -781,10 +928,26 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                                   SizedBox(height: 16.h),
 
-                                  // bottom single action (Edit or Rate or none)
+                                  // bottom single action (Edit OR Request amendment OR Rate)
                                   Builder(
                                     builder: (_) {
+                                      if (showCancelAmend == true) {
+                                        return SizedBox(
+                                          width: sw * 0.90,
+                                          height: 48.h,
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.red,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                                            ),
+                                            onPressed: () => _confirmCancelAmendment(),
+                                            child: Text('Cancel amendment', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                                          ),
+                                        );
+                                      }
+
                                       if (showEdit == true) {
+                                        // PENDING -> Edit (unchanged)
                                         return SizedBox(
                                           width: sw * 0.90,
                                           height: 48.h,
@@ -801,6 +964,8 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                                 MaterialPageRoute(
                                                   builder: (_) => AndroidEditBooking(
                                                     bookingId: widget.bookingId,
+                                                    // pass approval so edit screen can branch
+                                                    approval: approval,
                                                   ),
                                                 ),
                                               );
@@ -808,52 +973,77 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                             child: Text('Edit', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
                                           ),
                                         );
-                                      } else {
-                                        if (showRate == true) {
-                                          Color btnColor;
-                                          String btnLabel;
-                                          if (ratedAlready == true) {
-                                            btnColor = Colors.grey;
-                                            btnLabel = 'Rated';
-                                          } else {
-                                            btnColor = const Color(0xFF8620E5);
-                                            btnLabel = 'Rate';
-                                          }
-
-                                          return SizedBox(
-                                            width: sw * 0.90,
-                                            height: 48.h,
-                                            child: ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: btnColor,
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(10.r),
-                                                ),
+                                      } else if (showAmend == true) {
+                                        // ACCEPTED -> Request amendment (new)
+                                        return SizedBox(
+                                          width: sw * 0.90,
+                                          height: 48.h,
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFF8620E5),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(10.r),
                                               ),
-                                              onPressed: () {
-                                                if (ratedAlready == true) {
-                                                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(content: Text('User have rated on current booking', style: TextStyle(fontSize: 13.sp))),
-                                                  );
-                                                } else {
-                                                  Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) => AndroidMakeRating(
-                                                        bookingId: widget.bookingId,
-                                                        facilityId: widget.facilityId,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                              child: Text(btnLabel, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
                                             ),
-                                          );
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => AndroidEditBooking(
+                                                    bookingId: widget.bookingId,
+                                                    // pass approval so edit screen can branch
+                                                    approval: approval,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            child: Text('Request amendment', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                                          ),
+                                        );
+                                      } else if (showRate == true) {
+                                        Color btnColor;
+                                        String btnLabel;
+                                        if (ratedAlready == true) {
+                                          btnColor = Colors.grey;
+                                          btnLabel = 'Rated';
                                         } else {
-                                          return const SizedBox.shrink();
+                                          btnColor = const Color(0xFF8620E5);
+                                          btnLabel = 'Rate';
                                         }
+
+                                        return SizedBox(
+                                          width: sw * 0.90,
+                                          height: 48.h,
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: btnColor,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(10.r),
+                                              ),
+                                            ),
+                                            onPressed: () {
+                                              if (ratedAlready == true) {
+                                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('User have rated on current booking', style: TextStyle(fontSize: 13.sp))),
+                                                );
+                                              } else {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) => AndroidMakeRating(
+                                                      bookingId: widget.bookingId,
+                                                      facilityId: widget.facilityId,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                            child: Text(btnLabel, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                                          ),
+                                        );
+                                      } else {
+                                        return const SizedBox.shrink();
                                       }
                                     },
                                   ),

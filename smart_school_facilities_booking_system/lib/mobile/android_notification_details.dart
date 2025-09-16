@@ -212,6 +212,13 @@ class _AndroidNotificationDetailsState extends State<AndroidNotificationDetails>
 
               // image height scales with width and clamps nicely for small phones
               final double imgH = (1.0.sw * 0.75).clamp(240.h, 420.h);
+              // Prefer the inline fields saved inside this Inbox doc
+              final bool hasInlineDetails =
+                  ((inbox['bookingDate'] ?? '').toString().trim().isNotEmpty) ||
+                      ((inbox['start'] ?? '').toString().trim().isNotEmpty) ||
+                      ((inbox['end'] ?? '').toString().trim().isNotEmpty) ||
+                      (inbox['seatIndex'] != null);
+
 
               // ---------- PAGE ----------
               return SingleChildScrollView(
@@ -255,7 +262,7 @@ class _AndroidNotificationDetailsState extends State<AndroidNotificationDetails>
                           // BOOKING SUMMARY SECTION
                           // =========================
                           // NEW: for request_update we read date/start/end/seat directly from Inbox
-                          if (inboxType == 'request_update' || inboxType == 'booking_deleted') ...[
+                          if (hasInlineDetails || inboxType == 'request_update' || inboxType == 'booking_deleted') ...[
                             // ---- build date line from inbox ----
                                 () {
                               final String bookingDateStr = (inbox['bookingDate'] ?? '').toString().trim();

@@ -13,6 +13,7 @@ import 'package:image/image.dart' as img;             // to resize/compress
 import 'android_notification_setting.dart';
 // bottom bar
 import 'android_bottom_menu.dart';
+import 'android_faq.dart';
 
 // pages for bottom bar navigation
 import 'android_agenda.dart';
@@ -167,6 +168,262 @@ class _AndroidAccountState extends State<AndroidAccount> {
       ),
     );
   }
+// ----------------------------------------------------
+// Simple password rule: min 8 + 1 uppercase + 1 symbol
+// ----------------------------------------------------
+  bool _isPasswordStrong(String password) {
+    // RegExp = pattern checker for strength
+    final RegExp regex = RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
+    if (regex.hasMatch(password)) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+// ------------------------------------------------------------------
+// Open a dialog (popup) that asks for old password and new password.
+// It will:
+// 1) validate inputs (not empty, strong, match)
+// 2) reauthenticate with old password
+// 3) call updatePassword(newPassword)
+// ------------------------------------------------------------------
+  Future<void> _openChangePasswordDialog() async {
+    // --- controllers for the three fields ---
+    final TextEditingController _oldCtrl = TextEditingController();      // old password input
+    final TextEditingController _newCtrl = TextEditingController();      // new password input
+    final TextEditingController _confirmCtrl = TextEditingController();  // confirm new password
+
+    // --- local UI states for the dialog (show/hide) ---
+    bool _hideOld = true;       // obscure old password
+    bool _hideNew = true;       // obscure new password
+    bool _hideConfirm = true;   // obscure confirm password
+
+    // --- local error messages for each field ---
+    String? _oldErr;
+    String? _newErr;
+    String? _confirmErr;
+
+    // showDialog = display the popup
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false, // do not close by tapping outside
+      builder: (ctx) {
+        // StatefulBuilder = allow setState inside this dialog only
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            // --- helper: validate and attempt change ---
+            Future<void> _attemptChange() async {
+              // clear old errors first
+              setStateDialog(() {
+                _oldErr = null;
+                _newErr = null;
+                _confirmErr = null;
+              });
+
+              // assume ok first
+              bool ok = true;
+
+              // check old password not empty
+              if (_oldCtrl.text.isEmpty) {
+                setStateDialog(() { _oldErr = "Old password cannot be empty"; });
+                ok = false;
+              }
+
+              // check new strong
+              if (_isPasswordStrong(_newCtrl.text)) {
+                // ok
+              } else {
+                setStateDialog(() { _newErr = "Min 8 chars, 1 uppercase, 1 special"; });
+                ok = false;
+              }
+
+              // check confirm
+              if (_confirmCtrl.text.isEmpty) {
+                setStateDialog(() { _confirmErr = "Confirm password cannot be empty"; });
+                ok = false;
+              } else {
+                if (_confirmCtrl.text == _newCtrl.text) {
+                  // ok
+                } else {
+                  setStateDialog(() { _confirmErr = "Passwords do not match"; });
+                  ok = false;
+                }
+              }
+
+              // stop if invalid
+              if (ok == false) {
+                return;
+              }
+
+              // get current user
+              final User? user = FirebaseAuth.instance.currentUser;
+
+              if (user == null) {
+                // no user => show message
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("No user logged in", style: TextStyle(fontSize: 12.sp))),
+                );
+                return;
+              }
+
+              // ensure we have an email sign-in user
+              if (user.email == null) {
+                // without email (e.g., Google sign-in), this flow is not applicable
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("This account does not use email/password", style: TextStyle(fontSize: 12.sp))),
+                );
+                return;
+              }
+
+              try {
+                // 1) reauthenticate using old password
+                final AuthCredential cred = EmailAuthProvider.credential(
+                  email: user.email!,
+                  password: _oldCtrl.text,
+                );
+
+                await user.reauthenticateWithCredential(cred); // important security step
+
+                // 2) update to the new password
+                await user.updatePassword(_newCtrl.text);
+
+                // close dialog
+                Navigator.pop(context);
+
+                // success message
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Password updated successfully", style: TextStyle(fontSize: 12.sp))),
+                );
+              } on FirebaseAuthException catch (e) {
+                // map common errors to friendly messages
+                if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+                  setStateDialog(() { _oldErr = "Old password is incorrect"; });
+                } else if (e.code == 'weak-password') {
+                  setStateDialog(() { _newErr = "New password too weak"; });
+                } else if (e.code == 'too-many-requests') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Too many attempts. Try again later.", style: TextStyle(fontSize: 12.sp))),
+                  );
+                } else if (e.code == 'requires-recent-login') {
+                  // reauth should handle this; if appears, ask to log in again
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Please log in again and retry.", style: TextStyle(fontSize: 12.sp))),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Failed to change password", style: TextStyle(fontSize: 12.sp))),
+                  );
+                }
+              } catch (_) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Unexpected error", style: TextStyle(fontSize: 12.sp))),
+                );
+              }
+            }
+
+            // The actual dialog UI
+            return AlertDialog(
+              title: Text("Change Password", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
+              content: SizedBox(
+                width: math.min(520.w, 0.9.sw),  // keep dialog responsive
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Old password
+                      Text("Old Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _oldCtrl,
+                        obscureText: _hideOld,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _oldErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideOld ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () {
+                              // toggle hide/show
+                              if (_hideOld == true) {
+                                setStateDialog(() { _hideOld = false; });
+                              } else {
+                                setStateDialog(() { _hideOld = true; });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12.h),
+
+                      // New password
+                      Text("New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _newCtrl,
+                        obscureText: _hideNew,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _newErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideNew ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () {
+                              if (_hideNew == true) {
+                                setStateDialog(() { _hideNew = false; });
+                              } else {
+                                setStateDialog(() { _hideNew = true; });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12.h),
+
+                      // Confirm password
+                      Text("Confirm New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
+                      TextField(
+                        controller: _confirmCtrl,
+                        obscureText: _hideConfirm,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(borderSide: BorderSide(width: 1.w)),
+                          errorText: _confirmErr,
+                          suffixIcon: IconButton(
+                            icon: Icon(_hideConfirm ? Icons.visibility_off : Icons.visibility),
+                            onPressed: () {
+                              if (_hideConfirm == true) {
+                                setStateDialog(() { _hideConfirm = false; });
+                              } else {
+                                setStateDialog(() { _hideConfirm = true; });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () { Navigator.pop(context); }, // close dialog
+                  child: Text("Cancel", style: TextStyle(fontSize: 14.sp)),
+                ),
+                ElevatedButton(
+                  onPressed: _attemptChange, // run validation + change
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8620E5),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text("Change", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+                ),
+              ],
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   /// Validate username and contact. Only digits allowed for contact.
   bool _validateInputs() {
@@ -683,7 +940,8 @@ class _AndroidAccountState extends State<AndroidAccount> {
                 SizedBox(height: 16.h),
 
                 // ---- Actions ----
-                _actionBox(title: "Change Password", onTap: () { _sendResetEmail(_email); }),
+                _actionBox(title: "Change Password", onTap: () { _openChangePasswordDialog(); }),
+
                 SizedBox(height: 14.h),
                 _actionBox(
                   title: "Notification Settings",
@@ -701,6 +959,18 @@ class _AndroidAccountState extends State<AndroidAccount> {
                     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidReportIssue()));
                   },
                 ),
+                SizedBox(height: 14.h),
+                _actionBox(
+                  title: "FAQ",
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AndroidFAQ()),
+                    );
+                  },
+                ),
+
+
                 SizedBox(height: 16.h),
                 _actionBox(
                   title: "Log Out",

@@ -117,8 +117,8 @@ class _BookingListState extends State<BookingList> {
     setState(() => _bookingsStream = s);
   }
 
-  DateTime _readCreatedAt(Map<String, dynamic> m) {
-    final v = m['createdAt'];
+  DateTime _readSortTime(Map<String, dynamic> m) {
+    final v = m['lastActivityAt'] ?? m['updatedAt'] ?? m['createdAt'];
     if (v is Timestamp) return v.toDate();
     if (v is DateTime) return v;
     return DateTime.fromMillisecondsSinceEpoch(0);
@@ -330,13 +330,33 @@ class _BookingListState extends State<BookingList> {
               final String facilityId = _readFirstStr(m, ['facilityId','facilityID','facilityDocId','facility_id']);
               final String managerId  = _readFirstStr(m, ['managerId','managerUID','managerUid']);
 
+              // NEW: ensure we include seat/time/date in the notification payload
+              final String seatRaw = _readFirstStr(m, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+              final int seatIndex  = int.tryParse(seatRaw) ?? -1;
+
+              // prefer raw string; if missing, format from parsed DateTime
+              String startStr = _readFirstStr(m, ['start','startTime','timeStart']);
+              String endStr   = _readFirstStr(m, ['end','endTime','timeEnd']);
+              final DateTime? tStart = _readTime(m, ['start','startTime','timeStart']);
+              final DateTime? tEnd   = _readTime(m, ['end','endTime','timeEnd']);
+              if (startStr.isEmpty && tStart != null) startStr = _formatOne(tStart, true); // "HH:mm"
+              if (endStr.isEmpty   && tEnd   != null) endStr   = _formatOne(tEnd,   true); // "HH:mm"
+
+              String bookingDate = _readFirstStr(m, ['bookingDate','date','bookDate','day']);
+              final DateTime? bd = _readBookingDate(m);
+              if (bookingDate.trim().isEmpty && bd != null) bookingDate = _fmtYMD(bd); // "YYYY-MM-DD"
+
               await NotificationService.sendBookingApprovalMails(
                 bookingId: bookingId,
                 userId: userId,
-                bookedBy: bookedBy.isNotEmpty ? bookedBy : userId,
+                bookedBy: bookedBy.isNotEmpty ? bookedBy : userId, // actor; fallback to owner
                 facilityId: facilityId,
                 managerId: managerId,
-                approval: 'rejected', // <-- hardcoded
+                approval: 'rejected',
+                seatIndex: seatIndex,
+                start: startStr,
+                end: endStr,
+                bookingDate: bookingDate,
               );
             } catch (e) {
               debugPrint('notify auto-reject failed: $e');
@@ -785,7 +805,8 @@ class _BookingListState extends State<BookingList> {
             all.add(c);
           }
         }
-        all.sort((a, b) => _readCreatedAt(b).compareTo(_readCreatedAt(a)));
+        all.sort((a, b) => _readSortTime(b).compareTo(_readSortTime(a)));
+
 
         // optional: date filter
         final byDate = <Map<String, dynamic>>[];
@@ -957,15 +978,14 @@ class _BookingListState extends State<BookingList> {
                           'seatNumber',
                           'seat'
                         ]);
-                        final state = _readFirstStr(
-                            m, ['status', 'bookingStatus', 'state']);
-                        final appr = _readFirstStr(
-                            m, ['approval', 'approve', 'approvalStatus']);
+                        final state = _readFirstStr(m, ['status', 'bookingStatus', 'state']);
+                        final appr = _readFirstStr(m, ['approval', 'approve', 'approvalStatus']);
                         final apprLc = appr.trim().toLowerCase();
-                        final isAccepted = (apprLc == 'accepted' ||
-                            apprLc == 'approved');
-                        final stateDisplay =
-                        isAccepted ? (state.isEmpty ? '—' : state) : '-';
+                        final isAccepted = (apprLc == 'accepted' || apprLc == 'approved');
+                        final stateDisplay = isAccepted ? (state.isEmpty ? '—' : state) : '-';
+                        final bool hasAmend = (m['hasPendingAmendment'] == true);
+                        final String displayApproval = hasAmend ? 'Amendment' : (appr.isEmpty ? '—' : appr);
+
 
                         String bid = _readFirstStr(
                             m, ['bookingId', 'booking_id', 'id']);
@@ -987,6 +1007,9 @@ class _BookingListState extends State<BookingList> {
                           'bookedById',
                           'bookedBy'
                         ]);
+
+
+
 
                         // seen flag: default to true if missing (no red dot for legacy)
                         final bool seen =
@@ -1030,13 +1053,23 @@ class _BookingListState extends State<BookingList> {
                               _gapW(gapW),
 
                               _dataCell(timeStr, wTime, false),
+
+
                               _gapW(gapW),
                               _dataCell(slot.isEmpty ? '—' : slot, wSlot, true),
+
+
                               _gapW(gapW),
                               _dataCell(stateDisplay, wState, false),
                               _gapW(gapW),
                               _dataCell(
-                                  appr.isEmpty ? '—' : appr, wStatus, false),
+                                ((m['hasPendingAmendment'] == true) ? 'Amendment' : (appr.isEmpty ? '—' : appr)),
+                                wStatus,
+                                false,
+                              ),
+
+
+
                               _gapW(gapW),
 
                               // User name (LIVE from UserInformation/{uid})
@@ -1346,7 +1379,11 @@ class _BookingListState extends State<BookingList> {
                                   _dataCell(stateDisplay, wState, false),
                                   _gapW(gapW),
                                   _dataCell(
-                                      appr.isEmpty ? '—' : appr, wStatus, false),
+                                    ((m['hasPendingAmendment'] == true) ? 'Amendment' : (appr.isEmpty ? '—' : appr)),
+                                    wStatus,
+                                    false,
+                                  ),
+
                                   _gapW(gapW),
 
                                   // User name (LIVE)

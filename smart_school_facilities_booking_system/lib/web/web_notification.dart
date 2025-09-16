@@ -492,6 +492,10 @@ class _WebNotificationState extends State<WebNotification> {
           .toString()
           .toLowerCase();
       final String facilityId = _readFirstStr(m, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final bool isPending =
+          approvalLc.contains('pend') || approvalLc.contains('wait');
+      final bool isAmendment =
+      ((m['amendmentId'] ?? '').toString().trim().isNotEmpty);
 
 
       // ----- title -----
@@ -500,17 +504,16 @@ class _WebNotificationState extends State<WebNotification> {
         title = 'System Issue';
       } else if (type == 'approval_status') {
         title = 'Facility Approved';
-      } else if (type == 'booking_created' &&
-          (approvalLc.contains('pend') || approvalLc.contains('wait'))) {
-        title = 'Facility pending request';
-      } else if (type == 'booking_updated' &&
-          (approvalLc.contains('pend') || approvalLc.contains('wait'))) {
+      } else if (type == 'booking_created' && isPending) {
+        title = 'Facility pending request' + (isAmendment ? ' (Amendment)' : '');
+      } else if (type == 'booking_updated' && isPending) {
         title = 'Approval pending request';
-      } else if (typeLc == 'booking_deleted' || typeLc == 'deleted_booking') {     // <— add
+      } else if (typeLc == 'booking_deleted' || typeLc == 'deleted_booking') {
         title = 'Delete Booking';
       } else {
         title = (m['type'] != null) ? _titleForType(m['type'].toString()) : 'Message';
       }
+
 
 
 
@@ -674,22 +677,12 @@ class _WebNotificationState extends State<WebNotification> {
     final createdUid = _readFirstStrPrefNotif(inbox, booking, ['createdBy','creatorUid','creatorId']); // actor
     final managerUid = _readFirstStrPrefNotif(inbox, booking, ['managerId','managerUID','managerUid']);
 
-    // For deleted bookings: strictly read slot/date/time from INBOX
-    final String seat = isDeleted
-        ? _readFirstStr(inbox, ['seatIndex','slotNumber','seatNumber','slot','seat'])
-        : _readFirstStrPrefNotif(inbox, booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+// Always display these straight from INBOX (they’re present now)
+    final String seat = _readFirstStr(inbox, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+    final DateTime? bookDate = _readBookingDate(inbox);
+    final DateTime? tStart = _readTime(inbox, ['start','startTime','timeStart']);
+    final DateTime? tEnd   = _readTime(inbox, ['end','endTime','timeEnd']);
 
-    final DateTime? bookDate = isDeleted
-        ? _readBookingDate(inbox)
-        : _readBookingDatePrefNotif(inbox, booking);
-
-    final DateTime? tStart = isDeleted
-        ? _readTime(inbox, ['start','startTime','timeStart'])
-        : _readTimePrefNotif(inbox, booking, ['start','startTime','timeStart']);
-
-    final DateTime? tEnd = isDeleted
-        ? _readTime(inbox, ['end','endTime','timeEnd'])
-        : _readTimePrefNotif(inbox, booking, ['end','endTime','timeEnd']);
 
     final String dateStr  = (bookDate != null) ? _fmtDDMonYYYY(bookDate) : '';
     final String timeFancy = (tStart != null && tEnd != null)
