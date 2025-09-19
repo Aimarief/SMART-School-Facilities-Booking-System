@@ -128,7 +128,7 @@ class WebBookingDetails extends StatelessWidget {
         ? '${_fmt24WithAmPm(tStart)} - ${_fmt24WithAmPm(tEnd)}'
         : (tStart != null) ? _fmt24WithAmPm(tStart) : '';
 
-
+    final bool completedAmendment = booking['completeAmendment'] == true;
 
     // Approval + status (for UI logic)
     final String approvalLc = _readFirstStr(booking, ['approval','approve','approvalStatus']).trim().toLowerCase();
@@ -148,6 +148,18 @@ class WebBookingDetails extends StatelessWidget {
         ? (amendEnd.isNotEmpty ? '$amendStart - $amendEnd' : amendStart)
         : '';
 
+    // --- ACTION VISIBILITY ---
+// Cancel button: only for accepted/approved + upcoming + NO pending amendment
+    bool showDelete = statusLc == 'upcoming'
+        && (approvalLc == 'accepted' || approvalLc == 'approved')
+        && !hasAmend;
+
+// Edit button: only for accepted/approved + upcoming + NO pending amendment + NOT completed before
+    bool showEdit = statusLc == 'upcoming'
+        && (approvalLc == 'accepted' || approvalLc == 'approved')
+        && !hasAmend
+        && !completedAmendment;
+
 // When viewing an amendment, show its (new) reason/approvalReason — not the old one.
     final String reason = (hasAmend && amend != null)
         ? _readFirstStr(amend!, ['approvalReason','reason','amendReason','notes'])
@@ -156,29 +168,6 @@ class WebBookingDetails extends StatelessWidget {
     final bool showApproveReject = hasAmend || !(approvalLc == 'accepted' || approvalLc == 'approved' || approvalLc == 'rejected');
 
 
-    bool showDelete = false;
-    if (statusLc == 'upcoming') {
-      if (approvalLc == 'accepted' || approvalLc == 'approved') {
-        showDelete = true;
-      } else {
-        showDelete = false;
-      }
-    } else {
-      showDelete = false;
-    }
-
-// Only allow edit if already accepted/approved AND still upcoming.
-// (you said “only allowed to edit the facility that already accepted”)
-    bool showEdit = false;
-    if (statusLc == 'upcoming') {
-      if (approvalLc == 'accepted' || approvalLc == 'approved') {
-        showEdit = true;
-      } else {
-        showEdit = false;
-      }
-    } else {
-      showEdit = false;
-    }
 
     // Booking id (id-only booking logic kept intact)
     final String bookingId = _readFirstStr(booking, ['bookingId','booking_id','id','docId','bookingID','__id']);
@@ -401,7 +390,7 @@ class WebBookingDetails extends StatelessWidget {
                       ),
                     if (showDelete)
                       _pillButton(
-                        label: 'Delete',
+                        label: 'Cancel',
                         icon: Icons.delete_outline,
                         background: const Color(0xFFFFE4E6),
                         foreground: const Color(0xFFB91C1C),
@@ -624,12 +613,14 @@ class WebBookingDetails extends StatelessWidget {
         newEndStr: newEndStr,
       );
 
-      // 2) Clear amendment flags on the booking
+      // 2) Clear amendment flags on the booking AND mark completed
       await docRef.update({
         'hasPendingAmendment': false,
         'amendmentPreview': FieldValue.delete(),
+        'completeAmendment': true,                // <-- NEW: lock future amendments
         'lastActivityAt': FieldValue.serverTimestamp(),
       });
+
 
       // 3) Notify exactly like pending approval (accepted)
       final String facilityId = newFacilityId.isNotEmpty ? newFacilityId
@@ -696,15 +687,14 @@ class WebBookingDetails extends StatelessWidget {
       final docRef = FirebaseFirestore.instance.collection('Bookings').doc(bookingId);
 
       await FirebaseFirestore.instance.runTransaction((tx) async {
-        // Do NOT change original booking fields, just clear the amendment.
         tx.update(docRef, {
           'hasPendingAmendment': false,
           'amendmentPreview': FieldValue.delete(),
+          'completeAmendment': true,              // <-- NEW: lock future amendments
           'lastActivityAt': FieldValue.serverTimestamp(),
         });
-
-
       });
+
 
       // notify (reuse existing mail; note decision in reason)
       final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
@@ -758,11 +748,11 @@ class WebBookingDetails extends StatelessWidget {
       builder: (_) => AlertDialog(
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
         title: Text(
-          'Delete booking?',
+          'Cancel booking?',
           style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
         ),
         content: Text(
-          'Are you sure you want to delete this booking?',
+          'Are you sure you want to cancel this booking?',
           style: TextStyle(fontSize: 14.sp),
         ),
         actions: [
@@ -788,7 +778,7 @@ class WebBookingDetails extends StatelessWidget {
 
   Future<void> _onDeleteAccepted(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
-      _toast(context, 'Missing booking id to delete.');
+      _toast(context, 'Missing booking id to cancel.');
       return;
     }
 
@@ -837,7 +827,7 @@ class WebBookingDetails extends StatelessWidget {
     });
 
     if (!ok) return;
-    _toast(context, 'Booking deleted.');
+    _toast(context, 'Booking Canceled.');
     if (context.mounted) Navigator.of(context).pop();
   }
 

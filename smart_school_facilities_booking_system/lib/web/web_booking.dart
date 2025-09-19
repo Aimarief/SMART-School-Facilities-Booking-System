@@ -1,27 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:smart_school_facilities_booking_system/notification_service.dart';
-import 'web_top_bar.dart';
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
+import 'web_top_bar.dart';
 
-// ==============================
-// WebBooking (restyled like WebEditBooking)
-// ==============================
+/// ==============================
+/// Compact Web Booking
+/// ==============================
 class WebBooking extends StatefulWidget {
   const WebBooking({Key? key}) : super(key: key);
-
   @override
   State<WebBooking> createState() => _WebBookingState();
 }
 
 class _WebBookingState extends State<WebBooking> {
-  final bool _use24HourFormat = true;
-  final TextEditingController _facSearch = TextEditingController();
-
+  final _facSearch = TextEditingController();
   String? _userId;
   String _role = 'unknown';
 
@@ -32,6 +28,7 @@ class _WebBookingState extends State<WebBooking> {
   void initState() {
     super.initState();
     _readUserAndRole();
+
   }
 
   @override
@@ -41,35 +38,19 @@ class _WebBookingState extends State<WebBooking> {
   }
 
   Future<void> _readUserAndRole() async {
-    final User? u = FirebaseAuth.instance.currentUser;
-
+    final u = FirebaseAuth.instance.currentUser;
     if (u == null) {
-      setState(() {
-        _userId = null;
-        _role = 'unknown';
-      });
+      setState(() => {_userId = null, _role = 'unknown'});
       return;
     }
-
-    final String uid = u.uid;
-    String roleFromDb = 'unknown';
-
+    String r = 'unknown';
     try {
-      final doc =
-      await FirebaseFirestore.instance.collection('UserInformation').doc(uid).get();
-      if (doc.exists) {
-        final m = doc.data();
-        if (m != null) {
-          roleFromDb = (m['role'] ?? 'unknown').toString();
-        }
-      }
-    } catch (_) {
-      roleFromDb = 'unknown';
-    }
-
+      final doc = await FirebaseFirestore.instance.collection('UserInformation').doc(u.uid).get();
+      r = (doc.data()?['role'] ?? 'unknown').toString();
+    } catch (_) {}
     setState(() {
-      _userId = uid;
-      _role = roleFromDb;
+      _userId = u.uid;
+      _role = r;
     });
   }
 
@@ -90,38 +71,38 @@ class _WebBookingState extends State<WebBooking> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(70.h),
-        child: WebCustomTopBar(use24HourFormat: _use24HourFormat),
+      appBar: const PreferredSize(
+        preferredSize: Size.fromHeight(70),
+        child: WebCustomTopBar(use24HourFormat: true),
       ),
       body: LayoutBuilder(
-        builder: (context, constraints) {
+        builder: (_, constraints) {
           return SingleChildScrollView(
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
               child: Padding(
-                padding: EdgeInsets.all(16.w),
+                padding: const EdgeInsets.all(16),
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 460.w + 24.w + 1200.w),
+                      constraints: const BoxConstraints(maxWidth: 1684),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _BookingLeftList(
-                            width: 460.w,
-                            height: 965.h,
+                            width: 460,
+                            height: 965,
                             search: _facSearch,
                             userId: _userId,
                             role: _role,
                             onSelect: _selectFacility,
                           ),
-                          SizedBox(width: 24.w),
+                          const SizedBox(width: 24),
                           _BookingRightPanel(
-                            width: 1200.w,
-                            height: 965.h,
+                            width: 1200,
+                            height: 965,
                             selectedFacilityId: _selectedFacId,
                             selectedFacilityData: _selectedFacData,
                             onClose: _closeRight,
@@ -140,9 +121,9 @@ class _WebBookingState extends State<WebBooking> {
   }
 }
 
-// ==============================
-// Simple list panel (unchanged behavior)
-// ==============================
+/// ==============================
+/// Generic framed panel
+/// ==============================
 class _BoxPanel extends StatelessWidget {
   const _BoxPanel({
     Key? key,
@@ -159,46 +140,40 @@ class _BoxPanel extends StatelessWidget {
   final Widget child;
   final Widget? header;
 
-  static const Color _fill = Color(0xFFEDDFFF);
-  static const Color _outline = Color(0xFF8620E2);
+  static const _fill = Color(0xFFEDDFFF);
+  static const _outline = Color(0xFF8620E2);
 
   @override
   Widget build(BuildContext context) {
-    final kids = <Widget>[
-      Text(title, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
-      SizedBox(height: 8.h),
-    ];
-
-    if (header != null) {
-      kids.add(header!);
-      kids.add(SizedBox(height: 8.h));
-    }
-
-    kids.add(
-      Expanded(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Scrollbar(thumbVisibility: true, child: child),
-        ),
-      ),
-    );
-
     return Container(
       width: width,
       height: height,
-      padding: EdgeInsets.all(12.w),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: _fill,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _outline, width: 1),
+        border: Border.all(color: _outline),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: kids),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          if (header != null) ...[header!, const SizedBox(height: 8)],
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Scrollbar(thumbVisibility: true, child: child),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _SearchHeaderNoAdd extends StatelessWidget {
-  const _SearchHeaderNoAdd({
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({
     Key? key,
     required this.controller,
     required this.onChanged,
@@ -209,34 +184,26 @@ class _SearchHeaderNoAdd extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: SizedBox(
-            height: 48.h,
-            child: TextField(
-              controller: controller,
-              onChanged: onChanged,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Search',
-                prefixIcon: const Icon(Icons.search, size: 18),
-                contentPadding: EdgeInsets.symmetric(vertical: 12.h),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
-              ),
-            ),
-          ),
+    return SizedBox(
+      height: 44,
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search',
+          prefixIcon: const Icon(Icons.search, size: 18),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
-      ],
+      ),
     );
   }
 }
 
 class _ListTileCard extends StatelessWidget {
-  const _ListTileCard({Key? key, required this.label, required this.onTap})
-      : super(key: key);
-
+  const _ListTileCard({Key? key, required this.label, required this.onTap}) : super(key: key);
   final String label;
   final VoidCallback onTap;
 
@@ -248,14 +215,12 @@ class _ListTileCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Row(
             children: [
               Expanded(
-                child: Text(label,
-                    style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w500),
-                    overflow: TextOverflow.ellipsis),
+                child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis),
               ),
               const Icon(Icons.chevron_right, size: 18),
             ],
@@ -266,6 +231,9 @@ class _ListTileCard extends StatelessWidget {
   }
 }
 
+/// ==============================
+/// LEFT: Facility list
+/// ==============================
 class _BookingLeftList extends StatefulWidget {
   const _BookingLeftList({
     Key? key,
@@ -289,11 +257,8 @@ class _BookingLeftList extends StatefulWidget {
 }
 
 class _BookingLeftListState extends State<_BookingLeftList> {
-  Stream<QuerySnapshot<Map<String, dynamic>>> _facilitiesStream() {
-    return FirebaseFirestore.instance.collection('Facilities').orderBy('name').snapshots();
-  }
-
-  String _clean(String s) => s.trim();
+  Stream<QuerySnapshot<Map<String, dynamic>>> _facilitiesStream() =>
+      FirebaseFirestore.instance.collection('Facilities').orderBy('name').snapshots();
 
   @override
   Widget build(BuildContext context) {
@@ -301,53 +266,43 @@ class _BookingLeftListState extends State<_BookingLeftList> {
       width: widget.width,
       height: widget.height,
       title: 'Facility',
-      header: _SearchHeaderNoAdd(
+      header: _SearchHeader(
         controller: widget.search,
-        onChanged: (_) => setState(() {}),
+        onChanged: (v) => setState(() {}),
       ),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _facilitiesStream(),
-        builder: (context, snap) {
+        builder: (_, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return Center(child: Text('Loading...', style: TextStyle(fontSize: 14.sp)));
+            return const Center(child: Text('Loading...'));
           }
           if (snap.hasError) {
-            return Center(child: Text('Failed to load', style: TextStyle(fontSize: 14.sp)));
+            return const Center(child: Text('Failed to load'));
           }
 
-          var docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-          if (snap.hasData) docs = snap.data!.docs;
-
-          final String q = _clean(widget.search.text).toLowerCase();
-          final filtered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
-          for (final d in docs) {
+          final q = widget.search.text.trim().toLowerCase();
+          final results = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+          for (final d in (snap.data?.docs ?? [])) {
             final m = d.data();
             final del = (m['deleted'] == true);
             final name = (m['name'] ?? '').toString();
-
             bool allowed;
             if (widget.role == 'Manager') {
-              final managerId = (m['managerId'] ?? '').toString();
-              allowed = (widget.userId != null && managerId == widget.userId);
+              allowed = (m['managerId'] ?? '') == (widget.userId ?? '');
             } else {
               allowed = widget.role != 'unknown';
             }
-
-            final matches = q.isEmpty ? true : name.toLowerCase().contains(q);
-
-            if (!del && allowed && matches) filtered.add(d);
+            final match = q.isEmpty || name.toLowerCase().contains(q);
+            if (!del && allowed && match) results.add(d);
           }
 
-          if (filtered.isEmpty) {
-            return Center(child: Text('empty', style: TextStyle(fontSize: 14.sp)));
-          }
+          if (results.isEmpty) return const Center(child: Text('empty'));
 
           return ListView.separated(
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => SizedBox(height: 8.h),
-            itemBuilder: (context, i) {
-              final doc = filtered[i];
+            itemCount: results.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final doc = results[i];
               final data = doc.data();
               final name = (data['name'] ?? '').toString();
               return _ListTileCard(label: name, onTap: () => widget.onSelect(doc.id, data));
@@ -359,9 +314,9 @@ class _BookingLeftListState extends State<_BookingLeftList> {
   }
 }
 
-// ==============================
-// RIGHT: Details + Make Booking (restyled like WebEditBooking)
-// ==============================
+/// ==============================
+/// RIGHT: Details + Make Booking
+/// ==============================
 class _BookingRightPanel extends StatelessWidget {
   const _BookingRightPanel({
     Key? key,
@@ -378,161 +333,42 @@ class _BookingRightPanel extends StatelessWidget {
   final VoidCallback onClose;
   final String? selectedFacilityId;
 
-  String _readStr(Map<String, dynamic>? m, String key) {
-    if (m == null) return '-';
-    final v = m[key];
-    return (v == null) ? '-' : v.toString();
-  }
+  String _s(Map<String, dynamic>? m, String k) => (m == null) ? '-' : (m[k]?.toString() ?? '-');
 
-  Map<String, String> _readAvailableTime(Map<String, dynamic>? m) {
-    String start = '-';
-    String end = '-';
+  Map<String, String> _av(Map<String, dynamic>? m) {
     if (m != null && m['availableTime'] is Map) {
       final at = m['availableTime'] as Map;
-      start = (at['start'] ?? '-').toString();
-      end = (at['end'] ?? '-').toString();
+      return {'start': (at['start'] ?? '-').toString(), 'end': (at['end'] ?? '-').toString()};
     }
-    return {'start': start, 'end': end};
+    return {'start': '-', 'end': '-'};
   }
 
-  String _toHHmm(String raw) {
-    String s = raw.toString().trim();
+  String _hhmm(String raw) {
+    var s = raw.trim();
     if (s.isEmpty || s == '-') return '-';
     s = s.replaceAll('.', ':');
-    if (s.contains(':')) {
-      final parts = s.split(':');
-      if (parts.length >= 2) {
-        var hhStr = parts[0];
-        var mmStr = parts[1];
-        if (hhStr.length == 1) hhStr = '0$hhStr';
-        if (mmStr.length == 1) {
-          mmStr = '0$mmStr';
-        } else if (mmStr.length > 2) {
-          mmStr = mmStr.substring(0, 2);
-        }
-        return '$hhStr:$mmStr';
-      }
+    if (!s.contains(':')) {
+      final d = s.replaceAll(RegExp(r'[^0-9]'), '');
+      if (d.length == 3) return '0${d[0]}:${d.substring(1, 3)}';
+      if (d.length >= 4) return '${d.substring(0, 2)}:${d.substring(2, 4)}';
       return '-';
-    } else {
-      final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digits.length < 3) return '-';
-      if (digits.length == 3) {
-        final h = digits.substring(0, 1);
-        final m = digits.substring(1, 3);
-        final hh = h.length == 1 ? '0$h' : h;
-        return '$hh:$m';
-      } else {
-        final h = digits.substring(0, 2);
-        String m = '00';
-        if (digits.length >= 4) m = digits.substring(2, 4);
-        return '$h:$m';
-      }
     }
+    final p = s.split(':');
+    final hh = (p.isNotEmpty ? p[0] : '0').padLeft(2, '0');
+    final mm = (p.length > 1 ? p[1] : '0').padLeft(2, '0');
+    return '$hh:$mm';
   }
 
-  String _toAmPm(String hhmm) {
-    if (hhmm == '-' || !hhmm.contains(':')) return '-';
-    final parts = hhmm.split(':');
-    if (parts.length < 2) return '-';
-    int hh = int.tryParse(parts[0]) ?? 0;
-    int mm = int.tryParse(parts[1]) ?? 0;
-
+  String _ampm(String hhmm) {
+    if (!hhmm.contains(':')) return '-';
+    final p = hhmm.split(':');
+    var h = int.tryParse(p[0]) ?? 0;
+    final m = (int.tryParse(p[1]) ?? 0).toString().padLeft(2, '0');
     String ap = 'am';
-    int displayHour = hh;
-    if (hh == 0) {
-      displayHour = 12;
-      ap = 'am';
-    } else if (hh == 12) {
-      displayHour = 12;
-      ap = 'pm';
-    } else if (hh > 12) {
-      displayHour = hh - 12;
-      ap = 'pm';
-    } else {
-      ap = 'am';
-    }
-    final mmStr = mm.toString().padLeft(2, '0');
-    return '$displayHour:$mmStr $ap';
-  }
-
-  Widget _imagePlaceholder() {
-    return Container(
-      width: double.infinity,
-      height: 260.h,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.7),
-        borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: Colors.black12, width: 1.w),
-      ),
-      child: Text('No Image',
-          style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
-    );
-  }
-
-  Widget _buildFacilityImage(String imageName) {
-    if (imageName == '-' || imageName.trim().isEmpty) return _imagePlaceholder();
-    final hasDot = imageName.contains('.');
-    String firstPath, secondPath;
-    if (hasDot) {
-      firstPath = 'asset/image/$imageName';
-      if (imageName.toLowerCase().endsWith('.jpg')) {
-        secondPath = 'asset/image/${imageName.substring(0, imageName.length - 4)}.png';
-      } else if (imageName.toLowerCase().endsWith('.png')) {
-        secondPath = 'asset/image/${imageName.substring(0, imageName.length - 4)}.jpg';
-      } else {
-        secondPath = '';
-      }
-    } else {
-      firstPath = 'asset/image/$imageName.jpg';
-      secondPath = 'asset/image/$imageName.png';
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8.r),
-      child: SizedBox(
-        width: 300.w,
-        height: 260.h,
-        child: Image.asset(
-          firstPath,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stack) {
-            if (secondPath.isNotEmpty) {
-              return Image.asset(
-                secondPath,
-                fit: BoxFit.cover,
-                errorBuilder: (context2, error2, stack2) => _imagePlaceholder(),
-              );
-            } else {
-              return _imagePlaceholder();
-            }
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _labelValue(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 6.h),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w600)),
-          SizedBox(height: 4.h),
-          Text(value, style: TextStyle(fontSize: 13.sp), softWrap: true),
-        ],
-      ),
-    );
-  }
-
-  Widget _emptyPlaceholder() {
-    return SizedBox(
-      height: 820.h,
-      child: Center(
-          child: Text('Please pick an option',
-              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600))),
-    );
+    if (h == 0) h = 12;
+    else if (h == 12) ap = 'pm';
+    else if (h > 12) { h -= 12; ap = 'pm'; }
+    return '$h:$m $ap';
   }
 
   @override
@@ -542,140 +378,229 @@ class _BookingRightPanel extends StatelessWidget {
       height: height,
       title: 'Details',
       child: SingleChildScrollView(
-        padding: EdgeInsets.only(right: 8.w, bottom: 8.h),
-        child: _buildInner(context),
+        padding: const EdgeInsets.only(right: 8, bottom: 8),
+        child: _inner(context),
       ),
     );
   }
 
-  Widget _buildInner(BuildContext context) {
-    if (selectedFacilityData == null) return _emptyPlaceholder();
-
-    final String name = _readStr(selectedFacilityData, 'name');
-    final String imageName = _readStr(selectedFacilityData, 'imageName');
-    final at = _readAvailableTime(selectedFacilityData);
-    final String loc = _readStr(selectedFacilityData, 'location');
-    final String det = _readStr(selectedFacilityData, 'details');
-    final String dur = _readStr(selectedFacilityData, 'bookingDurationHours');
-
-    String facId = '';
-    if (selectedFacilityId != null && selectedFacilityId!.trim().isNotEmpty) {
-      facId = selectedFacilityId!;
-    } else {
-      final String mId = _readStr(selectedFacilityData, 'id');
-      final String mFacId = _readStr(selectedFacilityData, 'facilityId');
-      if (mId != '-' && mId.trim().isNotEmpty) {
-        facId = mId;
-      } else if (mFacId != '-' && mFacId.trim().isNotEmpty) {
-        facId = mFacId;
-      } else {
-        facId = '-';
-      }
+  Widget _inner(BuildContext context) {
+    if (selectedFacilityData == null) {
+      return SizedBox(
+        height: 820,
+        child: const Center(child: Text('Please pick an option', style: TextStyle(fontWeight: FontWeight.w600))),
+      );
     }
 
-    final String start24 = _toHHmm(at['start'] ?? '-');
-    final String end24 = _toHHmm(at['end'] ?? '-');
-    final String startAmPm = _toAmPm(start24);
-    final String endAmPm = _toAmPm(end24);
-
-    String timeLine = '-';
-    if (start24 != '-' && end24 != '-') {
-      timeLine = '$start24 – $end24 ($startAmPm – $endAmPm)';
-    }
+    final data = selectedFacilityData!;
+    final name = _s(data, 'name');
+    final at = _av(data);
+    final start24 = _hhmm(at['start'] ?? '-');
+    final end24 = _hhmm(at['end'] ?? '-');
+    final timeline = (start24 != '-' && end24 != '-') ? '$start24 – $end24 (${_ampm(start24)} – ${_ampm(end24)})' : '-';
+    final loc = _s(data, 'location');
+    final det = _s(data, 'details');
+    final dur = _s(data, 'bookingDurationHours');
+    final imageName = _s(data, 'imageName');
+    String facId = selectedFacilityId ?? _s(data, 'id');
+    if (facId == '-' || facId.trim().isEmpty) facId = _s(data, 'facilityId');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(name,
-            style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w700),
-            softWrap: true),
-        SizedBox(height: 12.h),
+        Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
         _buildFacilityImage(imageName),
-        SizedBox(height: 16.h),
-        _labelValue('Available Time', timeLine),
-        _labelValue('Location', loc),
-        _labelValue('Description', det),
-        _labelValue('Duration per slot (hours)', dur),
-        SizedBox(height: 16.h),
-
-        if (facId != '-' && facId.trim().isNotEmpty)
-          _MakeBookingSectionRestyled(
+        const SizedBox(height: 16),
+        _row('Available Time', timeline),
+        _row('Location', loc),
+        _row('Description', det),
+        _row('Duration per slot (hours)', dur),
+        const SizedBox(height: 16),
+        if (facId.trim().isNotEmpty && facId != '-')
+          _MakeBookingSection(
             key: ValueKey('make-booking-$facId'),
             facilityId: facId,
             durationHoursText: dur,
-            use24HourFormat: false,
             onClose: onClose,
           ),
-
-        
       ],
     );
   }
+
+  Widget _imagePlaceholder() {
+    return Container(
+      width: 300,
+      height: 220,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: const Text('No Image', style: TextStyle(fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _buildFacilityImage(String imageName) {
+    final raw = imageName.trim();
+    if (raw.isEmpty || raw == '-') return _imagePlaceholder();
+
+    // Build candidate paths to try in order.
+    final bases = <String>[];
+    if (raw.contains('/')) {
+      // Already a path: try as-is.
+      bases.add(raw);
+    } else {
+      // Try both common roots.
+      bases.add('asset/image/$raw');   // your existing folder
+      bases.add('assets/image/$raw');  // optional fallback if some assets live here
+    }
+
+    List<String> variantsFor(String path) {
+      final dot = path.lastIndexOf('.');
+      final hasExt = dot >= 0;
+      final base = hasExt ? path.substring(0, dot) : path;
+      final ext  = hasExt ? path.substring(dot) : '';
+      const exts = ['.jpg', '.png', '.jpeg'];
+
+      final out = <String>[];
+      if (hasExt) {
+        // Try given ext, then swap others (lower + UPPER case)
+        out.add(path);
+        for (final e in exts) {
+          if (e.toLowerCase() != ext.toLowerCase()) {
+            out..add('$base$e')..add('$base${e.toUpperCase()}');
+          }
+        }
+        // Also try the given ext in UPPER case, just in case.
+        out.add('$base${ext.toUpperCase()}');
+      } else {
+        // No ext provided: try common ones (lower + UPPER)
+        for (final e in exts) {
+          out..add('$base$e')..add('$base${e.toUpperCase()}');
+        }
+      }
+      return out;
+    }
+
+    final candidates = <String>[
+      for (final b in bases) ...variantsFor(b),
+    ];
+
+    var i = 0;
+    Widget tryNext() {
+      if (i >= candidates.length) return _imagePlaceholder();
+      final path = candidates[i++];
+      return Image.asset(
+        path,
+        width: 300,
+        height: 220,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => tryNext(),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: tryNext(),
+    );
+  }
+
+
+
+  Widget _imageBox() => Container(
+    width: 300,
+    height: 220,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(.7),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.black12),
+    ),
+    child: const Text('No Image', style: TextStyle(fontWeight: FontWeight.w600)),
+  );
+
+  Widget _row(String l, String v) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text(v, style: const TextStyle(fontSize: 13)),
+      ],
+    ),
+  );
 }
 
-// ============================================================
-// Make Booking (restyled exactly like WebEditBooking)
-// Steps: Booked by (email) → Date → Time Slot → Seat → Confirm
-// with same-day conflict checks for the chosen user
-// ============================================================
-class _MakeBookingSectionRestyled extends StatefulWidget {
-  const _MakeBookingSectionRestyled({
+/// ==============================
+/// Data model for suggestions
+/// ==============================
+class _UserPick {
+  final String uid;
+  final String username;
+  final String email;
+  final String role;
+  _UserPick({required this.uid, required this.username, required this.email, required this.role});
+}
+
+/// ==============================
+/// Make Booking (compact)
+/// ==============================
+class _MakeBookingSection extends StatefulWidget {
+  const _MakeBookingSection({
     Key? key,
     required this.facilityId,
     required this.durationHoursText,
     required this.onClose,
-    this.use24HourFormat = false,
   }) : super(key: key);
 
   final String facilityId;
   final String durationHoursText;
-  final bool use24HourFormat;
   final VoidCallback onClose;
 
   @override
-  State<_MakeBookingSectionRestyled> createState() =>
-      _MakeBookingSectionRestyledState();
+  State<_MakeBookingSection> createState() => _MakeBookingSectionState();
 }
 
-class _MakeBookingSectionRestyledState
-    extends State<_MakeBookingSectionRestyled> {
-  // ---------- palette to match WebEditBooking ----------
-  final Color _cSelected = const Color(0xFFB779F1);
-  final Color _cFullRed = Colors.red;
-  final Color _cAvailBg = Colors.white;
-  final Color _cAvailBrd = const Color(0xFFE5E7EB);
-  final Color _cAvailTxt = const Color(0xFF111827);
-  final Color _cPanelBg = const Color(0xFFF9F4FF);
-  final Color _cPastBg = const Color(0xFFE5E7EB);
-  final Color _cPastTxt = const Color(0xFF9CA3AF);
+class _MakeBookingSectionState extends State<_MakeBookingSection> {
+  // colors
+  final _cSelected = const Color(0xFFB779F1);
+  final _cFull = Colors.red;
+  final _cBorder = const Color(0xFFE5E7EB);
 
-  // ---------- Booked by email ----------
-  final TextEditingController _bookedByEmail = TextEditingController();
-  final RegExp _emailRe = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-  String? _validatedUserId;
+  // user field & suggestions
+  final _userCtrl = TextEditingController();
+  final _userFocus = FocusNode();
+  bool _showDropdown = false;
+  bool _loadingUsers = false;
   bool _searchingUser = false;
+  final List<_UserPick> _all = [];
+  final List<_UserPick> _sug = [];
+  String? _validatedUid;
 
-  // ---------- selection state ----------
+  // selection
   DateTime? _selectedDate;
-  String _selectedYMD = '';
-  String _selectedSlotKey = '';
-  int _selectedSeatIndex = -1; // 0-based for UI; send 1-based
+  String _ymd = '';
+  String _slotKey = '';
+  int _seatIdx = -1;
 
-  // ---------- facility config ----------
-  int _facilitySeatCapacity = 0;
+  // facility config
+  int _capacity = 0;
   String? _managerId;
-  final List<Map<String, String>> _timeSlots = <Map<String, String>>[
-  ]; // {start,end,key}
-  final Map<String, int> _dayBooked = <String, int>{}; // slotKey -> booked
+  final List<Map<String, String>> _slots = [];
+  final Map<String, int> _dayBooked = {};
+  final List<bool> _seatTaken = [];
 
-  // ---------- seats for chosen slot ----------
-  final List<bool> _seatTaken = <bool>[]; // len == capacity
+  // system rules
+  List<bool> _weekdayOpen = List<bool>.filled(7, true);
+  final Set<String> _offDays = {};
 
-  // ---------- system rules ----------
-  List<bool> _weekdayOpen = <bool>[true, true, true, true, true, true, true];
-  final Set<String> _offDateYMD = <String>{};
+  // inactive window (inclusive) if both present
+  DateTime? _inactiveFrom, _inactiveTo;
 
-  // ---------- loading flags ----------
+  // loading flags
   bool _loadingSettings = false;
   bool _loadingFacility = false;
   bool _loadingDayBooked = false;
@@ -686,19 +611,64 @@ class _MakeBookingSectionRestyledState
     super.initState();
     _loadSettingsAndOffDays();
     _loadFacilityConfig();
+    _userFocus.addListener(() {
+      if (!_userFocus.hasFocus) {
+        Future.microtask(() {
+          if (mounted) setState(() => _showDropdown = false);
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
-    _bookedByEmail.dispose();
+    _userCtrl.dispose();
+    _userFocus.dispose();
     super.dispose();
   }
 
-  // Facility inactive window (inclusive). If either is null, we ignore.
-  DateTime? _inactiveFrom;
-  DateTime? _inactiveTo;
+  // ---------- helpers ----------
+  void _toast(String s) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+  String _normalizeHHmm(String s) {
+    var t = s.trim().replaceAll(' ', '').replaceAll('.', ':').replaceAll('-', ':');
+    if (!t.contains(':')) {
+      var d = t.replaceAll(RegExp(r'[^0-9]'), '');
+      if (d.length == 3) d = '0$d';
+      return (d.length >= 4) ? '${d.substring(0, 2)}:${d.substring(2, 4)}' : t;
+    }
+    final p = t.split(':');
+    return '${(p.isNotEmpty ? p[0] : '0').padLeft(2, '0')}:${(p.length > 1 ? p[1] : '0').padLeft(2, '0')}';
+  }
 
-// Coerce Timestamp / DateTime / String -> date-only (yyyy-mm-dd at 00:00)
+  int _hmToMin(String s) {
+    final p = _normalizeHHmm(s).split(':');
+    return (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p[1]) ?? 0);
+  }
+
+  String _minToHHmm(int m) {
+    final h = (m ~/ 60) % 24, mm = m % 60;
+    return '${h.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
+  }
+
+  String _fmtDot(String s) {
+    final p = _normalizeHHmm(s).split(':');
+    return (p.length >= 2) ? '${p[0]}.${p[1]}' : s;
+  }
+
+  String _slotKeyFromStart(String s) {
+    final n = _normalizeHHmm(s);
+    return n.replaceAll(':', '');
+    // e.g. "09:30" -> "0930"
+  }
+
+  String _ymdOf(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  bool _isHoliday(DateTime d) => _offDays.contains(_ymdOf(d));
+  bool _isWorkingDay(DateTime d) {
+    final idx = d.weekday - 1;
+    return (idx >= 0 && idx < _weekdayOpen.length) ? _weekdayOpen[idx] : true;
+  }
+
   DateTime? _dateOnly(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) {
@@ -713,355 +683,76 @@ class _MakeBookingSectionRestyledState
     return null;
   }
 
-
-
-  // minutes -> "HH:mm"
-  String _minutesToHHmm(int mins) {
-    int h = mins ~/ 60;
-    int m = mins % 60;
-    if (h < 0) {
-      h = 0;
-    } else {
-      if (h > 23) {
-        h = 23;
-      }
-    }
-    if (m < 0) {
-      m = 0;
-    } else {
-      if (m > 59) {
-        m = 59;
-      }
-    }
-    final hh = h.toString().padLeft(2, '0');
-    final mm = m.toString().padLeft(2, '0');
-    return '$hh:$mm';
+  String _endForStart(String startHHmm) {
+    final s = _normalizeHHmm(startHHmm);
+    final map = <String, String>{ for (final m in _slots) _normalizeHHmm(m['start'] ?? '') : _normalizeHHmm(m['end'] ?? '') };
+    final e = (map[s] ?? _minToHHmm(_hmToMin(s) + 60));
+    return _normalizeHHmm(e);
   }
 
-// Get end for a given start from _timeSlots; fallback +60 min
-  String _endForStartForConflict(String startHHmm) {
-    final sNorm = _normalizeHHmm(startHHmm);
-    String end = '';
-
-    final Map<String, String> startToEnd = <String, String>{};
-    int i = 0;
-    while (i < _timeSlots.length) {
-      final m = _timeSlots[i];
-      String s = (m['start'] ?? '').trim();
-      String e = (m['end'] ?? '').trim();
-      if (s.isNotEmpty && e.isNotEmpty) {
-        startToEnd[_normalizeHHmm(s)] = _normalizeHHmm(e);
-      }
-      i = i + 1;
-    }
-
-    if (startToEnd.containsKey(sNorm) == true) {
-      end = startToEnd[sNorm]!;
-    }
-    if (end.isEmpty == true) {
-      end = _minutesToHHmm(_hmToMinutes(sNorm) + 60);
-    }
-    return _normalizeHHmm(end);
+  bool _isTodaySelected() {
+    if (_selectedDate == null) return false;
+    final n = DateTime.now(), d = _selectedDate!;
+    return n.year == d.year && n.month == d.month && n.day == d.day;
   }
 
-// Half-open overlap check: [aS,aE) vs [bS,bE) — edge-touch OK
-  bool _rangesOverlapStrict(int aStart, int aEnd, int bStart, int bEnd) {
-    if (aStart < bEnd) {
-      if (aEnd > bStart) {
-        return true;
-      } else {
-        return false;
-      }
-    } else {
-      return false;
-    }
+  bool _slotIsPast(String key) {
+    if (!_isTodaySelected() || key.length < 4) return false;
+    final now = DateTime.now();
+    final hh = int.tryParse(key.substring(0, 2)) ?? 0;
+    final mm = int.tryParse(key.substring(2, 4)) ?? 0;
+    final start = DateTime(now.year, now.month, now.day, hh, mm);
+    return !now.isBefore(start);
   }
 
-  String _rangeText(String s, String e) {
-    return _fmtHHmm(s) + ' - ' + _fmtHHmm(e);
-  }
-
-
-  // ================================
-  // Confirm (create booking)
-  // ================================
-  Future<void> _onConfirm() async {
-    if (_selectedYMD.isEmpty) {
-      _toast('Please pick a date.');
-      return;
-    }
-    if (_selectedSlotKey.isEmpty) {
-      _toast('Please pick a time slot.');
-      return;
-    }
-    if (_selectedSeatIndex < 0) {
-      _toast('Please pick a seat.');
-      return;
-    }
-
-    final uidCurrent = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uidCurrent.isEmpty) {
-      _toast('Please sign in.');
-      return;
-    }
-
-    // Resolve effective userId to book for
-    // Use the validated user selected via Search
-    final String effectiveUserId = _validatedUserId!;
-    final String emailInput = _bookedByEmail.text.trim();
-
-    // get start/end from selected slot
-    final ts = _timeSlots.firstWhere(
-          (m) => m['key'] == _selectedSlotKey,
-      orElse: () => <String, String>{},
-    );
-
-    String selStart = _normalizeHHmm((ts['start'] ?? '').trim());
-    String selEnd = _normalizeHHmm((ts['end'] ?? '').trim());
-
-    // compute an end if missing, and normalize
-    String selEndForCheck = selEnd.isEmpty
-        ? _endForStartForConflict(selStart)
-        : selEnd;
-    selEndForCheck = _normalizeHHmm(selEndForCheck);
-
-    // sanity: start < end
-    final int sM = _hmToMinutes(selStart);
-    final int eM = _hmToMinutes(selEndForCheck);
-    if (!(sM < eM)) {
-      _toast('End time must be after start time.');
-      return;
-    }
-
-    // interval conflict check (half-open; edge-touch OK)
-    final reason = await _conflictReasonForInterval(
-      userId: effectiveUserId,
-      dateYMD: _selectedYMD,
-      newStartHHmm: selStart,
-      newEndHHmm: selEndForCheck,
-    );
-    if (reason.isNotEmpty) {
-      _toast(reason);
-      return;
-    }
-
-    // create (use normalized start/end that we validated)
-    final int seatIndex1Based = _selectedSeatIndex + 1;
-
-    try {
-      final Map<String, dynamic> bookingBase = <String, dynamic>{
-        'userId': effectiveUserId,
-        'facilityId': widget.facilityId,
-        'managerId': _managerId ?? '',
-        'bookingDate': _selectedYMD,
-        'start': selStart, // ✅ normalized
-        'end': selEndForCheck, // ✅ normalized & validated
-        'slotKey': _selectedSlotKey,
-        'seatIndex': seatIndex1Based,
-        'status': 'upcoming',
-        'approval': 'accepted',
-        'seen': false,
-        'userSeen': false,
-        'rated': false,
-        'rejectedAt': null,
-        'deleted': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        if (emailInput.isNotEmpty) 'bookedByEmail': emailInput,
-      };
-
-      // after createBookingPickSeatTx returns the new id:
-      final String newBookingId = await BookingService.createBookingPickSeatTx(
-        facilityId: widget.facilityId,
-        dateYMD: _selectedYMD,
-        slotKey: _selectedSlotKey,
-        seatIndex: seatIndex1Based,
-        bookingBase: bookingBase,
-      );
-
-// ids you already have here
-      final String userId = effectiveUserId; // booking owner
-      final String bookedBy = FirebaseAuth.instance.currentUser?.uid ??
-          '-'; // actor
-      final String facility = widget.facilityId;
-      String managerId = _managerId ?? '-';
-
-      await NotificationService.sendBookingCreatedMails(
-        bookingId: newBookingId,
-        userId: userId,
-        bookedBy: bookedBy,
-        facilityId: facility,
-        managerId: managerId,
-        approval: 'accepted', // <-- only this if you want just approval
-
-      );
-
-
-// 5) UI feedback
-      _toast('Booking created.');
-      if (mounted) widget.onClose();
-
-
-      _toast('Booking created.');
-      if (mounted) widget.onClose();
-    } catch (e) {
-      _toast('Slot is taken');
-    }
-  }
-
-
-  // ================================
-  // User lookup + conflicts
-  // ================================
-  Future<String?> _findUserIdByEmail(String email) async {
-    try {
-      final qs = await FirebaseFirestore.instance
-          .collection('UserInformation')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-      if (qs.docs.isNotEmpty) return qs.docs.first.id;
-    } catch (_) {}
-
-    try {
-      final alt = await FirebaseFirestore.instance
-          .collection('SystemInformation')
-          .doc('Users')
-          .collection('List')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-      if (alt.docs.isNotEmpty) {
-        final m = alt.docs.first.data();
-        final uid = (m['userId'] ?? m['uid'] ?? '').toString();
-        if (uid.isNotEmpty) return uid;
-      }
-    } catch (_) {}
-
-    return null;
-  }
-
-  Future<void> _onSearchUser() async {
-    final email = _bookedByEmail.text.trim();
-    if (email.isEmpty) { _toast('Please enter an email.'); return; }
-    if (!_emailRe.hasMatch(email)) { _toast('Please enter a valid email address.'); return; }
-
-    setState(() { _searchingUser = true; });
-
-    try {
-      // find uid by email
-      final uid = await _findUserIdByEmail(email);
-      if (uid == null || uid.isEmpty) {
-        setState(() { _validatedUserId = null; });
-        _toast('No user exists for that email.');
-        return;
-      }
-
-      // read role and block Admin/Manager
-      String role = '';
-      try {
-        final snap = await FirebaseFirestore.instance.collection('UserInformation').doc(uid).get();
-        role = (snap.data()?['role'] ?? '').toString();
-      } catch (_) {}
-
-      final rl = role.toLowerCase().trim();
-      if (rl == 'admin' || rl == 'manager') {
-        setState(() { _validatedUserId = null; });
-        _toast('Not allowed to book for Admin or Manager accounts.');
-        return;
-      }
-
-      // success → store only the uid, reset downstream choices
-      setState(() {
-        _validatedUserId = uid;
-        _selectedDate = null;
-        _selectedYMD = '';
-        _selectedSlotKey = '';
-        _selectedSeatIndex = -1;
-        _seatTaken.clear();
-        _dayBooked.clear();
-      });
-
-      // ✅ snackbar only (no “selected user” pill)
-      _toast('User found.');
-    } finally {
-      if (mounted) setState(() { _searchingUser = false; });
-    }
-  }
-
-
-  // ================================
-  // Firestore loaders
-  // ================================
+  // ---------- Firestore loads ----------
   Future<void> _loadSettingsAndOffDays() async {
     setState(() => _loadingSettings = true);
     try {
-      // 1) Weekday flags
-      final setDoc = await FirebaseFirestore.instance
-          .collection('SystemInformation')
-          .doc('Setting')
-          .get();
-
+      final setDoc = await FirebaseFirestore.instance.collection('SystemInformation').doc('Setting').get();
       final m = setDoc.data();
       if (m != null) {
-        final tmp = <bool>[
-          _readBool(m, 'Monday', true),
-          _readBool(m, 'Tuesday', true),
-          _readBool(m, 'Wednesday', true),
-          _readBool(m, 'Thursday', true),
-          _readBool(m, 'Friday', true),
-          _readBool(m, 'Saturday', true),
-          _readBool(m, 'Sunday', true),
+        _weekdayOpen = [
+          (m['Monday'] ?? true) == true,
+          (m['Tuesday'] ?? true) == true,
+          (m['Wednesday'] ?? true) == true,
+          (m['Thursday'] ?? true) == true,
+          (m['Friday'] ?? true) == true,
+          (m['Saturday'] ?? true) == true,
+          (m['Sunday'] ?? true) == true,
         ];
-        _weekdayOpen = tmp;
       }
 
-      // 2) OffDays
-      final offDoc = await FirebaseFirestore.instance
-          .collection('SystemInformation')
-          .doc('OffDays')
-          .get();
-
-      final tmpOff = <String>{};
-      if (offDoc.exists) {
-        final om = offDoc.data();
-        if (om != null && om['offDays'] is List) {
-          for (final item in (om['offDays'] as List)) {
-            String ymd = '';
-            if (item is String) {
-              ymd = item.trim();
-            } else if (item is Timestamp) {
-              ymd = _toYMD(item.toDate());
-            } else if (item is Map<String, dynamic>) {
-              final v = item['date'] ?? item['dateYMD'];
-              if (v is String) ymd = v.trim();
-              if (v is Timestamp) ymd = _toYMD(v.toDate());
-            }
-            if (ymd.isNotEmpty) tmpOff.add(ymd);
+      final off = await FirebaseFirestore.instance.collection('SystemInformation').doc('OffDays').get();
+      final set = <String>{};
+      final om = off.data();
+      if (om != null && om['offDays'] is List) {
+        for (final it in (om['offDays'] as List)) {
+          if (it is String) set.add(it.trim());
+          if (it is Timestamp) set.add(_ymdOf(it.toDate()));
+          if (it is Map) {
+            final v = it['date'] ?? it['dateYMD'];
+            if (v is String) set.add(v.trim());
+            if (v is Timestamp) set.add(_ymdOf(v.toDate()));
           }
         }
       }
-
-      if (tmpOff.isEmpty) {
-        final old = await FirebaseFirestore.instance
-            .collection('SystemInformation')
-            .doc('OffDay')
-            .collection('Dates')
-            .get();
-        for (final doc in old.docs) {
-          String ymd = (doc.data()['dateYMD'] ?? '').toString().trim();
-          if (ymd.isEmpty) {
-            final v = doc.data()['date'];
-            if (v is String) ymd = v.trim();
-            if (v is Timestamp) ymd = _toYMD(v.toDate());
+      if (set.isEmpty) {
+        final old = await FirebaseFirestore.instance.collection('SystemInformation').doc('OffDay').collection('Dates').get();
+        for (final d in old.docs) {
+          String y = (d.data()['dateYMD'] ?? '').toString().trim();
+          if (y.isEmpty) {
+            final v = d.data()['date'];
+            if (v is String) y = v.trim();
+            if (v is Timestamp) y = _ymdOf(v.toDate());
           }
-          if (ymd.isNotEmpty) tmpOff.add(ymd);
+          if (y.isNotEmpty) set.add(y);
         }
       }
-
       setState(() {
-        _offDateYMD
+        _offDays
           ..clear()
-          ..addAll(tmpOff);
+          ..addAll(set);
       });
     } catch (_) {
       _toast('Failed to load system settings.');
@@ -1073,61 +764,46 @@ class _MakeBookingSectionRestyledState
   Future<void> _loadFacilityConfig() async {
     setState(() => _loadingFacility = true);
     try {
-      final facDoc = await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .get();
+      final facDoc = await FirebaseFirestore.instance.collection('Facilities').doc(widget.facilityId).get();
       final fd = facDoc.data();
 
-      // manager
       _managerId = (fd?['managerId'] ?? '').toString();
 
-      // capacity
-      int cap = _readInt(fd, 'facilityAvailableSlots', 0);
-      if (cap <= 0) cap = _readInt(fd, 'availableSlots', cap);
-      if (cap <= 0) cap = _readInt(fd, 'seatCapacity', cap);
-      if (cap <= 0) cap = _readInt(fd, 'capacity', cap);
-      if (cap <= 0) cap = _readInt(fd, 'availableSeats', cap);
+      int cap = 0;
+      for (final k in ['facilityAvailableSlots', 'availableSlots', 'seatCapacity', 'capacity', 'availableSeats']) {
+        final v = fd?[k];
+        if (v is int && v > 0) { cap = v; break; }
+        if (v is double && v > 0) { cap = v.toInt(); break; }
+        if (v is String) { final t = int.tryParse(v); if ((t ?? 0) > 0) { cap = t!; break; } }
+      }
 
-      // slots: subcollection first
-      final tmpSlots = <Map<String, String>>[];
-      final sub = await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .collection('customTimeSlots')
-          .get();
-
+      final tmp = <Map<String, String>>[];
+      final sub = await FirebaseFirestore.instance.collection('Facilities').doc(widget.facilityId).collection('customTimeSlots').get();
       if (sub.docs.isNotEmpty) {
-        for (final doc in sub.docs) {
-          final m = doc.data();
+        for (final d in sub.docs) {
+          final m = d.data();
           final s = (m['start'] ?? '').toString().trim();
           final e = (m['end'] ?? '').toString().trim();
-          if (s.isNotEmpty || e.isNotEmpty) {
-            tmpSlots.add({'start': s, 'end': e, 'key': _slotKeyFromStart(s)});
-          }
+          if (s.isNotEmpty || e.isNotEmpty) tmp.add({'start': s, 'end': e, 'key': _slotKeyFromStart(s)});
         }
-      } else if (fd != null && fd['customTimeSlots'] is List) {
-        for (final item in (fd['customTimeSlots'] as List)) {
-          if (item is Map<String, dynamic>) {
-            final s = (item['start'] ?? '').toString().trim();
-            final e = (item['end'] ?? '').toString().trim();
-            if (s.isNotEmpty || e.isNotEmpty) {
-              tmpSlots.add({'start': s, 'end': e, 'key': _slotKeyFromStart(s)});
-            }
+      } else if (fd?['customTimeSlots'] is List) {
+        for (final it in (fd?['customTimeSlots'] as List)) {
+          if (it is Map<String, dynamic>) {
+            final s = (it['start'] ?? '').toString().trim();
+            final e = (it['end'] ?? '').toString().trim();
+            if (s.isNotEmpty || e.isNotEmpty) tmp.add({'start': s, 'end': e, 'key': _slotKeyFromStart(s)});
           }
         }
       }
-
-      tmpSlots.sort((a, b) => (a['key'] ?? '').compareTo(b['key'] ?? ''));
+      tmp.sort((a, b) => (a['key'] ?? '').compareTo(b['key'] ?? ''));
 
       setState(() {
-        _facilitySeatCapacity = cap;
-        _timeSlots
+        _capacity = cap;
+        _slots
           ..clear()
-          ..addAll(tmpSlots);
-
+          ..addAll(tmp);
         _inactiveFrom = _dateOnly(fd?['inactiveFrom']);
-        _inactiveTo   = _dateOnly(fd?['inactiveTo']);
+        _inactiveTo = _dateOnly(fd?['inactiveTo']);
       });
     } catch (_) {
       _toast('Failed to load facility settings.');
@@ -1136,34 +812,29 @@ class _MakeBookingSectionRestyledState
     }
   }
 
-  Future<void> _loadDayBookedMap(String ymd) async {
+  Future<void> _loadDayBooked(String ymd) async {
     setState(() {
       _loadingDayBooked = true;
       _dayBooked.clear();
-      _selectedSlotKey = '';
-      _selectedSeatIndex = -1;
+      _slotKey = '';
+      _seatIdx = -1;
       _seatTaken.clear();
     });
-
     try {
       final snap = await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .collection('Days')
-          .doc(ymd)
-          .collection('Slots')
-          .get();
+          .collection('Facilities').doc(widget.facilityId)
+          .collection('Days').doc(ymd)
+          .collection('Slots').get();
 
       final tmp = <String, int>{};
-      for (final doc in snap.docs) {
-        final m = doc.data();
-        int booked = 0;
+      for (final d in snap.docs) {
+        final m = d.data();
+        int b = 0;
         final v = m['booked'] ?? m['reserve'];
-        if (v is int) booked = v;
-        if (v is double) booked = v.toInt();
-        tmp[doc.id] = booked;
+        if (v is int) b = v;
+        if (v is double) b = v.toInt();
+        tmp[d.id] = b;
       }
-
       setState(() {
         _dayBooked
           ..clear()
@@ -1176,47 +847,35 @@ class _MakeBookingSectionRestyledState
     }
   }
 
-  Future<void> _loadSeatsForSlot(String ymd, String slotKey) async {
+  Future<void> _loadSeats(String ymd, String slotKey) async {
     setState(() {
       _loadingSeats = true;
-      _seatTaken.clear();
-      _selectedSeatIndex = -1;
+      _seatTaken
+        ..clear()
+        ..addAll(List<bool>.filled(_capacity, false));
+      _seatIdx = -1;
     });
-
     try {
-      for (int i = 0; i < _facilitySeatCapacity; i++) {
-        _seatTaken.add(false);
-      }
-
       final seatsSnap = await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .collection('Days')
-          .doc(ymd)
-          .collection('Slots')
-          .doc(slotKey)
-          .collection('Seats')
-          .get();
+          .collection('Facilities').doc(widget.facilityId)
+          .collection('Days').doc(ymd)
+          .collection('Slots').doc(slotKey)
+          .collection('Seats').get();
 
-      bool hasZero = false,
-          hasOne = false;
+      bool hasZero = false, hasOne = false;
       for (final d in seatsSnap.docs) {
         if (d.id == '0') hasZero = true;
         if (d.id == '1') hasOne = true;
       }
-      int idOffset = (hasZero && !hasOne) ? 0 : 1;
+      final offset = (hasZero && !hasOne) ? 0 : 1;
 
-      for (final doc in seatsSnap.docs) {
-        final idStr = doc.id;
-        int rawIdx = int.tryParse(idStr) ?? -999;
-        int idx = (idOffset == 1) ? rawIdx - 1 : rawIdx;
-
+      for (final d in seatsSnap.docs) {
+        final idxRaw = int.tryParse(d.id) ?? -999;
+        final idx = (offset == 1) ? idxRaw - 1 : idxRaw;
         if (idx >= 0 && idx < _seatTaken.length) {
-          final taken = (doc.data()['taken'] == true);
-          if (taken) _seatTaken[idx] = true;
+          if (d.data()['taken'] == true) _seatTaken[idx] = true;
         }
       }
-
       setState(() {});
     } catch (_) {
       _toast('Failed to load seats.');
@@ -1225,55 +884,197 @@ class _MakeBookingSectionRestyledState
     }
   }
 
-  bool _isSelectable(DateTime d) {
-    if (_isHoliday(d)) return false;
-    if (!_isWorkingDay(d)) return false;
+  // ---------- user lookups (exclude Admin/Manager) ----------
+  bool _isAllowedRole(String role) {
+    final r = role.toLowerCase().trim();
+    return r == 'student' || r == 'lecturer';
+  }
 
-    // Block days within facility inactive window (inclusive) ONLY if both endpoints exist
-    if (_inactiveFrom != null && _inactiveTo != null) {
-      final DateTime dOnly = DateTime(d.year, d.month, d.day);
-      if (!dOnly.isBefore(_inactiveFrom!) && !dOnly.isAfter(_inactiveTo!)) {
-        return false;
+
+  Future<void> _loadUsersOnce() async {
+    if (_loadingUsers || _all.isNotEmpty) return;
+    setState(() => _loadingUsers = true);
+    try {
+      final qs = await FirebaseFirestore.instance
+          .collection('UserInformation')
+          .limit(300)
+          .get();
+
+      final tmp = <_UserPick>[];
+      for (final d in qs.docs) {
+        final m = d.data();
+        final role = (m['role'] ?? '').toString();
+        if (!_isAllowedRole(role)) continue;   // only Student / Lecturer
+        tmp.add(_UserPick(
+          uid: d.id,
+          username: (m['username'] ?? m['name'] ?? '').toString(),
+          email: (m['email'] ?? '').toString(),
+          role: role,
+        ));
+      }
+
+      setState(() {
+        _all
+          ..clear()
+          ..addAll(tmp);
+      });
+    } finally {
+      setState(() => _loadingUsers = false);
+    }
+  }
+  Future<String?> _findUserByQuery(String input) async {
+    final q = input.trim();
+    if (q.isEmpty) return null;
+
+    Future<String?> tryField(String field, String value) async {
+      final res = await FirebaseFirestore.instance
+          .collection('UserInformation')
+          .where(field, isEqualTo: value)         // exact match only
+          .limit(5)
+          .get();
+
+      for (final d in res.docs) {
+        final m = d.data();
+        final role = (m['role'] ?? '').toString();
+        if (_isAllowedRole(role)) return d.id;    // Student/Lecturer only
+      }
+      return null;
+    }
+
+    if (q.contains('@')) {
+      return await tryField('email', q);          // exact email
+    } else {
+      return await tryField('username', q);       // exact username
+    }
+  }
+
+
+
+
+  Future<void> _onUserChanged(String value) async {
+    setState(() {
+      _validatedUid = null;
+      _selectedDate = null;
+      _ymd = '';
+      _slotKey = '';
+      _seatIdx = -1;
+      _seatTaken.clear();
+      _dayBooked.clear();
+    });
+
+    final q = value.trim().toLowerCase();
+    if (q.isEmpty) {
+      setState(() {
+        _showDropdown = false;
+        _sug.clear();
+      });
+      return;
+    }
+
+    await _loadUsersOnce();
+
+    final found = <_UserPick>[];
+    for (final u in _all) {
+      if (u.username.toLowerCase().contains(q) || u.email.toLowerCase().contains(q)) {
+        found.add(u);
+        if (found.length >= 8) break;
       }
     }
-    return true;
+
+    setState(() {
+      _sug
+        ..clear()
+        ..addAll(found);
+      _showDropdown = true;
+    });
   }
 
-  DateTime? _firstSelectable(DateTime first, DateTime last, DateTime preferred) {
-    // If preferred is ok, use it.
-    if (_isSelectable(preferred)) return preferred;
+  void _pickSuggestion(_UserPick u) {
+    if (!_isAllowedRole(u.role)) {
+      _toast('Only Student or Lecturer can be booked.');
+      setState(() => _validatedUid = null);
+      return;
+    }
 
-    // Search forward
-    DateTime cur = preferred;
-    while (!cur.isAfter(last)) {
-      if (_isSelectable(cur)) return cur;
-      cur = cur.add(const Duration(days: 1));
-    }
-    // Search backward
-    cur = preferred;
-    while (!cur.isBefore(first)) {
-      if (_isSelectable(cur)) return cur;
-      cur = cur.subtract(const Duration(days: 1));
-    }
-    return null; // none in range
+    final txt = (u.email.isNotEmpty ? u.email : u.username).trim();
+
+    // Put the value in the field right now and keep the caret at the end.
+    _userCtrl.clear();
+    _userCtrl.text = txt;
+    _userCtrl.selection = TextSelection.collapsed(offset: txt.length);
+    _userFocus.requestFocus();
+
+    // Now close the dropdown & reset the rest.
+    setState(() {
+      _showDropdown = false;
+      _validatedUid = null;
+      _selectedDate = null;
+      _ymd = '';
+      _slotKey = '';
+      _seatIdx = -1;
+      _seatTaken.clear();
+      _dayBooked.clear();
+    });
+
+    _toast('User placed. Press Search to validate.');
   }
 
 
-  Future<String> _conflictReasonForInterval({
+
+
+  Future<void> _onSearchUser() async {
+    final input = _userCtrl.text.trim();
+    if (input.isEmpty) {
+      _toast('Please enter an email or username.');
+      return;
+    }
+    setState(() => _searchingUser = true);
+    try {
+      final uid = await _findUserByQuery(input);
+      if (uid == null || uid.isEmpty) {
+        setState(() => _validatedUid = null);
+        _toast('No user exists for that email/username.');
+        return;
+      }
+      // double-check role
+      String role = '';
+      try {
+        final snap = await FirebaseFirestore.instance.collection('UserInformation').doc(uid).get();
+        role = (snap.data()?['role'] ?? '').toString();
+      } catch (_) {}
+      if (!_isAllowedRole(role)) {
+        setState(() => _validatedUid = null);
+        _toast('Not allowed to book for Admin or Manager accounts.');
+        return;
+      }
+      setState(() {
+        _validatedUid = uid;
+        _selectedDate = null;
+        _ymd = '';
+        _slotKey = '';
+        _seatIdx = -1;
+        _seatTaken.clear();
+        _dayBooked.clear();
+        _showDropdown = false;
+      });
+      _toast('User found.');
+    } finally {
+      if (mounted) setState(() => _searchingUser = false);
+    }
+  }
+
+  // ---------- conflicts ----------
+  Future<String> _conflict({
     required String userId,
     required String dateYMD,
     required String newStartHHmm,
-    required String newEndHHmm, // can be empty; handled below
+    required String newEndHHmm,
   }) async {
     try {
-      final String nS = _normalizeHHmm(newStartHHmm);
-      String nE = _normalizeHHmm(newEndHHmm);
-      if (nE.isEmpty) {
-        nE = _endForStartForConflict(
-            nS); // +60 min fallback when slot has no stored end
-      }
-      final int newS = _hmToMinutes(nS);
-      final int newE = _hmToMinutes(nE);
+      final sN = _normalizeHHmm(newStartHHmm);
+      var eN = _normalizeHHmm(newEndHHmm);
+      if (eN.isEmpty) eN = _endForStart(sN);
+      final sM = _hmToMin(sN), eM = _hmToMin(eN);
 
       final qs = await FirebaseFirestore.instance
           .collection('Bookings')
@@ -1284,40 +1085,24 @@ class _MakeBookingSectionRestyledState
       for (final d in qs.docs) {
         final m = d.data();
 
-        // NEW: ignore soft-deleted bookings
-        bool isDeleted = false;
-        final dynamic del = m['deleted'];
-        if (del is bool) {
-          isDeleted = del;
-        } else if (del is String) {
-          final s = del.toLowerCase().trim();
-          isDeleted = (s == 'true' || s == '1' || s == 'yes');
-        } else if (del is num) {
-          isDeleted = del != 0;
-        }
+        final del = m['deleted'];
+        final isDeleted = (del is bool && del) ||
+            (del is String && ['true', '1', 'yes'].contains(del.toLowerCase().trim())) ||
+            (del is num && del != 0);
         if (isDeleted) continue;
 
-        // keep only accepted/approved/pending (unchanged)
         final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
-        final keep = (ap == 'accepted' || ap == 'approved' || ap == 'pending');
-        if (!keep) continue;
+        if (!(ap == 'accepted' || ap == 'approved' || ap == 'pending')) continue;
 
-        String s = (m['start'] ?? m['startTime'] ?? '').toString();
-        s = _normalizeHHmm(s);
+        var s = _normalizeHHmm((m['start'] ?? m['startTime'] ?? '').toString());
         if (s.isEmpty) continue;
+        var e = _normalizeHHmm((m['end'] ?? m['endTime'] ?? '').toString());
+        if (e.isEmpty) e = _endForStart(s);
 
-        String e = (m['end'] ?? m['endTime'] ?? '').toString();
-        e = _normalizeHHmm(e);
-        if (e.isEmpty) e = _endForStartForConflict(s);
-
-        final int exS = _hmToMinutes(s);
-        final int exE = _hmToMinutes(e);
-
-        // half-open overlap: [newS,newE) vs [exS,exE), edge-touch OK
-        if (newS < exE && newE > exS) {
-          // EXACT message you requested:
-          return 'Overlap with other booking ${_rangeText(s, e)}. '
-              'New time ${_rangeText(nS, nE)} is not allowed.';
+        final es = _hmToMin(s), ee = _hmToMin(e);
+        if (sM < ee && eM > es) {
+          return 'Overlap with other booking ${_fmtDot(s)} - ${_fmtDot(e)}. '
+              'New time ${_fmtDot(sN)} - ${_fmtDot(eN)} is not allowed.';
         }
       }
       return '';
@@ -1326,180 +1111,312 @@ class _MakeBookingSectionRestyledState
     }
   }
 
+  // ---------- calendar ----------
+  bool _selectable(DateTime d) {
+    if (_isHoliday(d) || !_isWorkingDay(d)) return false;
+    if (_inactiveFrom != null && _inactiveTo != null) {
+      final x = DateTime(d.year, d.month, d.day);
+      if (!x.isBefore(_inactiveFrom!) && !x.isAfter(_inactiveTo!)) return false;
+    }
+    return true;
+  }
 
+  DateTime? _firstSelectable(DateTime first, DateTime last, DateTime pref) {
+    if (_selectable(pref)) return pref;
+    var c = pref;
+    while (!c.isAfter(last)) { if (_selectable(c)) return c; c = c.add(const Duration(days: 1)); }
+    c = pref;
+    while (!c.isBefore(first)) { if (_selectable(c)) return c; c = c.subtract(const Duration(days: 1)); }
+    return null;
+  }
 
+  Future<void> _pickDate() async {
+    if (_offDays.isEmpty && !_loadingSettings) {
+      _loadSettingsAndOffDays(); // fire-and-forget
+    }
+    final now = DateTime.now();
+    final first = DateTime(now.year, now.month, now.day);
+    final last = DateTime(now.year + 1, now.month, now.day);
+    final init = _firstSelectable(first, last, _selectedDate ?? first);
+    if (init == null) { _toast('No selectable dates available.'); return; }
 
-  // ================================
-  // UI
-  // ================================
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: init,
+      firstDate: first,
+      lastDate: last,
+      selectableDayPredicate: _selectable,
+    );
+
+    if (picked != null) {
+      final y = _ymdOf(picked);
+      setState(() {
+        _selectedDate = picked;
+        _ymd = y;
+        _slotKey = '';
+        _seatIdx = -1;
+        _seatTaken.clear();
+        _dayBooked.clear();
+      });
+      await _loadDayBooked(y);
+    }
+  }
+
+  // ---------- confirm ----------
+  Future<void> _onConfirm() async {
+    if (_validatedUid == null || _validatedUid!.isEmpty) { _toast('Pick a user first.'); return; }
+    if (_ymd.isEmpty) { _toast('Please pick a date.'); return; }
+    if (_slotKey.isEmpty) { _toast('Please pick a time slot.'); return; }
+    if (_seatIdx < 0) { _toast('Please pick a seat.'); return; }
+
+    final me = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (me.isEmpty) { _toast('Please sign in.'); return; }
+
+    final ts = _slots.firstWhere((m) => m['key'] == _slotKey, orElse: () => <String, String>{});
+    final selStart = _normalizeHHmm((ts['start'] ?? '').trim());
+    final selEndCheck = _normalizeHHmm((ts['end'] ?? '').trim().isEmpty ? _endForStart(selStart) : (ts['end'] ?? '').trim());
+
+    if (!(_hmToMin(selStart) < _hmToMin(selEndCheck))) {
+      _toast('End time must be after start time.');
+      return;
+    }
+
+    final reason = await _conflict(
+      userId: _validatedUid!,
+      dateYMD: _ymd,
+      newStartHHmm: selStart,
+      newEndHHmm: selEndCheck,
+    );
+    if (reason.isNotEmpty) { _toast(reason); return; }
+
+    final seat1 = _seatIdx + 1;
+    try {
+      final bookingBase = <String, dynamic>{
+        'userId': _validatedUid!,
+        'facilityId': widget.facilityId,
+        'managerId': _managerId ?? '',
+        'bookingDate': _ymd,
+        'start': selStart,
+        'end': selEndCheck,
+        'slotKey': _slotKey,
+        'seatIndex': seat1,
+        'status': 'upcoming',
+        'approval': 'accepted',
+        'seen': false,
+        'userSeen': false,
+        'rated': false,
+        'rejectedAt': null,
+        'deleted': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        if (_userCtrl.text.trim().isNotEmpty) 'bookedByEmail': _userCtrl.text.trim(),
+      };
+
+      final newId = await BookingService.createBookingPickSeatTx(
+        facilityId: widget.facilityId,
+        dateYMD: _ymd,
+        slotKey: _slotKey,
+        seatIndex: seat1,
+        bookingBase: bookingBase,
+      );
+
+      await NotificationService.sendBookingCreatedMails(
+        bookingId: newId,
+        userId: _validatedUid!,
+        bookedBy: me,
+        facilityId: widget.facilityId,
+        managerId: _managerId ?? '-',
+        approval: 'accepted',
+      );
+
+      _toast('Booking created.');
+      if (mounted) widget.onClose();
+    } catch (e) {
+      _toast('Slot is taken');
+    }
+  }
+
+  // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16.r),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: _cPanelBg,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(color: _cAvailBrd),
+          color: const Color(0xFFF9F4FF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _cBorder),
         ),
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(16.w),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // header
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('Make a Booking',
-                        style:
-                        TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w700)),
-                  ),
-                ],
-              ),
-              SizedBox(height: 12.h),
+              const Text('Make a Booking', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
 
-              _sectionTitle('Booked by'),
-              SizedBox(height: 8.h),
+              _title('Booked by'),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: 40.h,
+                      height: 40,
                       child: TextField(
-                        controller: _bookedByEmail,
-                        onChanged: (_) {
-                          // typing invalidates previous selection and clears choices
-                          setState(() {
-                            _validatedUserId = null;
-                            _selectedDate = null;
-                            _selectedYMD = '';
-                            _selectedSlotKey = '';
-                            _selectedSeatIndex = -1;
-                            _seatTaken.clear();
-                            _dayBooked.clear();
-                          });
-                        },
-                        keyboardType: TextInputType.emailAddress,
+                        focusNode: _userFocus,
+                        controller: _userCtrl,
+                        onChanged: (v) => _onUserChanged(v),
+                        onSubmitted: (_) => _onSearchUser(), // ← add this
+                        keyboardType: TextInputType.text,
                         inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
                         decoration: InputDecoration(
                           isDense: true,
-                          hintText: 'email',
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+                          hintText: 'email or username',
+                          prefixIcon: const Icon(Icons.person_search, size: 18),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        style: TextStyle(fontSize: 12.sp),
+                        style: const TextStyle(fontSize: 12),
                       ),
+
                     ),
                   ),
-                  SizedBox(width: 8.w),
+                  const SizedBox(width: 8),
                   SizedBox(
-                    height: 40.h,
+                    height: 40,
                     child: ElevatedButton.icon(
                       onPressed: _searchingUser ? null : _onSearchUser,
                       icon: _searchingUser
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.search, size: 18),
-                      label: Text('Search', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
+                      label: const Text('Search', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                     ),
                   ),
                 ],
               ),
 
+              if (_showDropdown) ...[
+                const SizedBox(height: 6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 240),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _cBorder),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 3))],
+                  ),
+                  child: _sug.isEmpty
+                      ? Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Text(_loadingUsers ? 'Loading users...' : 'No matches', style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                  )
+                      : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    itemCount: _sug.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final u = _sug[i];
+                      return Listener(
+                        behavior: HitTestBehavior.opaque,         // make the whole row clickable
+                        onPointerDown: (_) => _pickSuggestion(u), // ← fires BEFORE focus changes
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.account_circle, size: 20, color: Color(0xFF6B7280)),
+                          title: Text(
+                            u.username.isEmpty ? '(no username)' : u.username,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            u.email.isEmpty ? '(no email)' : u.email,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                          ),
+                          // keep onTap if you want, but onPointerDown is the important one
+                          onTap: () => _pickSuggestion(u),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
 
-
-              SizedBox(height: 16.h),
+              const SizedBox(height: 16),
               const Divider(height: 1),
-              SizedBox(height: 12.h),
+              const SizedBox(height: 12),
 
-              // Step 1: Date
-              if (_validatedUserId == null)
-                _helpText('Pick a user first.')
+              if (_validatedUid == null)
+                _hint('Pick a user first.')
               else
                 Row(
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _openCalendarAndPick,
+                      onPressed: _pickDate,
                       icon: const Icon(Icons.calendar_today, size: 18),
-                      label: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 8.h),
-                        child: Text('Pick Date',
-                            style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
+                      label: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Text('Pick Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                       ),
                     ),
-                    SizedBox(width: 10.w),
-                    Expanded(
-                      child: _pillInfoRow('Selected',
-                          _selectedYMD.isEmpty ? '-' : _selectedYMD),
-                    ),
+                    const SizedBox(width: 10),
+                    Expanded(child: _pill('Selected', _ymd.isEmpty ? '-' : _ymd)),
                   ],
                 ),
-
-
-
               if (_loadingSettings) ...[
-                SizedBox(height: 10.h),
-                _loadingLine('Loading calendar rules...'),
+                const SizedBox(height: 10),
+                _loading('Loading calendar rules...'),
               ],
 
-              SizedBox(height: 16.h),
+              const SizedBox(height: 16),
               const Divider(height: 1),
-              SizedBox(height: 12.h),
+              const SizedBox(height: 12),
 
-              // Step 2: Time slots
-              _sectionTitle('2) Choose Time Slot'),
-              SizedBox(height: 8.h),
-              if (_selectedYMD.isEmpty)
-                _helpText('Pick a date first.')
+              _title('2) Choose Time Slot'),
+              const SizedBox(height: 8),
+              if (_ymd.isEmpty)
+                _hint('Pick a date first.')
               else
-                _buildSlotsWrap(),
+                _slotWrap(),
               if (_loadingFacility || _loadingDayBooked) ...[
-                SizedBox(height: 10.h),
-                _loadingLine('Loading time slots...'),
+                const SizedBox(height: 10),
+                _loading('Loading time slots...'),
               ],
 
-              SizedBox(height: 16.h),
+              const SizedBox(height: 16),
               const Divider(height: 1),
-              SizedBox(height: 12.h),
+              const SizedBox(height: 12),
 
-              // Step 3: Seat
-              _sectionTitle('3) Choose Seat / Slot Number'),
-              SizedBox(height: 8.h),
-              if (_selectedSlotKey.isEmpty)
-                _helpText('Pick a time slot first.')
+              _title('3) Choose Seat / Slot Number'),
+              const SizedBox(height: 8),
+              if (_slotKey.isEmpty)
+                _hint('Pick a time slot first.')
               else
-                _buildSeatsWrap(),
+                _seatWrap(),
               if (_loadingSeats) ...[
-                SizedBox(height: 10.h),
-                _loadingLine('Loading seats...'),
+                const SizedBox(height: 10),
+                _loading('Loading seats...'),
               ],
 
-              SizedBox(height: 18.h),
-              _legendRow(),
-
-              SizedBox(height: 16.h),
+              const SizedBox(height: 16),
               const Divider(height: 1),
-              SizedBox(height: 12.h),
+              const SizedBox(height: 12),
 
-              // actions
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
                     onPressed: widget.onClose,
-                    child: Padding(
-                      padding:
-                      EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
-                      child: Text('Close', style: TextStyle(fontSize: 12.sp)),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Text('Close', style: TextStyle(fontSize: 12)),
                     ),
                   ),
-                  SizedBox(width: 8.w),
+                  const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: _onConfirm,
-                    child: Padding(
-                      padding:
-                      EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
-                      child: Text('Confirm', style: TextStyle(fontSize: 12.sp)),
+                    onPressed: (_validatedUid == null) ? null : _onConfirm,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Text('Confirm', style: TextStyle(fontSize: 12)),
                     ),
                   ),
                 ],
@@ -1511,382 +1428,116 @@ class _MakeBookingSectionRestyledState
     );
   }
 
-  // ---------- UI helpers (mirroring WebEditBooking) ----------
-  Widget _sectionTitle(String s) => Align(
-    alignment: Alignment.centerLeft,
-    child: Text(s,
-        style: TextStyle(
-            fontSize: 14.sp, fontWeight: FontWeight.w700, color: _cAvailTxt)),
+  // --- Small UI helpers ---
+  Widget _title(String s) => Text(s, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF111827)));
+  Widget _hint(String s) => Text(s, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)));
+  Widget _loading(String s) => Row(children: [const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 8), Expanded(child: Text(s, style: const TextStyle(fontSize: 12)))]);
+
+  Widget _pill(String k, String v) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(color: const Color(0xFFFBFBFF), borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder)),
+    child: Row(children: [Text('$k: ', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)), Expanded(child: Text(v, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis))]),
   );
 
-  Widget _pillInfoRow(String k, String v) {
-    final value = v.isEmpty ? '-' : v;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFBFBFF),
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: _cAvailBrd),
-      ),
-      child: Row(
-        children: [
-          Text('$k: ', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700)),
-          Expanded(
-              child: Text(value,
-                  style: TextStyle(fontSize: 12.sp), overflow: TextOverflow.ellipsis)),
-        ],
-      ),
-    );
-  }
-
-  Widget _helpText(String s) => Align(
-    alignment: Alignment.centerLeft,
-    child: Text(s, style: TextStyle(fontSize: 12.sp, color: const Color(0xFF6B7280))),
-  );
-
-  Widget _loadingLine(String label) => Row(
-    children: [
-      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-      SizedBox(width: 8.w),
-      Expanded(child: Text(label, style: TextStyle(fontSize: 12.sp))),
-    ],
-  );
-
-  Widget _legendRow() => Row(
-    children: [
-      _legendBox(_cFullRed, 'Full / Taken'),
-      SizedBox(width: 10.w),
-      _legendBox(_cAvailBg, 'Available'),
-      SizedBox(width: 10.w),
-      _legendBox(_cSelected, 'Selected'),
-    ],
-  );
-
-  Widget _legendBox(Color c, String label) {
-    final BoxDecoration deco = (c == _cAvailBg)
-        ? BoxDecoration(color: c, border: Border.all(color: _cAvailBrd), borderRadius: BorderRadius.circular(4.r))
-        : BoxDecoration(color: c, borderRadius: BorderRadius.circular(4.r));
-    return Row(
-      children: [
-        Container(width: 14.w, height: 14.w, decoration: deco),
-        SizedBox(width: 6.w),
-        Text(label, style: TextStyle(fontSize: 12.sp)),
-      ],
-    );
-  }
-
-  Widget _buildSlotsWrap() {
-    if (_timeSlots.isEmpty && !_loadingFacility) {
-      return _helpText('No time slots configured for this facility.');
-    }
+  Widget _slotWrap() {
+    if (_slots.isEmpty && !_loadingFacility) return _hint('No time slots configured for this facility.');
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(8.w),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFBFBFF),
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: _cAvailBrd),
-      ),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: const Color(0xFFFBFBFF), borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder)),
       child: Wrap(
-        spacing: 8.w,
-        runSpacing: 8.h,
-        children: [for (final m in _timeSlots) _slotBox(m)],
+        spacing: 8,
+        runSpacing: 8,
+        children: _slots.map((m) => _slotBox(m)).toList(),
       ),
     );
   }
 
-  Widget _slotBox(Map<String, String> slot) {
-    final start = (slot['start'] ?? '');
-    final end = (slot['end'] ?? '');
-    final key = (slot['key'] ?? '');
+  Widget _slotBox(Map<String, String> s) {
+    final start = s['start'] ?? '';
+    final end = s['end'] ?? '';
+    final key = s['key'] ?? '';
 
-    final past = _isSlotPastForSelectedDate(key);
+    final past = _slotIsPast(key);
+    final booked = _dayBooked[key] ?? 0;
+    final full = _capacity > 0 && booked >= _capacity;
+    final selected = _slotKey == key;
+
+    Color bg; Color fg; BoxDecoration deco;
+    if (past) {
+      bg = const Color(0xFFE5E7EB); fg = const Color(0xFF9CA3AF); deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder));
+    } else if (full) {
+      bg = _cFull; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
+    } else if (selected) {
+      bg = _cSelected; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
+    } else {
+      bg = Colors.white; fg = const Color(0xFF111827); deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder));
+    }
 
     final label = start.isNotEmpty
-        ? (end.isNotEmpty ? '${_fmtTimeLabel(start)} - ${_fmtTimeLabel(end)}' : _fmtTimeLabel(start))
+        ? (end.isNotEmpty ? '${_fmtDot(start)} - ${_fmtDot(end)}' : _fmtDot(start))
         : key;
-
-    final booked = _dayBooked[key] ?? 0;
-    final full = _facilitySeatCapacity > 0 && booked >= _facilitySeatCapacity;
-    final selected = _selectedSlotKey == key;
-
-    Color bg;
-    Color fg;
-    BoxDecoration deco;
-
-    if (past) {
-      bg = _cPastBg;
-      fg = _cPastTxt;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r), border: Border.all(color: _cAvailBrd));
-    } else if (full) {
-      bg = _cFullRed;
-      fg = Colors.white;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
-    } else if (selected) {
-      bg = _cSelected;
-      fg = Colors.white;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
-    } else {
-      bg = _cAvailBg;
-      fg = _cAvailTxt;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r), border: Border.all(color: _cAvailBrd));
-    }
 
     return InkWell(
       onTap: () async {
-        if (past) {
-          _toast('This time slot has already passed.');
-          return;
-        }
-        if (full) {
-          _toast('This time slot is full.');
-          return;
-        }
+        if (past) { _toast('This time slot has already passed.'); return; }
+        if (full) { _toast('This time slot is full.'); return; }
         setState(() {
-          _selectedSlotKey = key;
-          _selectedSeatIndex = -1;
+          _slotKey = key;
+          _seatIdx = -1;
           _seatTaken.clear();
         });
-        await _loadSeatsForSlot(_selectedYMD, key);
+        await _loadSeats(_ymd, key);
       },
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: deco,
-        child: Text(label,
-            style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: fg)),
+        child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
       ),
     );
   }
 
-  Widget _buildSeatsWrap() {
-    if (_facilitySeatCapacity <= 0 && !_loadingSeats) {
-      return _helpText('No seat capacity set for this facility.');
-    }
-
+  Widget _seatWrap() {
+    if (_capacity <= 0 && !_loadingSeats) return _hint('No seat capacity set for this facility.');
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(8.w),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFBFBFF),
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: _cAvailBrd),
-      ),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: const Color(0xFFFBFBFF), borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder)),
       child: Wrap(
-        spacing: 8.w,
-        runSpacing: 8.h,
-        children: [for (int i = 0; i < _facilitySeatCapacity; i++) _seatBox(i)],
+        spacing: 8,
+        runSpacing: 8,
+        children: List<Widget>.generate(_capacity, (i) => _seatBox(i)),
       ),
     );
   }
 
   Widget _seatBox(int index) {
-    final seatLabel = (index + 1).toString();
     final taken = (index < _seatTaken.length) ? (_seatTaken[index] == true) : false;
-    final selected = (_selectedSeatIndex == index);
+    final selected = (_seatIdx == index);
 
-    Color bg;
-    Color fg;
-    BoxDecoration deco;
-
+    Color bg; Color fg; BoxDecoration deco;
     if (taken) {
-      bg = _cFullRed;
-      fg = Colors.white;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
+      bg = _cFull; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
     } else if (selected) {
-      bg = _cSelected;
-      fg = Colors.white;
-      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
+      bg = _cSelected; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
     } else {
-      bg = _cAvailBg;
-      fg = _cAvailTxt;
-      deco = BoxDecoration(
-          color: bg, borderRadius: BorderRadius.circular(10.r), border: Border.all(color: _cAvailBrd));
+      bg = Colors.white; fg = const Color(0xFF111827); deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder));
     }
 
     return InkWell(
       onTap: () {
-        if (taken) {
-          _toast('This seat is already taken.');
-          return;
-        }
-        setState(() => _selectedSeatIndex = index);
+        if (taken) { _toast('This seat is already taken.'); return; }
+        setState(() => _seatIdx = index);
       },
       child: Container(
-        width: 56.w,
-        height: 44.h,
+        width: 56,
+        height: 44,
         alignment: Alignment.center,
         decoration: deco,
-        child: Text(seatLabel,
-            style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: fg)),
+        child: Text('${index + 1}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
       ),
     );
-  }
-
-  // ================================
-  // Calendar
-  // ================================
-  Future<void> _openCalendarAndPick() async {
-    // Kick off rules load if needed, but don't block UI.
-    if (_offDateYMD.isEmpty && !_loadingSettings) {
-      _loadSettingsAndOffDays(); // fire-and-forget
-    }
-
-    final today = DateTime.now();
-    final firstDate = DateTime(today.year, today.month, today.day);
-    final lastDate  = DateTime(today.year + 1, today.month, today.day);
-
-    // Ensure initialDate satisfies the predicate to avoid the assertion.
-    final preferred = _selectedDate ?? firstDate;
-    final safeInit = _firstSelectable(firstDate, lastDate, preferred);
-
-    if (safeInit == null) {
-      _toast('No selectable dates available in the allowed range.');
-      return;
-    }
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: safeInit,
-      firstDate: firstDate,
-      lastDate: lastDate,
-      selectableDayPredicate: _isSelectable,
-    );
-
-    if (picked != null) {
-      final ymd = _toYMD(picked);
-      setState(() {
-        _selectedDate = picked;
-        _selectedYMD = ymd;
-        _selectedSlotKey = '';
-        _selectedSeatIndex = -1;
-        _seatTaken.clear();
-        _dayBooked.clear();
-      });
-      await _loadDayBookedMap(ymd);
-    }
-  }
-
-
-
-  bool _isSelectedDateToday() {
-    if (_selectedDate == null) return false;
-    final now = DateTime.now();
-    final d = _selectedDate!;
-    return now.year == d.year && now.month == d.month && now.day == d.day;
-  }
-
-  bool _isSlotPastForSelectedDate(String key) {
-    if (!_isSelectedDateToday()) return false;
-    if (key.length < 4) return false;
-
-    final now = DateTime.now();
-    final hh = int.tryParse(key.substring(0, 2)) ?? 0;
-    final mm = int.tryParse(key.substring(2, 4)) ?? 0;
-    final slotStart = DateTime(now.year, now.month, now.day, hh, mm);
-
-    // treat "now == start" as past/unavailable:
-    return !now.isBefore(slotStart);
-  }
-
-  // ================================
-  // Small helpers (mirroring WebEditBooking)
-// ================================
-  String _normalizeHHmm(String s) {
-    var t = s.trim().replaceAll(' ', '').replaceAll('.', ':').replaceAll('-', ':');
-    if (!t.contains(':')) {
-      var d = t.replaceAll(RegExp(r'[^0-9]'), '');
-      if (d.length == 3) d = '0$d';
-      if (d.length >= 4) return '${d.substring(0, 2)}:${d.substring(2, 4)}';
-      return t;
-    } else {
-      final p = t.split(':');
-      final hh = (p.isNotEmpty ? p[0] : '0').padLeft(2, '0');
-      final mm = (p.length > 1 ? p[1] : '0').padLeft(2, '0');
-      return '$hh:$mm';
-    }
-  }
-
-  int _hmToMinutes(String s) {
-    final n = _normalizeHHmm(s);
-    final p = n.split(':');
-    final h = int.tryParse(p[0]) ?? 0;
-    final m = int.tryParse(p[1]) ?? 0;
-    return h * 60 + m;
-  }
-
-  String _minToHHmm(int mins) {
-    final h = (mins ~/ 60) % 24;
-    final m = mins % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-  }
-
-  String _fmtHHmm(String s) {
-    final n = _normalizeHHmm(s);
-    final p = n.split(':');
-    return (p.length >= 2) ? '${p[0].padLeft(2, '0')}.${p[1].padLeft(2, '0')}' : n;
-  }
-
-  String _fmtTimeLabel(String v) {
-    final s = v.trim();
-    if (s.contains(':')) {
-      final p = s.split(':');
-      if (p.length >= 2) {
-        return '${p[0].padLeft(2, '0')}.${p[1].padLeft(2, '0')}';
-      }
-    }
-    return s.contains('.') ? s : s;
-  }
-
-  String _slotKeyFromStart(String start) {
-    var s = start.trim();
-    if (s.contains('.')) s = s.replaceAll('.', ':');
-    final p = s.split(':');
-    if (p.length >= 2) {
-      return p[0].padLeft(2, '0') + p[1].padLeft(2, '0');
-    } else {
-      return s.replaceAll(RegExp(r'[^0-9]'), '');
-    }
-  }
-
-  bool _isHoliday(DateTime d) => _offDateYMD.contains(_toYMD(d));
-  bool _isWorkingDay(DateTime d) {
-    final idx = d.weekday - 1;
-    if (idx < 0 || idx >= _weekdayOpen.length) return true;
-    return _weekdayOpen[idx] == true;
-  }
-
-  String _toYMD(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  bool _readBool(Map<String, dynamic>? m, String key, bool def) {
-    if (m == null) return def;
-    if (!m.containsKey(key)) return def;
-    final v = m[key];
-    if (v is bool) return v;
-    if (v is String) {
-      final s = v.trim().toLowerCase();
-      if (s == 'true') return true;
-      if (s == 'false') return false;
-    }
-    return def;
-  }
-
-  int _readInt(Map<String, dynamic>? m, String key, int def) {
-    if (m == null) return def;
-    if (!m.containsKey(key)) return def;
-    final v = m[key];
-    if (v is int) return v;
-    if (v is double) return v.toInt();
-    if (v is String) {
-      final s = v.trim();
-      return int.tryParse(s) ?? def;
-    }
-    return def;
-  }
-
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }

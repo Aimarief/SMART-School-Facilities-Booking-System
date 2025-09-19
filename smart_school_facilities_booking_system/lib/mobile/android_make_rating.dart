@@ -53,10 +53,13 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
   DateTime _created = DateTime.now();                       // today date to display
   String _facilityName = '';                                // show above stars
   String _reviewError = '';                                 // show error text under review if empty
-
+  bool _isEditing = false;          // true = we found an existing rating for this booking
+  String _ratingDocId = '';
   // -------------------- life-cycle --------------------
   @override
   void initState() {
+    // 3) Try to find an existing rating for this booking so we can edit
+    _loadExistingRatingForThisBooking();
     super.initState();
 
     // 1) Read current user and pick a username to show
@@ -182,9 +185,70 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
       }
     }
   }
+// Find existing rating doc by bookingId so user can edit it
+  Future<void> _loadExistingRatingForThisBooking() async {
+    try {
+      // go into Facilities/{facilityId}/Rating and search bookingId == current booking
+      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
+          .collection('Facilities')
+          .doc(widget.facilityId)
+          .collection('Rating')
+          .where('bookingId', isEqualTo: widget.bookingId)
+          .limit(1)
+          .get();
+
+      if (qs.docs.isNotEmpty == true) {
+        final DocumentSnapshot<Map<String, dynamic>> doc = qs.docs.first;
+        final Map<String, dynamic>? data = doc.data();
+
+        int stars = 0;
+        String review = '';
+        DateTime? createdAtDT;
+
+        if (data != null) {
+          // pick stars (int)
+          if (data.containsKey('rating')) {
+            if (data['rating'] != null) {
+              try { stars = int.parse(data['rating'].toString()); } catch (_) { stars = 0; }
+            }
+          }
+          // pick review (string)
+          if (data.containsKey('review')) {
+            if (data['review'] != null) { review = data['review'].toString(); }
+          }
+          // pick createdAt to show in UI (do NOT change it in DB later)
+          if (data.containsKey('createdAt')) {
+            final dynamic v = data['createdAt'];
+            if (v is Timestamp) {
+              createdAtDT = v.toDate();
+            } else {
+              if (v is DateTime) {
+                createdAtDT = v;
+              } else {
+                if (v is String) {
+                  try { createdAtDT = DateTime.tryParse(v); } catch (_) { createdAtDT = null; }
+                }
+              }
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _isEditing = true;          // mark editing mode
+            _ratingDocId = doc.id;      // keep id for update
+            if (stars > 0) { _stars = stars; }   // preselect stars
+            _reviewCtrl.text = review;          // prefill review box
+            if (createdAtDT != null) { _created = createdAtDT!; } // show original created date
+          });
+        }
+      }
+    } catch (e) {
+      // if anything fails, just stay in create mode
+    }
+  }
 
 // handle submit button tap
-  // handle submit button tap
   Future<void> _submitRating() async {
     // Reset review error first
     if (_reviewError.isNotEmpty == true) {
@@ -212,45 +276,70 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
       return;
     }
 
-    // Build payload for subcollection "Rating" under Facilities/{facilityId}
-    final Map<String, dynamic> data = <String, dynamic>{};
-    data['createdAt'] = FieldValue.serverTimestamp();  // server time
-    data['rating'] = _stars;                           // 1..5
-    data['review'] = review;                           // user text
-    data['userId'] = _userId;                          // store userId
-
     try {
-      // 1) Save rating under Facilities/{facilityId}/Rating
-      await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .collection('Rating')
-          .add(data);
-
-      // 2) After rating saved, set rated=true on Bookings/{bookingId}
-      try {
+      if (_isEditing == true && _ratingDocId.isNotEmpty == true) {
+        // ---------- EDIT MODE ----------
+        // only update fields that can change; do NOT touch createdAt or userId
         await FirebaseFirestore.instance
-            .collection('Bookings')
-            .doc(widget.bookingId)
-            .update({'rated': true});
-      } catch (e) {
-        // If this fails, we still keep the rating and just inform user
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved rating, but failed to mark booking as rated.', style: TextStyle(fontSize: 13.sp))),
-        );
-      }
+            .collection('Facilities')
+            .doc(widget.facilityId)
+            .collection('Rating')
+            .doc(_ratingDocId)
+            .update(<String, dynamic>{
+          'rating': _stars,
+          'review': review,
+          // optional: keep a lastUpdated field if you want (not required)
+          // 'lastUpdatedAt': FieldValue.serverTimestamp(),
+        });
 
-      // Success -> message + back
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Thanks for your rating!', style: TextStyle(fontSize: 13.sp))),
-        );
-        Navigator.pop(context);
+        // Booking already rated; no need to set again, but harmless if we do
+        try {
+          await FirebaseFirestore.instance
+              .collection('Bookings')
+              .doc(widget.bookingId)
+              .update({'rated': true});
+        } catch (_) {}
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Rating updated.', style: TextStyle(fontSize: 13.sp))),
+          );
+          Navigator.pop(context);
+        }
+      } else {
+        // ---------- CREATE MODE ----------
+        // Build payload for subcollection "Rating" under Facilities/{facilityId}
+        final Map<String, dynamic> data = <String, dynamic>{};
+        data['createdAt'] = FieldValue.serverTimestamp();  // server time
+        data['rating'] = _stars;                           // 1..5
+        data['review'] = review;                           // user text
+        data['userId'] = _userId;                          // store userId
+        data['bookingId'] = widget.bookingId;              // link to booking
+
+        await FirebaseFirestore.instance
+            .collection('Facilities')
+            .doc(widget.facilityId)
+            .collection('Rating')
+            .add(data);
+
+        // mark booking as rated
+        try {
+          await FirebaseFirestore.instance
+              .collection('Bookings')
+              .doc(widget.bookingId)
+              .update({'rated': true});
+        } catch (_) {}
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Thanks for your rating!', style: TextStyle(fontSize: 13.sp))),
+          );
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
-      // Show error simply
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -259,6 +348,7 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
       }
     }
   }
+
 
 
 
@@ -429,8 +519,13 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
                         borderRadius: BorderRadius.circular(10.r),
                       ),
                     ),
-                    onPressed: () { _submitRating(); },
-                    child: Text('Submit', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                    onPressed: () { _submitRating();
+                      },
+                    child: Text(
+                      _isEditing ? 'Update' : 'Submit',
+                      style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+
                   ),
                 ),
               ],

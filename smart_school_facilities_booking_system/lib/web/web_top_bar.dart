@@ -193,12 +193,17 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
           context.go('/listmanagerpage');
         }),
         SizedBox(height: 35.h),
+        _menuItem("Lecturer List", () {
+          Navigator.of(context).pop();
+          context.go('/lecturerlist');
+        }),
+        SizedBox(height: 35.h),
         _menuItem("Booking", () {
           Navigator.of(context).pop();
           context.go('/webbooking');
         }),
         SizedBox(height: 35.h),
-        _menuItem("Statistic", () {
+        _menuItem("Statistics", () {
           Navigator.of(context).pop();
           context.go('/webstatistic');
         }),

@@ -386,6 +386,42 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
+  // --- read any datetime from many formats (Timestamp / DateTime / String ISO) ---
+  DateTime? _readAnyDateTimeLoose(dynamic v) {
+    // if value is Firestore Timestamp -> convert
+    if (v is Timestamp) { return v.toDate(); }
+    // if value is already DateTime -> use it
+    if (v is DateTime) { return v; }
+    // if value is String -> try parse ISO-8601 like "2025-09-18T12:34:56Z"
+    if (v is String) {
+      try { return DateTime.tryParse(v); } catch (_) { return null; }
+    }
+    // otherwise unknown -> return null
+    return null;
+  }
+
+  Future<DateTime?> _getRatingCreatedAt(String facilityId, String bookingId) async {
+    final qs = await FirebaseFirestore.instance
+        .collection('Facilities')
+        .doc(facilityId)
+        .collection('Rating')
+        .where('bookingId', isEqualTo: bookingId)
+        .limit(1)
+        .get();
+
+    if (qs.docs.isEmpty) return null;
+
+    final data = qs.docs.first.data();
+    final v = data['createdAt'];
+
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    if (v is String) {
+      try { return DateTime.tryParse(v); } catch (_) {}
+    }
+    return null;
+  }
+
 
   // build
   @override
@@ -486,10 +522,8 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
               // booking fields
               dynamic bookingDateField;
-              if (bk.containsKey('bookingDate')) { bookingDateField = bk['bookingDate']; }
-              else if (bk.containsKey('booking_date')) { bookingDateField = bk['booking_date']; }
-              else if (bk.containsKey('date')) { bookingDateField = bk['date']; }
-              else { bookingDateField = null; }
+              bookingDateField = bk['bookingDate'];
+
 
               final DateTime? bookingDate = _readDateOnly(bookingDateField);
               DateTime? shownBookingDate = bookingDate;
@@ -539,6 +573,18 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                   (bk['hasPendingAmendment'] == true) ||
                       (bk['amendmentPreview'] is Map && (bk['amendmentPreview'] as Map).isNotEmpty);
 
+              bool completedAmendment = false; // default
+              if (bk.containsKey('completeAmendment')) {
+                final dynamic ca = bk['completeAmendment'];
+                if (ca is bool) {
+                  completedAmendment = ca;
+                } else if (ca is String) {
+                  completedAmendment = ca.toLowerCase() == 'true';
+                } else if (ca is num) {
+                  completedAmendment = ca != 0;
+                }
+              }
+
 
               if (isEnded == true) {
                 final List<Color> c = _chipColors('ended');
@@ -566,6 +612,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               bool showCancelAmend = hasAmendment;
 
 // 1) If an amendment exists, ONLY show "Cancel amendment"
+              // 1) If an amendment exists, ONLY show "Cancel amendment"
               if (showCancelAmend) {
                 // leave others false
               } else {
@@ -580,10 +627,20 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                   if (isPending == true) {
                     showEdit = true;
                   } else if (isAccepted == true && status == 'upcoming') {
-                    showAmend = true; // <-- this brings back your "Request amendment" button
+                    showAmend = true; // <-- would show the "Request amendment" button
                   }
                 }
               }
+
+// 3) The 3-hour lock applies to edit/amend (NOT to cancel amendment)
+              if (_isEditLocked(startDT) == true) {
+                showEdit = false;
+                showAmend = false;
+              }
+
+// NEW: if the booking already completed an amendment before, the button will be disabled (but still visible)
+              final bool disableAmendButton = completedAmendment == true;
+
 
 // 3) The 3-hour lock applies to edit/amend (NOT to cancel amendment)
               if (_isEditLocked(startDT) == true) {
@@ -974,75 +1031,105 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           ),
                                         );
                                       } else if (showAmend == true) {
-                                        // ACCEPTED -> Request amendment (new)
-                                        return SizedBox(
-                                          width: sw * 0.90,
-                                          height: 48.h,
-                                          child: ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFF8620E5),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(10.r),
-                                              ),
-                                            ),
-                                            onPressed: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (_) => AndroidEditBooking(
-                                                    bookingId: widget.bookingId,
-                                                    // pass approval so edit screen can branch
-                                                    approval: approval,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            child: Text('Request amendment', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
-                                          ),
-                                        );
-                                      } else if (showRate == true) {
-                                        Color btnColor;
-                                        String btnLabel;
-                                        if (ratedAlready == true) {
-                                          btnColor = Colors.grey;
-                                          btnLabel = 'Rated';
-                                        } else {
-                                          btnColor = const Color(0xFF8620E5);
-                                          btnLabel = 'Rate';
-                                        }
+                                        final bool isAmendDisabled = disableAmendButton; // true => already used
+                                        final String amendText = isAmendDisabled ? 'Amendment used' : 'Request amendment';
 
                                         return SizedBox(
                                           width: sw * 0.90,
                                           height: 48.h,
                                           child: ElevatedButton(
+                                            // IMPORTANT: tell Flutter what to use when disabled
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: btnColor,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(10.r),
-                                              ),
+                                              backgroundColor: const Color(0xFF8620E5),   // enabled color (purple)
+                                              foregroundColor: Colors.white,              // enabled text
+                                              disabledBackgroundColor: const Color(0xFF9E9E9E),
+                                              disabledForegroundColor: Colors.white,             // text when disabled
+                                              elevation: 0,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
                                             ),
-                                            onPressed: () {
-                                              if (ratedAlready == true) {
-                                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('User have rated on current booking', style: TextStyle(fontSize: 13.sp))),
-                                                );
-                                              } else {
-                                                Navigator.push(
-                                                  context,
-                                                  MaterialPageRoute(
-                                                    builder: (_) => AndroidMakeRating(
-                                                      bookingId: widget.bookingId,
-                                                      facilityId: widget.facilityId,
-                                                    ),
+                                            onPressed: isAmendDisabled
+                                                ? null // disabled -> uses disabledBackgroundColor above
+                                                : () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => AndroidEditBooking(
+                                                    bookingId: widget.bookingId,
+                                                    approval: approval,
                                                   ),
-                                                );
-                                              }
+                                                ),
+                                              );
                                             },
-                                            child: Text(btnLabel, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                                            child: Text(amendText, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
                                           ),
                                         );
-                                      } else {
+                                      }
+
+                                      else if (showRate == true) {
+                                        return FutureBuilder<DateTime?>(
+                                          future: _getRatingCreatedAt(widget.facilityId, widget.bookingId),
+                                          builder: (context, snap) {
+                                            bool canEditRating = false;
+                                            bool isDisabled = false;
+                                            String btnLabel = 'Rate';
+
+                                            if (ratedAlready == true) {
+                                              // default: allow edit if we can't read the timestamp (don’t block the user)
+                                              canEditRating = true;
+
+                                              if (snap.connectionState == ConnectionState.done && snap.data != null) {
+                                                final DateTime ratedAtLocal = snap.data!.toLocal();
+                                                final Duration diff = DateTime.now().difference(ratedAtLocal);
+                                                // inside 7 days -> can edit; otherwise lock
+                                                if (diff.inDays >= 7) {
+                                                  canEditRating = false;
+                                                }
+                                              }
+
+                                              if (canEditRating == true) {
+                                                btnLabel = 'Edit rating';
+                                              } else {
+                                                btnLabel = 'Rated';
+                                                isDisabled = true;
+                                              }
+                                            } else {
+                                              btnLabel = 'Rate';
+                                            }
+
+                                            final Color btnColor = (isDisabled) ? Colors.grey : const Color(0xFF8620E5);
+
+                                            return SizedBox(
+                                              width: sw * 0.90,
+                                              height: 48.h,
+                                              child: ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: btnColor,
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                                                ),
+                                                onPressed: isDisabled
+                                                    ? null
+                                                    : () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => AndroidMakeRating(
+                                                        bookingId: widget.bookingId,
+                                                        facilityId: widget.facilityId,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                                child: Text(
+                                                  btnLabel,
+                                                  style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+
+                                      else {
                                         return const SizedBox.shrink();
                                       }
                                     },

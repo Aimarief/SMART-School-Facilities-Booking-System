@@ -111,44 +111,134 @@ class _LoginInformationState extends State<LoginInformation> {
   bool _obscurePassword = true;
   String? _errorMessage; // ✅ Store the error message
 
-  Future<void> loginUser(BuildContext context, String email, String password) async {
-    setState(() {
-      _errorMessage = null;
-    });
+  Future<void> loginUser(BuildContext context, String emailOrUsername, String password) async {
+    setState(() { _errorMessage = null; });
+
+    String loginEmail = emailOrUsername.trim();
+    if (loginEmail.isEmpty || password.isEmpty) {
+      setState(() { _errorMessage = "Please enter your email/username and password"; });
+      return;
+    }
+
+    // 1) If user typed a username, resolve to email (ignoring deleted users)
+    if (!loginEmail.contains('@')) {
+      final String? resolved = await _getEmailByUsername(loginEmail);
+      if (resolved == null) {
+        setState(() { _errorMessage = "No user found"; });
+        return;
+      }
+      loginEmail = resolved;
+    } else {
+      // 2) If user typed an email, verify a non-deleted user exists before auth
+      final DocumentSnapshot<Map<String, dynamic>>? doc = await _getUserDocByEmail(loginEmail);
+      if (doc == null) {
+        setState(() { _errorMessage = "No user found"; });
+        return;
+      }
+      final data = doc.data();
+      if (data != null && data['deleted'] == true) {
+        setState(() { _errorMessage = "No user found"; });
+        return;
+      }
+    }
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final UserCredential cred = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: loginEmail, password: password);
+
+      final User? u = cred.user;
+      if (u != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection('UserInformation')
+            .doc(u.uid)
+            .get();
+
+        if (doc.exists) {
+          final data = doc.data();
+          // Block deleted users even if auth succeeded (double-safety)
+          if (data != null && data['deleted'] == true) {
+            await FirebaseAuth.instance.signOut();
+            setState(() { _errorMessage = "No user found"; });
+            return;
+          }
+          // Block not-yet-approved accounts
+          if (data != null && data['active'] is bool && data!['active'] == false) {
+            await FirebaseAuth.instance.signOut();
+            setState(() { _errorMessage = "Login failed. This account hasn’t been approved by Admin."; });
+            return;
+          }
+        }
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login successful')),
+        const SnackBar(content: Text('Login successful')),
       );
-
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => AndroidListOfFacilities()),
       );
 
     } on FirebaseAuthException catch (e) {
-      String message = "Incorrect email or password";
-
+      String message = "Incorrect email/username or password";
       if (e.code == 'invalid-email') {
         message = "Invalid email format";
+      } else if (e.code == 'user-not-found') {
+        message = "No user found";
       }
-
-      if (e.code == 'user-not-found' || e.code == 'wrong-password') {
-        message = "Incorrect email or password";
-      }
-
-      setState(() {
-        _errorMessage = message;
-      });
+      setState(() { _errorMessage = message; });
+    } catch (_) {
+      setState(() { _errorMessage = "Login failed. Please try again."; });
     }
   }
 
+  /// Resolve username -> email, but return null if the user doc is missing or deleted==true.
+  /// (Case-sensitive username match as you requested; for case-insensitive, store usernameLower.)
+  Future<String?> _getEmailByUsername(String username) async {
+    try {
+      final String u = username.trim();
+      if (u.isEmpty) return null;
 
+      final qs = await FirebaseFirestore.instance
+          .collection('UserInformation')
+          .where('username', isEqualTo: u)
+          .limit(1)
+          .get();
+
+      if (qs.docs.isEmpty) return null;
+
+      final data = qs.docs.first.data();
+      // ignore users marked deleted
+      if (data['deleted'] == true) return null;
+
+      final dynamic v = data['email'];
+      if (v == null) return null;
+      final String email = v.toString().trim();
+      return email.isEmpty ? null : email;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Get user doc by email; returns null if none found.
+  /// (We DON'T filter by deleted at query time so accounts without the field still work;
+  /// we check 'deleted' in code.)
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _getUserDocByEmail(String email) async {
+    try {
+      final String e = email.trim();
+      if (e.isEmpty) return null;
+
+      final qs = await FirebaseFirestore.instance
+          .collection('UserInformation')
+          .where('email', isEqualTo: e)
+          .limit(1)
+          .get();
+
+      if (qs.docs.isEmpty) return null;
+      return qs.docs.first;
+    } catch (_) {
+      return null;
+    }
+  }
 
 
   @override
@@ -181,7 +271,7 @@ class _LoginInformationState extends State<LoginInformation> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ✅ Error Box
+              // Error Box
               if (_errorMessage != null)
                 Container(
                   width: double.infinity,
@@ -202,14 +292,14 @@ class _LoginInformationState extends State<LoginInformation> {
                   ),
                 ),
 
-              Text("Email",
+              Text("Email / Username",
                   style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               SizedBox(height: 8.h),
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
-                  hintText: "Enter your email",
+                  hintText: "Enter email / username",
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -258,7 +348,7 @@ class _LoginInformationState extends State<LoginInformation> {
                         SnackBar(content: Text('Password reset email sent to $email')),
                       );
                     } on FirebaseAuthException catch (e) {
-                      String message = "Failed to send reset email";
+                      String message = "Please enter email to reset password";
                       if (e.code == 'user-not-found') {
                         message = "No account found for that email";
                       }

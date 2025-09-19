@@ -149,6 +149,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
         'name': name,
         'deleted': false,
         'createdAt': FieldValue.serverTimestamp(),
+        'available':true,
       });
 
       setState(() {

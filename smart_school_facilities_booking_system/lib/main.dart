@@ -7,7 +7,6 @@ import 'package:firebase_core/firebase_core.dart';       // Firebase core
 import 'package:firebase_auth/firebase_auth.dart';       // Auth
 import 'package:cloud_firestore/cloud_firestore.dart';   // Firestore
 
-
 import 'package:flutter_screenutil/flutter_screenutil.dart'; // responsive sizes
 import 'package:go_router/go_router.dart';               // router
 import 'package:smart_school_facilities_booking_system/web/web_view_rating.dart';
@@ -31,6 +30,7 @@ import 'web/web_statistic.dart';
 import 'web/web_view_rating.dart';
 import 'web/web_faq.dart';
 import 'web/web_tnc.dart';
+import 'web/web_lecturer_list.dart';
 // ---- Local notification helper you already have ----
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'local_notify.dart';
@@ -606,6 +606,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           pageBuilder: (context, state) => MaterialPage<void>(
             key: state.pageKey,
             child: WebTNC(),
+          ),
+        ),
+        GoRoute(
+          path: '/lecturerlist',
+          pageBuilder: (context, state) => MaterialPage<void>(
+            key: state.pageKey,
+            child: LecturerList(),
           ),
         ),
       ],

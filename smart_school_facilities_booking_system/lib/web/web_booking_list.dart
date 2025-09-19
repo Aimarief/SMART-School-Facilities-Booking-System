@@ -30,6 +30,7 @@ class _BookingListState extends State<BookingList> {
   bool _apPending = false; // approval
   bool _apAccepted = false;
   bool _apRejected = false;
+  bool _apAmendment = false;
 
   bool _stUpcoming = false; // status/state
   bool _stOngoing = false;
@@ -56,6 +57,33 @@ class _BookingListState extends State<BookingList> {
 
     _runHousekeepingOnce();
   }
+  // ====== SORTING (string key + dir) ======
+  String _sortKey = '';      // '', 'date'   (no more 'time')
+  String _sortDir = 'asc';   // 'asc' or 'desc'
+
+
+  void _toggleSort(String key) {
+    setState(() {
+      if (_sortKey != key) {
+        // switching column → start with ASC
+        _sortKey = key;
+        _sortDir = 'asc';
+      } else {
+        // same column → cycle asc → desc → none(default)
+        if (_sortDir == 'asc') {
+          _sortDir = 'desc';
+        } else if (_sortDir == 'desc') {
+          _sortKey = '';   // reset to default (no symbol)
+          _sortDir = 'asc'; // keep a neutral default
+        } else {
+          // (not really hit, but safe default)
+          _sortDir = 'asc';
+        }
+      }
+    });
+  }
+
+
 
   // ====== FIRESTORE: READ ROLE ======
   Future<void> _loadUserRole() async {
@@ -118,7 +146,7 @@ class _BookingListState extends State<BookingList> {
   }
 
   DateTime _readSortTime(Map<String, dynamic> m) {
-    final v = m['lastActivityAt'] ?? m['updatedAt'] ?? m['createdAt'];
+    final v = m['createdAt'];
     if (v is Timestamp) return v.toDate();
     if (v is DateTime) return v;
     return DateTime.fromMillisecondsSinceEpoch(0);
@@ -169,6 +197,7 @@ class _BookingListState extends State<BookingList> {
     if (on) {
       _apAccepted = false;
       _apRejected = false;
+      _apAmendment = false;
     }
   });
 
@@ -178,6 +207,7 @@ class _BookingListState extends State<BookingList> {
     if (on) {
       _apPending = false;
       _apRejected = false;
+      _apAmendment = false;
     }
   });
 
@@ -187,6 +217,19 @@ class _BookingListState extends State<BookingList> {
     if (on) {
       _apPending = false;
       _apAccepted = false;
+      _apAmendment = false;
+    }
+  });
+
+  // toggle the "Amendment" approval filter
+  void _tapApAmendment(bool? v) => setState(() {
+    final on = v ?? false;        // fallback false if null
+    _apAmendment = on;            // set our new flag
+    if (on) {
+      // keep one-at-a-time behavior: turn off the other approval filters
+      _apPending = false;
+      _apAccepted = false;
+      _apRejected = false;
     }
   });
 
@@ -256,8 +299,8 @@ class _BookingListState extends State<BookingList> {
         if (bookDayStart.isBefore(todayStart)) {
           newStatus = 'ended';
         } else if (_isSameYMD(bookDate, now)) {
-          final tStart = _readTime(m, ['start', 'startTime', 'timeStart']);
-          final tEnd = _readTime(m, ['end', 'endTime', 'timeEnd']);
+          final tStart = _readTime(m, ['start']);
+          final tEnd = _readTime(m, ['end']);
           if (tStart != null && tEnd != null) {
             final startDT = DateTime(bookDate.year, bookDate.month, bookDate.day,
                 tStart.hour, tStart.minute, tStart.second);
@@ -287,7 +330,7 @@ class _BookingListState extends State<BookingList> {
       // pending -> auto-reject if past start time/day
       final pendingSnap = await FirebaseFirestore.instance
           .collection('Bookings')
-          .where('approval', whereIn: ['pending', 'Pending', 'PENDING'])
+          .where('approval', whereIn: ['pending'])
           .get();
 
       for (final doc in pendingSnap.docs) {
@@ -303,7 +346,7 @@ class _BookingListState extends State<BookingList> {
         if (bookDayStart.isBefore(todayStart)) {
           shouldReject = true;
         } else if (_isSameYMD(bookDate, now)) {
-          final tStart = _readTime(m, ['start', 'startTime', 'timeStart']);
+          final tStart = _readTime(m, ['start']);
           if (tStart != null) {
             final startDT = DateTime(
               bookDate.year, bookDate.month, bookDate.day,
@@ -314,35 +357,34 @@ class _BookingListState extends State<BookingList> {
         }
 
         if (shouldReject) {
-          final currAppr = _readLowerStr(m, ['approval', 'approve', 'approvalStatus']);
+          final currAppr = _readLowerStr(m, ['approval']);
           if (currAppr != 'rejected') {
             // 1) flip Firestore fields to rejected
             await doc.reference.update({
               'approval': 'rejected',
-              'approvalStatus': 'rejected',
             });
 
             // 2) send approval_status (hardcoded rejected)
             try {
               final String bookingId  = doc.id;
-              final String userId     = _readFirstStr(m, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-              final String bookedBy   = _readFirstStr(m, ['createdBy','creatorUid','creatorId','bookedBy','bookedByUid','userId','uid']);
-              final String facilityId = _readFirstStr(m, ['facilityId','facilityID','facilityDocId','facility_id']);
-              final String managerId  = _readFirstStr(m, ['managerId','managerUID','managerUid']);
+              final String userId     = _readFirstStr(m, ['userId']);
+              final String bookedBy   = _readFirstStr(m, ['bookedBy']);
+              final String facilityId = _readFirstStr(m, ['facilityId']);
+              final String managerId  = _readFirstStr(m, ['managerId']);
 
               // NEW: ensure we include seat/time/date in the notification payload
-              final String seatRaw = _readFirstStr(m, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+              final String seatRaw = _readFirstStr(m, ['seatIndex']);
               final int seatIndex  = int.tryParse(seatRaw) ?? -1;
 
               // prefer raw string; if missing, format from parsed DateTime
-              String startStr = _readFirstStr(m, ['start','startTime','timeStart']);
-              String endStr   = _readFirstStr(m, ['end','endTime','timeEnd']);
-              final DateTime? tStart = _readTime(m, ['start','startTime','timeStart']);
-              final DateTime? tEnd   = _readTime(m, ['end','endTime','timeEnd']);
+              String startStr = _readFirstStr(m, ['start']);
+              String endStr   = _readFirstStr(m, ['end']);
+              final DateTime? tStart = _readTime(m, ['start']);
+              final DateTime? tEnd   = _readTime(m, ['end']);
               if (startStr.isEmpty && tStart != null) startStr = _formatOne(tStart, true); // "HH:mm"
               if (endStr.isEmpty   && tEnd   != null) endStr   = _formatOne(tEnd,   true); // "HH:mm"
 
-              String bookingDate = _readFirstStr(m, ['bookingDate','date','bookDate','day']);
+              String bookingDate = _readFirstStr(m, ['bookingDate']);
               final DateTime? bd = _readBookingDate(m);
               if (bookingDate.trim().isEmpty && bd != null) bookingDate = _fmtYMD(bd); // "YYYY-MM-DD"
 
@@ -430,43 +472,38 @@ class _BookingListState extends State<BookingList> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     // top row with search bar aligned to right
-                    Row(
-                      children: <Widget>[
-                        const Spacer(),
-                        SizedBox(
-                          width: 320.w,
-                          child: TextField(
-                            controller: _searchCtrl,
-                            onChanged: (s) => setState(() {}),
-                            style: TextStyle(fontSize: 12.sp),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              hintText:
-                              'Search by booking ID, facility name, user name',
-                              hintStyle: TextStyle(
-                                  fontSize: 12.sp,
-                                  color: const Color(0xFF9CA3AF)),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10.w, vertical: 10.h),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8.r),
-                                borderSide: const BorderSide(
-                                    color: Color(0xFFE5E7EB)),
-                              ),
-                              suffixIcon: (_searchCtrl.text.trim().isEmpty)
-                                  ? null
-                                  : IconButton(
-                                onPressed: () {
-                                  _searchCtrl.clear();
-                                  setState(() {});
-                                },
-                                icon: const Icon(Icons.clear, size: 18),
-                              ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints.tightFor(width: 320.w, height: 40.h), // fixed
+                        child: TextField(
+                          controller: _searchCtrl,
+                          onChanged: (_) => setState(() {}),
+                          style: TextStyle(fontSize: 12.sp),
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'Search',
+                            hintStyle: TextStyle(fontSize: 18.sp, color: const Color(0xFF9CA3AF)),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                            ),
+                            suffixIcon: _searchCtrl.text.trim().isEmpty
+                                ? null
+                                : IconButton(
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.clear, size: 18),
                             ),
                           ),
                         ),
-                      ],
+                      ),
                     ),
+
                     SizedBox(height: 10.h),
 
                     // the table itself
@@ -497,7 +534,7 @@ class _BookingListState extends State<BookingList> {
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+      padding: EdgeInsets.fromLTRB(16.w, 10.h, 12.w, 10.h),
       decoration:
       BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8.r)),
       child: Text(label, style: TextStyle(fontSize: 12.sp, color: fg)),
@@ -718,6 +755,15 @@ class _BookingListState extends State<BookingList> {
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
           ),
+          CheckboxListTile(
+            value: _apAmendment,
+            onChanged: _tapApAmendment,
+            title: Text('Amendment', style: TextStyle(fontSize: 12.sp)),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
+
           SizedBox(height: 4.h),
           Text('Tip: If none is ticked, it means All.',
               style:
@@ -775,11 +821,14 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
+
   // ====== TABLE (RIGHT) ======
   Widget _buildBookingsTable() {
     if (_bookingsStream == null) {
       return Center(child: Text('Loading...', style: TextStyle(fontSize: 14.sp)));
     }
+
+    // 1) Read bookings stream
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _bookingsStream,
       builder: (context, snap) {
@@ -787,705 +836,472 @@ class _BookingListState extends State<BookingList> {
           return Center(child: Text('Loading...', style: TextStyle(fontSize: 14.sp)));
         }
         if (snap.hasError) {
-          return Center(
-              child:
-              Text('Failed to load bookings', style: TextStyle(fontSize: 14.sp)));
+          return Center(child: Text('Failed to load bookings', style: TextStyle(fontSize: 14.sp)));
         }
         if (!snap.hasData) {
           return Center(child: Text('No data', style: TextStyle(fontSize: 14.sp)));
         }
 
-        // collect docs (already sorted by createdAt desc from the stream)
+        // 2) Collect + sort
         final all = <Map<String, dynamic>>[];
         for (final d in snap.data!.docs) {
           final m = d.data();
-          if (m != null) {
-            final c = Map<String, dynamic>.from(m);
-            c['__id'] = d.id; // doc id fallback (real Firestore doc id)
-            all.add(c);
-          }
+          if (m != null) { final c = Map<String, dynamic>.from(m)..['__id']=d.id; all.add(c); }
         }
         all.sort((a, b) => _readSortTime(b).compareTo(_readSortTime(a)));
 
+        // 3) Filters (date, approval, status) — exactly as you already have
+        final byStatus = _applyAllFilters(all);
 
-        // optional: date filter
-        final byDate = <Map<String, dynamic>>[];
-        if (_filterByDate) {
-          for (final m in all) {
-            final bd = _readBookingDate(m);
-            if (bd != null && _isSameYMD(bd, _selectedDate)) byDate.add(m);
-          }
-        } else {
-          byDate.addAll(all);
-        }
-
-        // approval filter
-        String? needApproval;
-        if (_apPending || _apAccepted || _apRejected) {
-          if (_apPending) {
-            needApproval = 'pending';
-          } else if (_apAccepted) {
-            needApproval = 'accepted';
-          } else if (_apRejected) {
-            needApproval = 'rejected';
-          }
-        }
-        final byApproval = <Map<String, dynamic>>[];
-        for (final m in byDate) {
-          if (needApproval == null) {
-            byApproval.add(m);
-          } else {
-            final ap =
-            _readLowerStr(m, ['approval', 'approve', 'approvalStatus']);
-            if (ap == needApproval) byApproval.add(m);
-          }
-        }
-
-        // status filter
-        String? needStatus;
-        if (_stUpcoming || _stOngoing || _stEnded) {
-          if (_stUpcoming) {
-            needStatus = 'upcoming';
-          } else if (_stOngoing) {
-            needStatus = 'ongoing';
-          } else if (_stEnded) {
-            needStatus = 'ended';
-          }
-        }
-        final byStatus = <Map<String, dynamic>>[];
-        for (final m in byApproval) {
-          if (needStatus == null) {
-            byStatus.add(m);
-          } else {
-            final st = _readLowerStr(m, ['status', 'bookingStatus', 'state']);
-            if (st == needStatus) byStatus.add(m);
-          }
-        }
-
-        // -----------------------------
-        // SIMPLE SEARCH (UPDATED)
-        // booking id OR facility name OR user name
-        // -----------------------------
+        // 4) ONE future for rows: plain list when no query, async filtered when query
         final q = _searchCtrl.text.trim().toLowerCase();
+        final Future<List<Map<String, dynamic>>> rowsFuture =
+        q.isEmpty ? Future.value(byStatus)
+            : _filterRowsByBookingIdFacilityNameUserName(byStatus, q);
 
-        if (q.isEmpty) {
-          // no search -> render all filtered rows directly
-          final rows = byStatus;
+        // 5) ONE FutureBuilder that always renders the SAME table UI
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: rowsFuture,
+          builder: (context, fsnap) {
+            if (fsnap.connectionState == ConnectionState.waiting) {
+              return Align(alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: EdgeInsets.all(8.w),
+                  child: Text(q.isEmpty ? 'Loading...' : 'Searching...', style: TextStyle(fontSize: 14.sp)),
+                ),
+              );
+            }
+            if (fsnap.hasError) {
+              return Align(alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: EdgeInsets.all(8.w),
+                  child: Text('Search failed', style: TextStyle(fontSize: 14.sp)),
+                ),
+              );
+            }
 
-          // widths
-          final double wDate = 130.w;
-          final double wFacility = 220.w;
-          final double wTime = 180.w;
-          final double wSlot = 80.w;
-          final double wState = 120.w;
-          final double wStatus = 120.w;
-          final double wUser = 155.w;
-          final double wId = 200.w;
-          final double wAction = 95.w;
-          final double gapW = 16.w;
+            final rows = fsnap.data ?? <Map<String, dynamic>>[];
+// --- apply sorting based on header clicks ---
+            // --- apply sorting based on header clicks ---
+            if (_sortKey == 'date') {
+              rows.sort((a, b) {
+                final minDate = DateTime.fromMillisecondsSinceEpoch(0);
 
-          final tableW = wDate +
-              wFacility +
-              wTime +
-              wSlot +
-              wState +
-              wStatus +
-              wUser +
-              wId +
-              wAction +
-              (gapW * 8);
-          final shellW = tableW + (12.w * 2);
-          double targetW = shellW;
-          final viewportW = 1.0.sw;
-          if (targetW < viewportW) targetW = viewportW;
+                final ad = _readBookingDate(a) ?? minDate;
+                final bd = _readBookingDate(b) ?? minDate;
 
-          if (rows.isEmpty) {
-            return Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: EdgeInsets.all(8.w),
-                child: Text('No bookings found.',
-                    style: TextStyle(fontSize: 14.sp)),
+                // sort by DATE first (asc/desc)
+                int dateCmp = ad.compareTo(bd);
+                if (_sortDir == 'desc') dateCmp = -dateCmp;
+                if (dateCmp != 0) return dateCmp;
+
+                // same DATE -> sort by START TIME (ALWAYS ascending)
+                // compose full datetime using the same booking date + start time
+                DateTime at = _composeStartDateTime(a) ??
+                    DateTime(ad.year, ad.month, ad.day, 0, 0, 0);
+                DateTime bt = _composeStartDateTime(b) ??
+                    DateTime(bd.year, bd.month, bd.day, 0, 0, 0);
+
+                return at.compareTo(bt); // always ascending
+              });
+            }
+// when _sortKey == '' (default), we keep your original lastActivity desc order
+
+
+            // constants in ONE place so both states look identical
+            const gapCount = 8;
+            final double wDate = 130.w;
+            final double wFacility = 220.w;
+            final double wTime = 160.w;
+            final double wSlot = 100.w;
+            final double wState = 120.w;
+            final double wStatus = 120.w;
+            final double wUser = 155.w;
+            final double wRole = 120.w;
+            final double wAction = 95.w;
+            final double gapW = 16.w;
+
+            final tableW = wDate + wFacility + wTime + wSlot + wState + wStatus + wUser + wRole + wAction + (gapW * gapCount);
+            final shellW = tableW + (12.w * 2);
+            double targetW = shellW;
+            final viewportW = 1.0.sw;
+            if (targetW < viewportW) targetW = viewportW;
+
+            if (rows.isEmpty) {
+              return Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: EdgeInsets.all(8.w),
+                  child: Text(q.isEmpty ? 'No bookings found.' : 'No bookings found for the search.',
+                      style: TextStyle(fontSize: 14.sp)),
+                ),
+              );
+            }
+
+            // 6) SINGLE renderer used for both default + search
+            return _renderTable(
+              rows: rows,
+              targetW: targetW,
+              widths: (
+              date: wDate,
+              facility: wFacility,
+              time: wTime,
+              slot: wSlot,
+              state: wState,
+              status: wStatus,
+              user: wUser,
+              // NEW
+              role: wRole,
+              action: wAction,
+              gap: gapW
               ),
             );
-          }
+          },
+        );
+      },
+    );
+  }
+// === NEW: compact all filters (date + approval/amendment + status) ===
+  List<Map<String, dynamic>> _applyAllFilters(List<Map<String, dynamic>> all) {
+    // date filter
+    final byDate = _filterByDate
+        ? all.where((m) {
+      final bd = _readBookingDate(m);
+      return bd != null && _isSameYMD(bd, _selectedDate);
+    }).toList()
+        : List<Map<String, dynamic>>.from(all);
 
-          return Scrollbar(
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              padding: EdgeInsets.all(8.w),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Column(
-                  children: <Widget>[
-                    // Header
-                    Container(
-                      width: targetW,
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 12.w, vertical: 10.h),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE2CCFF),
+    // approval / amendment filter
+    String? needApproval;
+    var filterByAmendment = false;
+    if (_apAmendment) {
+      filterByAmendment = true;
+    } else if (_apPending || _apAccepted || _apRejected) {
+      if (_apPending) needApproval = 'pending';
+      else if (_apAccepted) needApproval = 'accepted';
+      else if (_apRejected) needApproval = 'rejected';
+    }
+
+    final byApproval = byDate.where((m) {
+      if (filterByAmendment) return m['hasPendingAmendment'] == true;
+      if (needApproval == null) return true;
+      final ap = _readLowerStr(m, ['approval']);
+      return ap == needApproval;
+    }).toList();
+
+    // status filter
+    String? needStatus;
+    if (_stUpcoming) needStatus = 'upcoming';
+    else if (_stOngoing) needStatus = 'ongoing';
+    else if (_stEnded) needStatus = 'ended';
+
+    final byStatus = byApproval.where((m) {
+      if (needStatus == null) return true;
+      final st = _readLowerStr(m, ['status']);
+      return st == needStatus;
+    }).toList();
+
+    return byStatus;
+  }
+
+// === NEW: single renderer used for both default + search ===
+// Note: this uses Dart 3 records for 'widths'. If you're not on Dart 3,
+// replace the record with a small class or a Map<String,double>.
+  Widget _renderTable({
+    required List<Map<String, dynamic>> rows,
+    required double targetW,
+    required ({
+      double date,
+      double facility,
+      double time,
+      double slot,
+      double state,
+      double status,
+      double user,
+      double role,   // <-- NEW
+      double action,
+      double gap
+    }) widths,
+  }) {
+    Widget _headerCellCenter(String text, double width) => SizedBox(
+      width: width,
+      child: Center(
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.vertical,
+        padding: EdgeInsets.all(8.w),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Column(
+            children: [
+              // unified header
+              Container(
+                width: targetW,
+                padding: EdgeInsets.fromLTRB(16.w, 12.h, 12.w, 12.h),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3E8FF),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(10.r),
+                    topRight: Radius.circular(10.r),
+                  ),
+                  border: Border(
+                    bottom: BorderSide(color: const Color(0xFFE5E7EB), width: 1),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    _sortableHeaderCell('date', 'Booking Date', widths.date),
+                    _gapW(widths.gap),
+                    _headerCell('Facility', widths.facility),
+                    _gapW(widths.gap),
+                    _headerCell('Time', widths.time),
+
+                    _gapW(widths.gap),
+                    _headerCellCenter('Slot', widths.slot),
+                    _gapW(widths.gap),
+                    _headerCell('State', widths.state),
+                    _gapW(widths.gap),
+                    _headerCell('Status', widths.status),
+                    _gapW(widths.gap),
+                    _headerCell('Booked By', widths.user),
+                    _gapW(widths.gap),
+                    _headerCell('Role', widths.role),
+                    _gapW(widths.gap),
+                    _headerCell('', widths.action),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: 6.h),
+
+              // rows
+              Column(
+                children: List.generate(rows.length, (i) {
+                  final m = rows[i];
+
+                  // date & time
+                  final bd = _readBookingDate(m);
+                  final dateStr = bd != null ? _fmtYMD(bd) : '-';
+
+                  final st = _readTime(m, ['start']);
+                  final en = _readTime(m, ['end']);
+                  String timeStr = '-';
+                  if (st != null) {
+                    timeStr = (en != null)
+                        ? _formatRange(st, en, _use24HourFormat)
+                        : _formatOne(st, _use24HourFormat);
+                  }
+
+                  // misc fields
+                  final slot = _readFirstStr(m, ['seatIndex']);
+                  final state = _readFirstStr(m, ['status']);
+                  final appr  = _readFirstStr(m, ['approval']);
+                  final apprLc = appr.trim().toLowerCase();
+                  final isAccepted = (apprLc == 'accepted');
+                  final hasAmend = (m['hasPendingAmendment'] == true);
+
+                  String bid = _readFirstStr(m, ['bookingId']);
+                  if (bid.isEmpty) {
+                    final alt = m['__id'];
+                    if (alt != null) bid = alt.toString();
+                  }
+
+                  final facId = _readFirstStr(m, ['facilityId']);
+                  final uid   = _readFirstStr(m, ['userId']);
+
+                  // seen/unread & row bg
+                  final bool seen = (m['seen'] is bool) ? (m['seen'] as bool) : true;
+                  final bool isEven = i % 2 == 0;
+                  final rowBaseReadA   = const Color(0xFFFDFDFE);
+                  final rowBaseReadB   = const Color(0xFFF7F8FA);
+                  final rowBaseUnreadA = const Color(0xFFFFF5F7);
+                  final rowBaseUnreadB = const Color(0xFFFFEEF2);
+                  final rowBg = seen
+                      ? (isEven ? rowBaseReadA : rowBaseReadB)
+                      : (isEven ? rowBaseUnreadA : rowBaseUnreadB);
+
+                  // pills
+                  Widget statePill(String txt) {
+                    Color bg = const Color(0xFFE5E7EB);
+                    Color fg = const Color(0xFF111827);
+                    final t = txt.trim().toLowerCase();
+                    if (t == 'upcoming') { bg = const Color(0xFFD1FAE5); fg = const Color(0xFF065F46); }
+                    if (t == 'ongoing')  { bg = const Color(0xFFDBEAFE); fg = const Color(0xFF1E3A8A); }
+                    if (t == 'ended')    { bg = const Color(0xFF9E9E9E); fg = const Color(0xFFFBFCFD); }
+                    return Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                          color: bg, borderRadius: BorderRadius.circular(999.r)),
+                      child: Text(txt.isEmpty ? '—' : txt,
+                          style: TextStyle(fontSize: 11.sp, color: fg, fontWeight: FontWeight.w700)),
+                    );
+                  }
+
+                  Widget approvalPill(String txt, bool isAmend) {
+                    Color bg = const Color(0xFFE5E7EB);
+                    Color fg = const Color(0xFF111827);
+                    final t = txt.trim().toLowerCase();
+                    if (isAmend)            { bg = const Color(0xFFFFF7D6); fg = const Color(0xFF92400E); txt = 'Amendment'; }
+                    else if (t == 'pending'){ bg = const Color(0xFFE0E7FF); fg = const Color(0xFF3730A3); }
+                    else if (t == 'accepted') { bg = const Color(0xFFD1FAE5); fg = const Color(0xFF065F46); }
+                    else if (t == 'rejected'){ bg = const Color(0xFFFEE2E2); fg = const Color(0xFF991B1B); }
+                    return Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                          color: bg, borderRadius: BorderRadius.circular(999.r)),
+                      child: Text(txt.isEmpty ? '—' : txt,
+                          style: TextStyle(fontSize: 11.sp, color: fg, fontWeight: FontWeight.w700)),
+                    );
+                  }
+
+                  Future<void> _openDetails() async {
+                    final String docId = (m['__id'] != null) ? m['__id'].toString() : '';
+                    if (!seen && docId.isNotEmpty) {
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('Bookings')
+                            .doc(docId)
+                            .set({'seen': true}, SetOptions(merge: true));
+                        setState(() { m['seen'] = true; });
+                      } catch (_) {}
+                    }
+                    final det = Map<String, dynamic>.from(m);
+                    det['bookingId'] = det['bookingId'] ?? det['id'] ?? det['__id'];
+                    showDialog(
+                      context: context,
+                      barrierDismissible: true,
+                      builder: (_) => Dialog(
+                        insetPadding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 24.h),
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+                        child: WebBookingDetails(booking: det, use24HourFormat: _use24HourFormat),
                       ),
-                      child: Row(
-                        children: <Widget>[
-                          _headerCell('Booking Date', wDate),
-                          _gapW(gapW),
-                          _headerCell('Facility', wFacility),
-                          _gapW(gapW),
-                          _headerCell('Time', wTime),
-                          _gapW(gapW),
-                          _headerCell('Slot', wSlot),
-                          _gapW(gapW),
-                          _headerCell('State', wState),
-                          _gapW(gapW),
-                          _headerCell('Status', wStatus),
-                          _gapW(gapW),
-                          _headerCell('Booked By', wUser),
-                          _gapW(gapW),
-                          _headerCell('Booking ID', wId),
-                          _gapW(gapW),
-                          _headerCell('', wAction),
-                        ],
-                      ),
-                    ),
+                    );
+                  }
 
-                    SizedBox(height: 6.h),
-
-                    // Rows
-                    Column(
-                      children: List.generate(rows.length, (i) {
-                        final m = rows[i];
-
-                        final bd = _readBookingDate(m);
-                        final dateStr = bd != null ? _fmtYMD(bd) : '-';
-
-                        final st =
-                        _readTime(m, ['start', 'startTime', 'timeStart']);
-                        final en =
-                        _readTime(m, ['end', 'endTime', 'timeEnd']);
-                        String timeStr = '-';
-                        if (st != null) {
-                          timeStr = (en != null)
-                              ? _formatRange(st, en, _use24HourFormat)
-                              : _formatOne(st, _use24HourFormat);
-                        }
-
-                        final slot = _readFirstStr(m, [
-                          'seatIndex',
-                          'slotNumber',
-                          'slot',
-                          'seatNumber',
-                          'seat'
-                        ]);
-                        final state = _readFirstStr(m, ['status', 'bookingStatus', 'state']);
-                        final appr = _readFirstStr(m, ['approval', 'approve', 'approvalStatus']);
-                        final apprLc = appr.trim().toLowerCase();
-                        final isAccepted = (apprLc == 'accepted' || apprLc == 'approved');
-                        final stateDisplay = isAccepted ? (state.isEmpty ? '—' : state) : '-';
-                        final bool hasAmend = (m['hasPendingAmendment'] == true);
-                        final String displayApproval = hasAmend ? 'Amendment' : (appr.isEmpty ? '—' : appr);
-
-
-                        String bid = _readFirstStr(
-                            m, ['bookingId', 'booking_id', 'id']);
-                        if (bid.isEmpty) {
-                          final alt = m['__id'];
-                          if (alt != null) bid = alt.toString();
-                        }
-
-                        final facId = _readFirstStr(m, [
-                          'facilityId',
-                          'facilityID',
-                          'facilityDocId',
-                          'facility_id'
-                        ]);
-                        final uid = _readFirstStr(m, [
-                          'uid',
-                          'userId',
-                          'bookedByUid',
-                          'bookedById',
-                          'bookedBy'
-                        ]);
-
-
-
-
-                        // seen flag: default to true if missing (no red dot for legacy)
-                        final bool seen =
-                        (m['seen'] is bool) ? (m['seen'] as bool) : true;
-                        final String docId =
-                        (m['__id'] != null) ? m['__id'].toString() : '';
-
-                        return Container(
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _openDetails,
+                        hoverColor: Colors.black.withOpacity(0.03),
+                        child: Container(
                           width: targetW,
-                          margin: EdgeInsets.only(bottom: 3.h),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 12.w, vertical: 10.h),
+                          margin: EdgeInsets.only(bottom: 4.h),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF9F4FF),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF000000).withOpacity(0.06),
-                                offset: const Offset(0, 1),
-                                blurRadius: 4.0,
-                                spreadRadius: 0,
-                              ),
-                            ],
+                            color: rowBg,
+                            borderRadius: BorderRadius.circular(10.r),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
                           ),
                           child: Row(
-                            children: <Widget>[
-                              _dataCell('' + (dateStr), wDate, false),
-                              _gapW(gapW),
-
-                              // Facility name (LIVE from Facilities/{facilityId})
-                              _dataCellW(
-                                _FacilityNameLive(
-                                  facilityId: facId,
-                                  style: TextStyle(
-                                    fontSize: 12.sp,
-                                    color: const Color(0xFF111827),
+                            children: [
+                              // unread accent
+                              Container(
+                                width: 4.w,
+                                height: 44.h,
+                                margin: EdgeInsets.only(left: 0.w),
+                                decoration: BoxDecoration(
+                                  color: seen ? Colors.transparent : const Color(0xFFE11D48),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: Radius.circular(10.r),
+                                    bottomLeft: Radius.circular(10.r),
                                   ),
                                 ),
-                                wFacility,
-                                false,
-                              ),
-                              _gapW(gapW),
-
-                              _dataCell(timeStr, wTime, false),
-
-
-                              _gapW(gapW),
-                              _dataCell(slot.isEmpty ? '—' : slot, wSlot, true),
-
-
-                              _gapW(gapW),
-                              _dataCell(stateDisplay, wState, false),
-                              _gapW(gapW),
-                              _dataCell(
-                                ((m['hasPendingAmendment'] == true) ? 'Amendment' : (appr.isEmpty ? '—' : appr)),
-                                wStatus,
-                                false,
                               ),
 
-
-
-                              _gapW(gapW),
-
-                              // User name (LIVE from UserInformation/{uid})
-                              _dataCellW(
-                                _UserNameLive(
-                                  uid: uid,
-                                  style: TextStyle(
-                                    fontSize: 12.sp,
-                                    color: const Color(0xFF111827),
-                                  ),
-                                ),
-                                wUser,
-                                false,
-                              ),
-                              _gapW(gapW),
-
-                              _dataCell(bid.isEmpty ? '—' : bid, wId, false),
-                              _gapW(gapW),
-
-                              SizedBox(
-                                width: wAction,
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
+                              Expanded(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      TextButton(
-                                        onPressed: () async {
-                                          // mark as seen if needed
-                                          if (!seen && docId.isNotEmpty) {
-                                            try {
-                                              await FirebaseFirestore.instance
-                                                  .collection('Bookings')
-                                                  .doc(docId)
-                                                  .set({'seen': true}, SetOptions(merge: true));
-                                              setState(() {
-                                                m['seen'] = true;
-                                              });
-                                            } catch (_) {}
-                                          }
-
-                                          final det =
-                                          Map<String, dynamic>.from(m);
-                                          det['bookingId'] = det['bookingId'] ??
-                                              det['id'] ??
-                                              det['__id'];
-                                          showDialog(
-                                            context: context,
-                                            barrierDismissible: true,
-                                            builder: (_) => Dialog(
-                                              insetPadding:
-                                              EdgeInsets.symmetric(
-                                                  horizontal: 24.w,
-                                                  vertical: 24.h),
-                                              backgroundColor: Colors.white,
-                                              shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                  BorderRadius.circular(
-                                                      12.r)),
-                                              child: WebBookingDetails(
-                                                booking: det,
-                                                use24HourFormat:
-                                                _use24HourFormat,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        child: Text('Details >',
-                                            style: TextStyle(fontSize: 12.sp)),
-                                      ),
-                                      if (!seen)
-                                        Container(
-                                          width: 8,
-                                          height: 8,
-                                          margin: EdgeInsets.only(left: 6.w),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
+                                      _dataCell(dateStr, widths.date, false),
+                                      _gapW(widths.gap),
+                                      _dataCellW(
+                                        _FacilityNameLive(
+                                          facilityId: facId,
+                                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
                                         ),
+                                        widths.facility, false,
+                                      ),
+                                      _gapW(widths.gap),
+                                      _dataCell(timeStr, widths.time, false),
+                                      _gapW(widths.gap),
+                                      _dataCell(slot.isEmpty ? '—' : slot, widths.slot, true),
+                                      _gapW(widths.gap),
+                                      SizedBox(
+                                        width: widths.state,
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: isAccepted ? statePill(state) : statePill('—'),
+                                        ),
+                                      ),
+                                      _gapW(widths.gap),
+                                      SizedBox(
+                                        width: widths.status,
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: approvalPill(appr, hasAmend),
+                                        ),
+                                      ),
+                                      _gapW(widths.gap),
+                                      _dataCellW(
+                                        _UserNameLive(
+                                          uid: uid,
+                                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+                                        ),
+                                        widths.user, false,
+                                      ),
+                                      _gapW(widths.gap),
+                                      _dataCellW(
+                                        _UserRoleLive(
+                                          uid: uid,
+                                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+                                        ),
+                                        widths.role, false,
+                                      ),
+                                      _gapW(widths.gap),
+                                      SizedBox(
+                                        width: widths.action,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            TextButton(
+                                              onPressed: _openDetails,
+                                              child: Text('Details >', style: TextStyle(fontSize: 12.sp)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      }),
+                        ),
+                      ),
                     ),
-                  ],
-                ),
+                  );
+                }),
               ),
-            ),
-          );
-        } else {
-          // has query -> filter by bookingId OR facility name OR user name (no cache, simple)
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: _filterRowsByBookingIdFacilityNameUserName(byStatus, q),
-            builder: (context, fsnap) {
-              if (fsnap.connectionState == ConnectionState.waiting) {
-                return Align(
-                  alignment: Alignment.topLeft,
-                  child: Padding(
-                    padding: EdgeInsets.all(8.w),
-                    child:
-                    Text('Searching...', style: TextStyle(fontSize: 14.sp)),
-                  ),
-                );
-              }
-              if (fsnap.hasError) {
-                return Align(
-                  alignment: Alignment.topLeft,
-                  child: Padding(
-                    padding: EdgeInsets.all(8.w),
-                    child:
-                    Text('Search failed', style: TextStyle(fontSize: 14.sp)),
-                  ),
-                );
-              }
-              final rows = fsnap.data ?? <Map<String, dynamic>>[];
-
-              // widths
-              final double wDate = 130.w;
-              final double wFacility = 220.w;
-              final double wTime = 180.w;
-              final double wSlot = 80.w;
-              final double wState = 120.w;
-              final double wStatus = 120.w;
-              final double wUser = 155.w;
-              final double wId = 200.w;
-              final double wAction = 95.w;
-              final double gapW = 16.w;
-
-              final tableW = wDate +
-                  wFacility +
-                  wTime +
-                  wSlot +
-                  wState +
-                  wStatus +
-                  wUser +
-                  wId +
-                  wAction +
-                  (gapW * 8);
-              final shellW = tableW + (12.w * 2);
-              double targetW = shellW;
-              final viewportW = 1.0.sw;
-              if (targetW < viewportW) targetW = viewportW;
-
-              if (rows.isEmpty) {
-                return Align(
-                  alignment: Alignment.topLeft,
-                  child: Padding(
-                    padding: EdgeInsets.all(8.w),
-                    child: Text('No bookings found for the search.',
-                        style: TextStyle(fontSize: 14.sp)),
-                  ),
-                );
-              }
-
-              return Scrollbar(
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  padding: EdgeInsets.all(8.w),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Column(
-                      children: <Widget>[
-                        // Header
-                        Container(
-                          width: targetW,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 12.w, vertical: 10.h),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFE2CCFF),
-                          ),
-                          child: Row(
-                            children: <Widget>[
-                              _headerCell('Booking Date', wDate),
-                              _gapW(gapW),
-                              _headerCell('Facility', wFacility),
-                              _gapW(gapW),
-                              _headerCell('Time', wTime),
-                              _gapW(gapW),
-                              _headerCell('Slot', wSlot),
-                              _gapW(gapW),
-                              _headerCell('State', wState),
-                              _gapW(gapW),
-                              _headerCell('Status', wStatus),
-                              _gapW(gapW),
-                              _headerCell('Booked By', wUser),
-                              _gapW(gapW),
-                              _headerCell('Booking ID', wId),
-                              _gapW(gapW),
-                              _headerCell('', wAction),
-                            ],
-                          ),
-                        ),
-
-                        SizedBox(height: 6.h),
-
-                        // Rows
-                        Column(
-                          children: List.generate(rows.length, (i) {
-                            final m = rows[i];
-
-                            final bd = _readBookingDate(m);
-                            final dateStr = bd != null ? _fmtYMD(bd) : '-';
-
-                            final st = _readTime(
-                                m, ['start', 'startTime', 'timeStart']);
-                            final en =
-                            _readTime(m, ['end', 'endTime', 'timeEnd']);
-                            String timeStr = '-';
-                            if (st != null) {
-                              timeStr = (en != null)
-                                  ? _formatRange(st, en, _use24HourFormat)
-                                  : _formatOne(st, _use24HourFormat);
-                            }
-
-                            final slot = _readFirstStr(m, [
-                              'seatIndex',
-                              'slotNumber',
-                              'slot',
-                              'seatNumber',
-                              'seat'
-                            ]);
-                            final state = _readFirstStr(
-                                m, ['status', 'bookingStatus', 'state']);
-                            final appr = _readFirstStr(
-                                m, ['approval', 'approve', 'approvalStatus']);
-                            final apprLc = appr.trim().toLowerCase();
-                            final isAccepted = (apprLc == 'accepted' ||
-                                apprLc == 'approved');
-                            final stateDisplay = isAccepted
-                                ? (state.isEmpty ? '—' : state)
-                                : '-';
-
-                            String bid = _readFirstStr(
-                                m, ['bookingId', 'booking_id', 'id']);
-                            if (bid.isEmpty) {
-                              final alt = m['__id'];
-                              if (alt != null) bid = alt.toString();
-                            }
-
-                            final facId = _readFirstStr(m, [
-                              'facilityId',
-                              'facilityID',
-                              'facilityDocId',
-                              'facility_id'
-                            ]);
-                            final uid = _readFirstStr(m, [
-                              'uid',
-                              'userId',
-                              'bookedByUid',
-                              'bookedById',
-                              'bookedBy'
-                            ]);
-
-                            // seen flag: default to true if missing
-                            final bool seen =
-                            (m['seen'] is bool) ? (m['seen'] as bool) : true;
-                            final String docId =
-                            (m['__id'] != null) ? m['__id'].toString() : '';
-
-                            return Container(
-                              width: targetW,
-                              margin: EdgeInsets.only(bottom: 3.h),
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 12.w, vertical: 10.h),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9F4FF),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                    const Color(0xFF000000).withOpacity(0.06),
-                                    offset: const Offset(0, 1),
-                                    blurRadius: 4.0,
-                                    spreadRadius: 0,
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: <Widget>[
-                                  _dataCell('' + (dateStr), wDate, false),
-                                  _gapW(gapW),
-
-                                  // Facility name (LIVE)
-                                  _dataCellW(
-                                    _FacilityNameLive(
-                                      facilityId: facId,
-                                      style: TextStyle(
-                                        fontSize: 12.sp,
-                                        color: const Color(0xFF111827),
-                                      ),
-                                    ),
-                                    wFacility,
-                                    false,
-                                  ),
-                                  _gapW(gapW),
-
-                                  _dataCell(timeStr, wTime, false),
-                                  _gapW(gapW),
-                                  _dataCell(
-                                      slot.isEmpty ? '—' : slot, wSlot, true),
-                                  _gapW(gapW),
-                                  _dataCell(stateDisplay, wState, false),
-                                  _gapW(gapW),
-                                  _dataCell(
-                                    ((m['hasPendingAmendment'] == true) ? 'Amendment' : (appr.isEmpty ? '—' : appr)),
-                                    wStatus,
-                                    false,
-                                  ),
-
-                                  _gapW(gapW),
-
-                                  // User name (LIVE)
-                                  _dataCellW(
-                                    _UserNameLive(
-                                      uid: uid,
-                                      style: TextStyle(
-                                        fontSize: 12.sp,
-                                        color: const Color(0xFF111827),
-                                      ),
-                                    ),
-                                    wUser,
-                                    false,
-                                  ),
-                                  _gapW(gapW),
-
-                                  _dataCell(bid.isEmpty ? '—' : bid, wId, false),
-                                  _gapW(gapW),
-
-                                  SizedBox(
-                                    width: wAction,
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          TextButton(
-                                            onPressed: () async {
-                                              // mark as seen if needed
-                                              if (!seen && docId.isNotEmpty) {
-                                                try {
-                                                  await FirebaseFirestore.instance
-                                                      .collection('Bookings')
-                                                      .doc(docId)
-                                                      .set({'seen': true}, SetOptions(merge: true));
-                                                  setState(() {
-                                                    m['seen'] = true;
-                                                  });
-                                                } catch (_) {}
-                                              }
-
-                                              final det =
-                                              Map<String, dynamic>.from(m);
-                                              det['bookingId'] =
-                                                  det['bookingId'] ??
-                                                      det['id'] ??
-                                                      det['__id'];
-                                              showDialog(
-                                                context: context,
-                                                barrierDismissible: true,
-                                                builder: (_) => Dialog(
-                                                  insetPadding:
-                                                  EdgeInsets.symmetric(
-                                                      horizontal: 24.w,
-                                                      vertical: 24.h),
-                                                  backgroundColor: Colors.white,
-                                                  shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                      BorderRadius.circular(
-                                                          12.r)),
-                                                  child: WebBookingDetails(
-                                                    booking: det,
-                                                    use24HourFormat:
-                                                    _use24HourFormat,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            child: Text('Details >',
-                                                style:
-                                                TextStyle(fontSize: 12.sp)),
-                                          ),
-                                          if (!seen)
-                                            Container(
-                                              width: 8,
-                                              height: 8,
-                                              margin: EdgeInsets.only(left: 6.w),
-                                              decoration: const BoxDecoration(
-                                                color: Colors.red,
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        }
-      },
+            ],
+          ),
+        ),
+      ),
     );
   }
+
 
   // build a header cell with fixed width
   Widget _headerCell(String text, double width) {
@@ -1499,6 +1315,23 @@ class _BookingListState extends State<BookingList> {
       ),
     );
   }
+
+  Widget _sortableHeaderCell(String key, String text, double width) {
+    final active = _sortKey == key;
+    String arrow;
+    if (active) {
+      arrow = _sortDir == 'asc' ? ' ▲' : ' ▼';
+    } else {
+      // show a neutral hint ONLY for the date column
+      arrow = key == 'date' ? ' ↕' : '';
+    }
+    return GestureDetector(
+      onTap: () => _toggleSort(key),
+      child: _headerCell(text + arrow, width),
+    );
+  }
+
+
 
   // build a data cell with fixed width (center = true centers it)
   Widget _dataCell(String text, double width, bool center) {
@@ -1537,7 +1370,7 @@ class _BookingListState extends State<BookingList> {
 
   // ====== FIELD READER HELPERS ======
   DateTime? _readBookingDate(Map<String, dynamic> m) {
-    for (final k in ['bookingDate', 'date', 'bookDate', 'day']) {
+    for (final k in ['bookingDate']) {
       if (m.containsKey(k)) {
         final v = m[k];
         if (v is Timestamp) return v.toDate();
@@ -1681,6 +1514,15 @@ class _BookingListState extends State<BookingList> {
     }
   }
 
+  DateTime? _composeStartDateTime(Map<String, dynamic> m) {
+    final d = _readBookingDate(m);
+    final t = _readTime(m, ['start']);
+    if (d == null || t == null) return null;
+    return DateTime(d.year, d.month, d.day, t.hour, t.minute, t.second);
+  }
+
+
+
   DateTime? _tryParseHM(String s) {
     try {
       final p = s.split(':');
@@ -1698,81 +1540,68 @@ class _BookingListState extends State<BookingList> {
   // ====== SIMPLE SEARCH HELPER (NO CACHE) ======
   // search by: bookingId OR facility name OR user name
   Future<List<Map<String, dynamic>>> _filterRowsByBookingIdFacilityNameUserName(
-      List<Map<String, dynamic>> items, String q) async {
+      List<Map<String, dynamic>> items,
+      String q,
+      ) async {
     final out = <Map<String, dynamic>>[];
 
     for (final m in items) {
-      // booking id
-      String bid = _readFirstStr(m, ['bookingId', 'booking_id', 'id', '__id']);
-      bid = bid.toLowerCase();
-
       bool match = false;
+
+      // booking id (safe)
+      final bid = _readFirstStr(m, ['bookingId', '__id']).toLowerCase();
       if (bid.contains(q)) {
         match = true;
       }
 
-      // facility name via Facilities/{facilityId}
-      if (match == false) {
-        final facId = _readFirstStr(
-            m, ['facilityId', 'facilityID', 'facilityDocId', 'facility_id']);
-        try {
-          final facDoc = await FirebaseFirestore.instance
-              .collection('Facilities')
-              .doc(facId)
-              .get();
-          final data = facDoc.data();
-          if (data != null) {
-            final v = data['name'];
-            if (v is String) {
-              final facNameLc = v.trim().toLowerCase();
-              if (facNameLc.contains(q)) {
-                match = true;
-              }
+      // facility name (guard empty facId, cast name)
+      if (!match) {
+        final facId = _readFirstStr(m, ['facilityId']);
+        if (facId.isNotEmpty) {
+          try {
+            final facDoc = await FirebaseFirestore.instance
+                .collection('Facilities')
+                .doc(facId)
+                .get();
+            final data = facDoc.data();
+            final facName = (data?['name'] as String?)?.trim().toLowerCase();
+            if ((facName ?? '').contains(q)) {
+              match = true;
             }
+          } catch (e) {
+            debugPrint('search facility error: $e');
           }
-        } catch (e) {
-          debugPrint('search facility error: $e');
         }
       }
 
-      // user name via UserInformation/{uid}
-      if (match == false) {
-        final uid = _readFirstStr(
-            m, ['uid', 'userId', 'bookedByUid', 'bookedById', 'bookedBy']);
-        try {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('UserInformation')
-              .doc(uid)
-              .get();
-          final data = userDoc.data();
-          if (data != null) {
-            String? n;
-            if (data['name'] is String) {
-              n = data['name'] as String;
-            } else if (data['userName'] is String) {
-              n = data['userName'] as String;
-            } else if (data['username'] is String) {
-              n = data['username'] as String;
+      // user name via UserInformation/{uid} (guard empty uid)
+      if (!match) {
+        final uid = _readFirstStr(m, ['userId', 'bookedBy']);
+        if (uid.isNotEmpty) {
+          try {
+            final userDoc = await FirebaseFirestore.instance
+                .collection('UserInformation')
+                .doc(uid)
+                .get();
+            final data = userDoc.data();
+            final n = ((data?['username']) )
+                ?.trim()
+                .toLowerCase();
+            if ((n ?? '').contains(q)) {
+              match = true;
             }
-            if (n != null) {
-              final userLc = n.trim().toLowerCase();
-              if (userLc.contains(q)) {
-                match = true;
-              }
-            }
+          } catch (e) {
+            debugPrint('search user error: $e');
           }
-        } catch (e) {
-          debugPrint('search user error: $e');
         }
       }
 
-      if (match == true) {
-        out.add(m);
-      }
+      if (match) out.add(m);
     }
 
     return out;
   }
+
 }
 
 // ===========================
@@ -1795,8 +1624,7 @@ class _FacilityNameLive extends StatelessWidget {
     if (facilityId.isEmpty) {
       return Text('—', style: style, overflow: overflow);
     }
-    final ref =
-    FirebaseFirestore.instance.collection('Facilities').doc(facilityId);
+    final ref = FirebaseFirestore.instance.collection('Facilities').doc(facilityId);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ref.snapshots(),
       builder: (context, snap) {
@@ -1808,6 +1636,39 @@ class _FacilityNameLive extends StatelessWidget {
     );
   }
 }
+class _UserRoleLive extends StatelessWidget {
+  final String uid;
+  final TextStyle style;
+  final TextOverflow overflow;
+
+  const _UserRoleLive({
+    Key? key,
+    required this.uid,
+    required this.style,
+    this.overflow = TextOverflow.ellipsis,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (uid.isEmpty) {
+      return Text('—', style: style, overflow: overflow);
+    }
+
+    final ref = FirebaseFirestore.instance.collection('UserInformation').doc(uid);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: ref.snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final role = (data?['role'] as String?)?.trim();
+        return Text((role?.isNotEmpty ?? false) ? role! : '—',
+            style: style, overflow: overflow);
+      },
+    );
+  }
+}
+
+
 
 /// Live user name from UserInformation/{uid}
 class _UserNameLive extends StatelessWidget {
@@ -1827,17 +1688,17 @@ class _UserNameLive extends StatelessWidget {
     if (uid.isEmpty) {
       return Text('—', style: style, overflow: overflow);
     }
-    final ref =
-    FirebaseFirestore.instance.collection('UserInformation').doc(uid);
+    final ref = FirebaseFirestore.instance.collection('UserInformation').doc(uid);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ref.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data();
-        final name =
-        (data?['name'] ?? data?['userName'] ?? data?['username']) as String?;
-        return Text((name != null && name.trim().isNotEmpty) ? name.trim() : '—',
+        final name = ((data?['username'] ?? data?['userName'] ?? data?['name']) as String?)
+            ?.trim();
+        return Text((name?.isNotEmpty ?? false) ? name! : '—',
             style: style, overflow: overflow);
       },
     );
   }
 }
+

@@ -534,7 +534,7 @@ class _AdminWebAccountState extends State<WebAccount> {
       final String status = (m['status'] ).toString().toLowerCase();
       if (status == 'ended') continue;
 
-      final DateTime? bDate = _readBookingDateFromAny(m);
+      final DateTime? bDate = _readBookingDateFromAny(m); //parse the bookingDate in to date format
       if (bDate == null) continue;
 
       final DateTime bStart = DateTime(bDate.year, bDate.month, bDate.day);
@@ -555,8 +555,11 @@ class _AdminWebAccountState extends State<WebAccount> {
 
   void _defaultWorkingDays() {
     setState(() {
-      // turn everything OFF in UI only
-      workingDays.updateAll((_, __) => false);
+      // Go through every key (e.g., 'Mon', 'Tue', ...)
+      for (final String k in workingDays.keys.toList()) {
+        // Set that day's value to false (OFF)
+        workingDays[k] = false;
+      }
     });
   }
 
@@ -665,7 +668,7 @@ class _AdminWebAccountState extends State<WebAccount> {
         .map((e) => e.key)
         .toSet();
 
-    // only process days that became disabled (optional optimization)
+    // only process days that became disabled , for old one remove it
     final Set<String> newlyDisabled = disabled
       ..removeWhere((d) => _originalWorkingDays[d] == false);
 
@@ -699,7 +702,7 @@ class _AdminWebAccountState extends State<WebAccount> {
       // notify impacted bookings (your existing helper)
       await _fanOutRequestUpdatesForHolidayDates(_offDaysYMD);
 
-      // update baseline -> no longer dirty
+
       setState(() {
         _offDaysSaved = Set<String>.from(_offDaysYMD);
         _offDirty = false;
@@ -723,9 +726,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
   bool _isBookingIgnored(Map<String, dynamic> m) {
     if (m['deleted'] == true) return true;
-    final String appr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
-    if (appr.contains('reject')) return true;
-    final String status = (m['status'] ?? '').toString().toLowerCase();
+    final String approval = (m['approval']).toString().toLowerCase();
+    if (approval.contains('reject')) return true;
+    final String status = (m['status'] ).toString().toLowerCase();
     if (status == 'ended') return true;
     return false;
   }
@@ -789,25 +792,23 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
   Future<void> _emitRequestUpdateForBooking(String bookingId, Map<String, dynamic> b) async {
-    final String userUid = _readFirstStr(b, ['bookedBy','bookBy','userUid','userId','uid']);
+    final String userUid = _readFirstStr(b, ['userId']);
     if (userUid.isEmpty) return;
 
-    final String facilityId = _readFirstStr(b, ['facilityId','facilityID','facilityDocId','facility']);
+    final String facilityId = _readFirstStr(b, ['facilityId']);
     if (facilityId.isEmpty) return;
 
     final String adminUid = _auth.currentUser?.uid ?? '';
 
     // booking date/time
-    final String bookingDateStr = (b['bookingDate'] ?? b['booking_date'] ?? b['date'] ?? '').toString();
+    final String bookingDateStr = (b['bookingDate']).toString();
     final times = _readBookingTimes(b);
-    final String start = (times['start'] ?? '').toString();
-    final String end   = (times['end'] ?? '').toString();
+    final String start = (times['start'] ).toString();
+    final String end   = (times['end']).toString();
 
     String seat = '-';
     if (b['seatIndex'] != null) {
       seat = b['seatIndex'].toString();
-    } else if (b['slotIndex'] != null) {
-      seat = b['slotIndex'].toString();
     }
 
     // (optional) grab a friendly facility name for UI
@@ -815,7 +816,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     try {
       final snap = await _firestore.collection('Facilities').doc(facilityId).get();
       final m = snap.data();
-      if (m != null) facilityName = (m['name'] ?? m['title'] ?? '').toString();
+      if (m != null) facilityName = (m['name']).toString();
     } catch (_) {}
 
     // write the inbox doc under the booking owner
@@ -1348,7 +1349,6 @@ class _AdminWebAccountState extends State<WebAccount> {
 
                             SizedBox(height: 10.h),
 
-// Only the control row changes
                             _editWorkingHour ?
                             Row(
                               children: [
@@ -1425,8 +1425,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 SizedBox(
                                   height: 40.h,
                                   child: OutlinedButton(
-                                    onPressed: _defaultWorkingDays,
-                                    child: const Text('Default'),
+                                    onPressed: _defaultWorkingDays,//show default working day
+                                    child: const Text('Reset'),
                                   ),
                                 ),
                                 SizedBox(width: 8.w),
@@ -1434,7 +1434,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   height: 40.h,
                                   child: TextButton(
                                     onPressed: () {
-                                      _cancelWorkingDays();
+                                      _cancelWorkingDays(); // when cancel button press
                                       setState(() => _editWorkingDays = false);
                                     },
                                     child: const Text('Cancel'),
@@ -1500,7 +1500,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   height: 40.h,
                                   child: OutlinedButton(
                                     onPressed: _defaultHolidays,
-                                    child: const Text('Default'),
+                                    child: const Text('Reset'),
                                   ),
                                 ),
                                 SizedBox(width: 8.w),
@@ -1689,9 +1689,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       builder: (context, c) {
         final gap = 6.w;
         final totalGapW = gap * 6;
-        double cellW = (c.maxWidth - totalGapW) / 7.0;
+        double cellW = (c.maxWidth - totalGapW) / 7.0; //find each column width
         if (cellW < 10.w) cellW = 10.w;
-        final gridH = (rows * cellW) + ((rows - 1) * gap);
+        final gridH = (rows * cellW) + ((rows - 1) * gap); //its s square so width can be use as high, then calculate the whole calender high
 
         return SizedBox(
           height: gridH,
@@ -1702,8 +1702,8 @@ class _AdminWebAccountState extends State<WebAccount> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: List.generate(7, (cIdx) {
-                    final cellIndex = (r * 7) + cIdx;
-                    final dayNum = cellIndex - lead + 1;
+                    final cellIndex = (r * 7) + cIdx; // calender date
+                    final dayNum = cellIndex - lead + 1; // calender start of the first date
 
                     final inMonth = (dayNum >= 1 && dayNum <= days);
                     final DateTime? cellDate =
@@ -1712,7 +1712,6 @@ class _AdminWebAccountState extends State<WebAccount> {
                     final todayOnly = DateUtils.dateOnly(DateTime.now());
                     final cellOnly  = (cellDate == null) ? null : DateUtils.dateOnly(cellDate);
                     final bool isDisabled = (cellOnly == null) ? true : !cellOnly.isAfter(todayOnly);
-// past days disabled; TODAY and future enabled
 
 
                     final String ymd = (cellDate != null) ? _ymd(cellDate) : '';
@@ -1722,11 +1721,11 @@ class _AdminWebAccountState extends State<WebAccount> {
                     return _offDayCell(
                       width: cellW,
                       height: cellW,
-                      label: inMonth ? '$dayNum' : '',
-                      inMonth: inMonth,
-                      isDisabled: isDisabled,
-                      isHoliday: isHoliday,
-                      date: cellDate,
+                      label: inMonth ? '$dayNum' : '', // day number
+                      inMonth: inMonth, // the day is in month
+                      isDisabled: isDisabled, // past day and today
+                      isHoliday: isHoliday, // wether this day is in the offdayymd after converting to string
+                      date: cellDate, //the date
                     );
                   }),
                 ),
@@ -1807,7 +1806,7 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
   int _leadingEmptyCells(DateTime firstOfMonth) {
-    return firstOfMonth.weekday % 7;
+    return firstOfMonth.weekday % 7; //This return value tells you how many empty boxes to put before “1” of the month.
   }
 
   String _monthName(int m) {
@@ -1845,7 +1844,6 @@ class _AdminWebAccountState extends State<WebAccount> {
       return; // block past days AND today
 
     }
-
 
     final ymd = _ymd(date);
     final willAdd = !_offDaysYMD.contains(ymd);

@@ -493,7 +493,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
               Icon(Icons.delete, size: 16.sp, color: const Color(0xFFD32F2F)),
               SizedBox(width: 6.w),
               Text(
-                'Delete',
+                'Cancel',
                 style: TextStyle(
                   fontSize: 13.sp,
                   fontWeight: FontWeight.w700,
