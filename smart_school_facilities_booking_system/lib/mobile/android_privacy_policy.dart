@@ -1,11 +1,3 @@
-// lib/mobile/android_privacy_policy.dart
-// -----------------------------------------------------------------------------
-// ANDROID PRIVACY POLICY (read-only for anyone)
-// - AppBar same style as other Android pages (purple + rounded bottom).
-// - Back arrow (system) + a "Close" button at bottom-right.
-// - Content is streamed from Firestore: SystemInformation/PrivacyPolicy { content }.
-// -----------------------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,17 +5,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class AndroidPrivacyPolicy extends StatelessWidget {
   const AndroidPrivacyPolicy({Key? key}) : super(key: key);
 
-  // helper: reference to PrivacyPolicy document
+//---------------------------------------
+// get Privacu policy from System Information
+//---------------------------------------
+
   DocumentReference<Map<String, dynamic>> _docRef() {
     return FirebaseFirestore.instance
         .collection('SystemInformation')
-        .doc('PrivacyPolicy'); // document name exactly "PrivacyPolicy"
+        .doc('PrivacyPolicy');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // App bar same look
+
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -60,6 +55,9 @@ class AndroidPrivacyPolicy extends StatelessWidget {
                 child: Text("Failed to load content", style: TextStyle(fontSize: 14.sp)),
               );
             }
+//---------------------------------------
+// get the content from database
+//---------------------------------------
 
             String content = "(No content yet)";
             if (snapshot.hasData && snapshot.data != null && snapshot.data!.exists) {
@@ -85,6 +83,10 @@ class AndroidPrivacyPolicy extends StatelessWidget {
                       style: TextStyle(fontSize: 14.sp, color: Colors.black87),
                     ),
                   ),
+//---------------------------------------
+// close button
+//---------------------------------------
+
                   SizedBox(height: 12.h),
                   Row(
                     children: [

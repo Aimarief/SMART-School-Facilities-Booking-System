@@ -16,17 +16,15 @@ class WebListManager extends StatefulWidget {
 }
 
 class _WebListManagerState extends State<WebListManager> {
-  // ---------- UI state ----------
+
   final TextEditingController _search = TextEditingController();
 
-  // Selected manager (no model, just doc id + Map like Facilities/Categories)
+  // Selected manager
   String? _selectedId;
   Map<String, dynamic>? _selectedData;
 
-  // Option A mode flag
   String _mode = 'view'; // 'view' | 'add' | 'edit'
 
-  // ---------- Secondary auth for creating managers ----------
   FirebaseApp? _secApp;
   FirebaseAuth? _auth2;
 
@@ -56,31 +54,39 @@ class _WebListManagerState extends State<WebListManager> {
   // ---------- Helpers ----------
   String _clean(String s) => s.trim();
 
+//---------------------------------------
+// check strong passwrod
+//---------------------------------------
   bool _isPasswordStrong(String s) {
     final RegExp regex = RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
     return regex.hasMatch(s);
   }
 
+//---------------------------------------
+// search for manager (filter the list)
+//---------------------------------------
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applySearchDocs(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
       ) {
     final String q = _clean(_search.text).toLowerCase();
     if (q.isEmpty) return docs;
 
-    final List<QueryDocumentSnapshot<Map<String, dynamic>>> out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final List<QueryDocumentSnapshot<Map<String, dynamic>>> filterd = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (final d in docs) {
       final Map<String, dynamic> m = d.data();
       String name = '';
       if (m['username'] != null) {
         name = m['username'].toString();
-      } else if (m['name'] != null) {
-        name = m['name'].toString();
       }
-      if (name.toLowerCase().contains(q)) out.add(d);
+      if (name.toLowerCase().contains(q))
+        filterd.add(d);
     }
-    return out;
+    return filterd;
   }
 
+//---------------------------------------
+// when going to add form, set everything back to clear and default
+//---------------------------------------
   void _onAddTap() {
     setState(() {
       _mode = 'add';
@@ -111,8 +117,9 @@ class _WebListManagerState extends State<WebListManager> {
     }
     return _auth2!;
   }
-
-  // ---------- Create manager ----------
+//---------------------------------------
+//create new manager
+//---------------------------------------
   Future<void> _createManager() async {
     if (_creating) return;
     _creating = true;
@@ -133,6 +140,17 @@ class _WebListManagerState extends State<WebListManager> {
     final String pwd = _pwdC.text.trim();
     final String roleDetails = _roleDetailsC.text.trim();
 
+    if (await _usernameTaken(name)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That username already exists. Please choose another.')),
+      );
+      _creating = false; // stop the create flow
+      return;
+    }
+
+//---------------------------------------
+// check if email exist
+//---------------------------------------
     try {
       final List<String> methods = await FirebaseAuth.instance.fetchSignInMethodsForEmail(email);
       if (methods.isNotEmpty) {
@@ -152,6 +170,8 @@ class _WebListManagerState extends State<WebListManager> {
 
       final String uid = cred.user?.uid ?? '';
 
+
+
       await FirebaseFirestore.instance.collection('UserInformation').doc(uid).set({
         'username': name,
         'email': email,
@@ -170,6 +190,9 @@ class _WebListManagerState extends State<WebListManager> {
       });
 
       bool emailSent = false;
+//---------------------------------------
+// send email verification
+//---------------------------------------
       try {
         await cred.user?.sendEmailVerification();
         emailSent = true;
@@ -190,6 +213,7 @@ class _WebListManagerState extends State<WebListManager> {
       setState(() => _mode = 'view');
     } on FirebaseAuthException catch (e) {
       String msg = 'Authentication error';
+
       if (e.code == 'email-already-in-use') {
         msg = 'That email already has an account.';
       } else if (e.message != null) {
@@ -206,7 +230,47 @@ class _WebListManagerState extends State<WebListManager> {
     }
   }
 
-  // ---------- Save edits ----------
+//---------------------------------------
+// check list manager exist
+//---------------------------------------
+//---------------------------------------
+// Check if a manager username already exists (case-insensitive)
+// ignoreId: when editing, allow the current doc to keep its own name
+//---------------------------------------
+  Future<bool> _usernameTaken(String name, {String? ignoreId}) async {
+    // 1) normalize the input (trim + lowercase)
+    final String q = name.trim().toLowerCase();
+    if (q.isEmpty) return false; // nothing to check
+
+    // 2) read all managers (simple approach for diploma level)
+    final QuerySnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance
+        .collection('UserInformation')
+        .where('role', isEqualTo: 'Manager')
+        .get();
+
+    // 3) loop to find duplicates (ignore soft-deleted; ignore self if editing)
+    for (final d in snap.docs) {
+      if (ignoreId != null && d.id == ignoreId) {
+        // skip the same document when editing
+        continue;
+      }
+
+      final Map<String, dynamic> data = d.data();
+      final bool deleted = (data['deleted'] == true);
+      if (deleted) continue;
+
+      final String nm = (data['username']).trim().toLowerCase();
+      if (nm == q) {
+        return true; // found a duplicate name
+      }
+    }
+
+    return false;
+  }
+
+//---------------------------------------
+//  save edit
+//---------------------------------------
   Future<void> _saveEdits() async {
     if (_selectedId == null) return;
 
@@ -216,6 +280,15 @@ class _WebListManagerState extends State<WebListManager> {
     final String newName = _editNameC.text.trim();
     final String newContact = _editContactC.text.trim();
     final String newRoleDetails = _editRoleDetailsC.text.trim();
+
+    // -- username duplicate check (ignore the current selected doc id) --
+    if (await _usernameTaken(newName, ignoreId: _selectedId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That username already exists. Please choose another.')),
+      );
+      return; // stop saving
+    }
+
 
     try {
       await FirebaseFirestore.instance
@@ -244,7 +317,9 @@ class _WebListManagerState extends State<WebListManager> {
     }
   }
 
-  // ---------- Delete (soft delete) ----------
+//---------------------------------------
+// soft delete manager
+//---------------------------------------
   Future<void> _deleteManager() async {
     if (_selectedId == null || _selectedData == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -275,8 +350,6 @@ class _WebListManagerState extends State<WebListManager> {
 
       if (!mounted) return;
 
-
-
       setState(() {
         _selectedId = null;
         _selectedData = null;
@@ -303,8 +376,9 @@ class _WebListManagerState extends State<WebListManager> {
     _editRoleDetailsC.dispose();
     super.dispose();
   }
-
-  // ---------- UI ----------
+//---------------------------------------
+// Main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -324,7 +398,7 @@ class _WebListManagerState extends State<WebListManager> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 460.w + 24.w + 1200.w),
+                      constraints: BoxConstraints(maxWidth: 1684.w),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -370,12 +444,13 @@ class _WebListManagerState extends State<WebListManager> {
     String nm = '';
     if (m['username'] != null) {
       nm = m['username'].toString();
-    } else if (m['name'] != null) {
-      nm = m['name'].toString();
     }
     return nm;
   }
 
+//---------------------------------------
+// build left panel
+//---------------------------------------
   Widget _buildLeftList() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -391,7 +466,10 @@ class _WebListManagerState extends State<WebListManager> {
           return Center(child: Text('Loading...', style: TextStyle(fontSize: 14.sp)));
         }
 
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final docs = snap.hasData
+            ? snap.data!.docs
+            : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
 
         // filter out soft-deleted
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> active = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -410,40 +488,58 @@ class _WebListManagerState extends State<WebListManager> {
           return const _EmptyCenter(text: 'empty');
         }
 
-        return ListView.separated(
-          itemCount: sorted.length,
-          separatorBuilder: (_, __) => SizedBox(height: 8.h),
-          itemBuilder: (context, i) {
-            final doc = sorted[i];
-            final Map<String, dynamic> m = doc.data();
+        // -------- build children with a simple for-loop --------
+        final List<Widget> children = <Widget>[];
 
-            String nm = '';
-            if (m['username'] != null) {
-              nm = m['username'].toString();
-            } else if (m['name'] != null) {
-              nm = m['name'].toString();
-            }
+        for (int i = 0; i < sorted.length; i++) {
+          // take one document
+          final doc = sorted[i];
+          // get its data map
+          final Map<String, dynamic> m = doc.data();
 
-            return _ListTileCard(
+          // read username
+          String nm = '';
+          if (m['username'] != null) {
+            nm = m['username'].toString();
+          }
+
+          children.add(
+            _ListTileCard(
               label: nm,
               onTap: () {
+                // when tap on a manager -> select it and preload edit fields
                 setState(() {
-                  _selectedId = doc.id;
-                  _selectedData = m;
-
-                  _editNameC.text = nm;
-                  _editContactC.text = (m['contact'] ?? '').toString();
-                  _editRoleDetailsC.text = (m['roleDetails'] ?? m['managerRole'] ?? '').toString();
-
-                  _mode = 'view';
+                  _selectedId = doc.id;                       // save selected id
+                  _selectedData = m;                           // save selected data
+                  _editNameC.text = nm;                        // preload name
+                  _editContactC.text = (m['contact']).toString();       // preload contact
+                  _editRoleDetailsC.text = (m['roleDetails']).toString(); // preload role details
+                  _mode = 'view';                              // go to view mode
                 });
               },
-            );
-          },
+            ),
+          );
+
+          // add space separator EXCEPT after the last item
+          if (i < sorted.length - 1) {
+            children.add(SizedBox(height: 8.h));
+          }
+        }
+        // -------------------------------------------------------
+
+        // return a normal ListView with the built children
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(), // allow pull even if short
+          children: children,                              // our loop-built widgets
         );
       },
     );
   }
+
+
+//---------------------------------------
+// build right panel
+//---------------------------------------
 
   Widget _buildRightPanel() {
     if (_mode == 'add') return _buildAddForm();
@@ -459,14 +555,17 @@ class _WebListManagerState extends State<WebListManager> {
         ),
       );
     }
-
+//---------------------------------------
+// if non of it meet, then it means it will show facility details
+//---------------------------------------
     return KeyedSubtree(
       key: ValueKey<String>(_selectedId!),
       child: _buildSelectedDetails(_selectedData!),
     );
   }
-
-  // ---------- Small UI helpers ----------
+//---------------------------------------
+// Create read only field when view
+//---------------------------------------
   Widget _roField(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,7 +588,9 @@ class _WebListManagerState extends State<WebListManager> {
     );
   }
 
-
+//---------------------------------------
+// Create read only field when edit
+//---------------------------------------
 
   Widget _editField(
       String label,
@@ -524,21 +625,21 @@ class _WebListManagerState extends State<WebListManager> {
     );
   }
 
-  // ---------- Selected details (view/edit) ----------
+//---------------------------------------
+// View and edit mode display
+//---------------------------------------
   Widget _buildSelectedDetails(Map<String, dynamic> m) {
     final List<Widget> children = <Widget>[SizedBox(height: 12.h)];
 
     String name = '';
     if (m['username'] != null) {
       name = m['username'].toString();
-    } else if (m['name'] != null) {
-      name = m['name'].toString();
     }
 
-    final String email = (m['email'] ?? '').toString();
-    final String contact = (m['contact'] ?? '').toString();
-    final String role = (m['role'] ?? '').toString();
-    final String roleDetails = (m['roleDetails'] ?? m['managerRole'] ?? '').toString();
+    final String email = (m['email']).toString();
+    final String contact = (m['contact'] ).toString();
+    final String role = (m['role']).toString();
+    final String roleDetails = (m['roleDetails']).toString();
     final bool isVerified = (m['isVerified'] == true);
 
     if (_mode == 'edit') {
@@ -586,7 +687,10 @@ class _WebListManagerState extends State<WebListManager> {
 
     children.add(_roField('Status', isVerified ? 'Active' : 'Inactive'));
 
-    // Facilities under this manager (UPDATED: match by managerId == _selectedId)
+
+//---------------------------------------
+// display the facility that is manage
+//---------------------------------------
     children.add(Text('Manage Facility',
         style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600)));
     children.add(SizedBox(height: 8.h));
@@ -623,7 +727,7 @@ class _WebListManagerState extends State<WebListManager> {
           final List<Widget> tiles = <Widget>[];
           for (final d in active) {
             final m = d.data();
-            final String facName = (m['facilityName'] ?? m['name'] ?? 'Unnamed').toString();
+            final String facName = ( m['name'] ).toString();
 
             tiles.add(
               Container(
@@ -653,6 +757,10 @@ class _WebListManagerState extends State<WebListManager> {
     children.add(SizedBox(height: 20.h));
 
     final List<Widget> actions = <Widget>[];
+//---------------------------------------
+// delete , cancel and confirm button
+//---------------------------------------
+
     if (_mode == 'edit') {
       actions.add(
         TextButton(
@@ -660,7 +768,6 @@ class _WebListManagerState extends State<WebListManager> {
             final bool ok = await _confirmDeleteManager();
             if (ok) await _deleteManager();
           },
-
 
           style: TextButton.styleFrom(foregroundColor: Colors.red),
           child: const Text('Delete'),
@@ -681,6 +788,9 @@ class _WebListManagerState extends State<WebListManager> {
         ),
       );
     } else {
+//---------------------------------------
+//   edit button
+//---------------------------------------
       actions.add(
         ElevatedButton(
           onPressed: () {
@@ -762,7 +872,9 @@ class _WebListManagerState extends State<WebListManager> {
   }
 
 
-  // ---------- Add form ----------
+//---------------------------------------
+//the part where it validate the form
+//---------------------------------------
   Widget _vField(
       String label,
       TextEditingController c, {
@@ -800,6 +912,10 @@ class _WebListManagerState extends State<WebListManager> {
       ],
     );
   }
+
+//---------------------------------------
+// Add manager form
+//---------------------------------------
 
   Widget _buildAddForm() {
     return Padding(
@@ -850,6 +966,9 @@ class _WebListManagerState extends State<WebListManager> {
               },
             ),
 
+//---------------------------------------
+// check password
+//---------------------------------------
             _vField(
               'Password',
               _pwdC,
@@ -884,10 +1003,11 @@ class _WebListManagerState extends State<WebListManager> {
             SizedBox(height: 14.h),
 
             _vField('Role Details', _roleDetailsC),
-
             Row(
               children: [
-                ElevatedButton(onPressed: _createManager, child: const Text('Create')),
+                ElevatedButton(
+                    onPressed: _createManager,
+                    child: const Text('Create')),
                 SizedBox(width: 12.w),
                 OutlinedButton(
                   onPressed: () => setState(() => _mode = 'view'),
@@ -962,6 +1082,10 @@ class _Box extends StatelessWidget {
   }
 }
 
+//---------------------------------------
+// Search Header
+//---------------------------------------
+
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
     Key? key,
@@ -1012,7 +1136,10 @@ class _SearchHeader extends StatelessWidget {
 }
 
 class _ListTileCard extends StatelessWidget {
-  const _ListTileCard({Key? key, required this.label, required this.onTap}) : super(key: key);
+  const _ListTileCard({Key? key,
+    required this.label,
+    required this.onTap
+  }) : super(key: key);
 
   final String label;
   final VoidCallback onTap;

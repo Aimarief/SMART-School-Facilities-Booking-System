@@ -13,13 +13,9 @@ import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_list_of_facilities.dart';
 
-// -------------------------------
-// Widget: Rating & Reviews page
-// -------------------------------
 class AndroidRatingReview extends StatefulWidget {
-  // facility id to read ratings from
+
   final String facilityId;
-  // facility name for display/context
   final String facilityName;
 
   // basic constructor
@@ -33,19 +29,25 @@ class AndroidRatingReview extends StatefulWidget {
   State<AndroidRatingReview> createState() => _AndroidRatingReviewState();
 }
 
-// -------------------------------------------
-// State: holds nav index and page behaviours
-// -------------------------------------------
 class _AndroidRatingReviewState extends State<AndroidRatingReview> {
-  // keep Facilities tab highlighted in bottom bar
+//---------------------------------------
+// current page
+//---------------------------------------
+
   int _currentIndex = 2;
 
-  // go back to previous facility details
+//---------------------------------------
+// go back navigation
+//---------------------------------------
+
   void _goBackToDetails() {
     Navigator.pop(context);
   }
 
-  // close to facilities list directly
+//---------------------------------------
+// close the page
+//---------------------------------------
+
   void _closeToList() {
     Navigator.pushAndRemoveUntil(
       context,
@@ -54,7 +56,10 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
     );
   }
 
-  // handle bottom navigation tab routing
+//---------------------------------------
+// navigation index
+//---------------------------------------
+
   void _onTabSelected(int i) {
     if (i == 2) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
@@ -69,24 +74,29 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
     }
   }
 
-  // build page scaffold and content
+//---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    // compute bottom bar height once
+
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
-    // keep local copy of facility id
+
     final String fid = widget.facilityId;
 
-    // create ratings stream for this facility
+//---------------------------------------
+// get the rating from database
+//---------------------------------------
+
     final Stream<QuerySnapshot<Map<String, dynamic>>> ratingStream = FirebaseFirestore.instance
         .collection('Facilities')
         .doc(fid)
         .collection('Rating')
         .snapshots();
 
-    // return the full page
+
     return Scaffold(
-      // top app bar with back/close
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -113,26 +123,26 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
         ),
       ),
 
-      // scrollable body
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // top card: overall summary from ratings
+//---------------------------------------
+// get the rating from database
+//---------------------------------------
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: ratingStream,
               builder: (context, snap) {
-                // show small loader while ratings arrive
+
                 if (snap.connectionState == ConnectionState.waiting) {
                   return Center(
                     child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
                   );
                 }
 
-                // aggregate ratings count and sum
-                int count = 0;            // total number of ratings
-                double total = 0.0;       // sum of rating values
+                int count = 0;
+                double total = 0.0;
 
                 // collect numbers robustly
                 if (snap.hasData) {
@@ -143,18 +153,14 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                     if (m.containsKey('rating')) {
                       final v = m['rating'];
                       if (v is int) {
-                        total += v.toDouble(); // add int rating
-                      } else if (v is double) {
-                        total += v;            // add double rating
-                      } else if (v is String) {
-                        final p = double.tryParse(v); // parse string rating
-                        if (p != null) total += p;
+                        total += v.toDouble();
                       }
                     }
                   }
                 }
-
-                // compute average or 0 when none
+//---------------------------------------
+// compute the average
+//---------------------------------------
                 double avg;
                 if (count > 0) {
                   avg = total / count;
@@ -162,18 +168,20 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   avg = 0.0;
                 }
 
-                // format average text like "4.3"
+//---------------------------------------
+// format to 1 decimal
+//---------------------------------------
+
                 final String avgText = avg.toStringAsFixed(1);
 
                 // build ratings count label
                 String countLabel = '';
-                if (count == 1) {
-                  countLabel = '1 rating';
-                } else {
-                  countLabel = '$count ratings';
-                }
 
-                // render summary card
+                countLabel = '$count ratings';
+
+//---------------------------------------
+// design the top review card
+//---------------------------------------
                 return Container(
                   width: double.infinity,
                   padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 12.w),
@@ -185,19 +193,27 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // section label
+//---------------------------------------
+//review text
+//---------------------------------------
+
                       Text('Review', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 4.h),
-                      // small caption
+//---------------------------------------
+// overall rating
+//---------------------------------------
                       Text('Overall rating', style: TextStyle(fontSize: 13.sp, color: Colors.black54)),
                       SizedBox(height: 8.h),
-                      // large average text
                       Text(avgText, style: TextStyle(fontSize: 28.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 6.h),
-                      // star visuals
+//---------------------------------------
+// star design
+//---------------------------------------
                       _buildStars(avg),
                       SizedBox(height: 6.h),
-                      // count label
+//---------------------------------------
+// total rating
+//---------------------------------------
                       Text(
                         countLabel,
                         style: TextStyle(fontSize: 12.5.sp, color: Colors.black87, fontWeight: FontWeight.w500),
@@ -210,21 +226,28 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
 
             SizedBox(height: 14.h),
 
-            // list of individual reviews below
+//---------------------------------------
+// get the rating database again
+//---------------------------------------
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: ratingStream,
               builder: (context, snap) {
-                // loading spinner while waiting
+
                 if (snap.connectionState == ConnectionState.waiting) {
                   return Center(
                     child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
                   );
                 }
 
-                // collect docs or empty list
-                final docs = (snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]).toList();
+//---------------------------------------
+// if empty
+//---------------------------------------
 
-                // sort by createdAt desc when available
+                final docs = (snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]).toList();
+//---------------------------------------
+// sort the data by date
+//---------------------------------------
+
                 docs.sort((a, b) {
                   final ma = a.data();
                   final mb = b.data();
@@ -233,7 +256,9 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   return tb.compareTo(ta);
                 });
 
-                // no reviews fallback
+//---------------------------------------
+// if no review
+//---------------------------------------
                 if (docs.isEmpty == true) {
                   return Container(
                     width: double.infinity,
@@ -243,7 +268,9 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   );
                 }
 
-                // build the reviews list
+//---------------------------------------
+// build the review design
+//---------------------------------------
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -252,32 +279,34 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                   itemBuilder: (context, i) {
                     final m = docs[i].data();
 
-                    // read rating's userId
+//---------------------------------------
+// get user id
+//---------------------------------------
+
                     String userId = '';
                     if (m['userId'] is String) {
                       userId = m['userId'];
                     }
 
-                    // read review text
+//---------------------------------------
+// get review text
+//---------------------------------------
+
                     String review = '';
                     if (m['review'] is String) {
                       review = m['review'];
                     }
 
-                    // normalize rating to 0..5
+//---------------------------------------
+// get and count rating again
+//---------------------------------------
+
                     double rating = 0.0;
                     if (m['rating'] is int) {
                       rating = (m['rating'] as int).toDouble();
                     } else {
                       if (m['rating'] is double) {
                         rating = m['rating'] as double;
-                      } else {
-                        if (m['rating'] is String) {
-                          final double? p = double.tryParse(m['rating'] as String);
-                          if (p != null) {
-                            rating = p;
-                          }
-                        }
                       }
                     }
                     if (rating < 0) {
@@ -288,24 +317,17 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                       }
                     }
 
-                    // parse createdAt in multiple shapes
+//---------------------------------------
+// get the time created at
+//---------------------------------------
+
                     DateTime? createdAt;
                     final dynamic ca = m['createdAt'];
-                    if (ca is Timestamp) {
                       createdAt = ca.toDate().toLocal();
-                    } else {
-                      if (ca is int) {
-                        createdAt = DateTime.fromMillisecondsSinceEpoch(ca).toLocal();
-                      } else {
-                        if (ca is String) {
-                          try {
-                            createdAt = DateTime.parse(ca).toLocal();
-                          } catch (_) {}
-                        }
-                      }
-                    }
 
-                    // render one review tile
+//---------------------------------------
+// start list out the review in this format
+//---------------------------------------
                     return _reviewTile(
                       userId: userId,
                       rating: rating,
@@ -320,7 +342,10 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
         ),
       ),
 
-      // bottom navigation with current index
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
+
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -329,22 +354,25 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
     );
   }
 
-  // -----------------------------------------
-  // Tile: shows avatar, name, stars, comment
-  // -----------------------------------------
+//---------------------------------------
+// each of the review and rating design
+//---------------------------------------
+
   Widget _reviewTile({
     required String userId,
     required double rating,
     required String review,
     DateTime? createdAt,
   }) {
-    // build friendly date text
     String dateText = '-';
     if (createdAt != null) {
       dateText = _fmtDate(createdAt);
     }
 
-    // create user info stream when userId exists
+//---------------------------------------
+// get userinformation from database
+//---------------------------------------
+
     Stream<DocumentSnapshot<Map<String, dynamic>>>? userStream;
     if (userId.isNotEmpty == true) {
       userStream = FirebaseFirestore.instance
@@ -353,7 +381,10 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
           .snapshots();
     }
 
-    // return decorated card with a small StreamBuilder for user display name
+    //---------------------------------------
+// display
+//---------------------------------------
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(12.w),
@@ -364,10 +395,13 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: userStream,
         builder: (context, snap) {
-          // default name
+
           String displayName = 'Anonymous';
 
-          // use placeholder if no stream
+//---------------------------------------
+// if no user
+//---------------------------------------
+
           if (userStream == null) {
             displayName = 'Anonymous';
           } else {
@@ -375,41 +409,45 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
             if (snap.connectionState == ConnectionState.waiting) {
               displayName = 'Anonymous';
             } else {
-              // read username from user doc when available
+//---------------------------------------
+// get the name
+//---------------------------------------
               if (snap.hasData && snap.data != null && snap.data!.exists) {
                 final Map<String, dynamic>? um = snap.data!.data();
                 if (um != null) {
-                  if (um.containsKey('username')) {
                     if (um['username'] != null) {
-                      final String v = um['username'].toString();
-                      if (v.isNotEmpty == true) {
-                        displayName = v;
-                      }
+                      displayName = um['username'].toString();
                     }
-                  }
                 }
               }
             }
           }
 
-          // build tile content
+          //---------------------------------------
+// build the desgin
+//---------------------------------------
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // top row with avatar and user info
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+ //---------------------------------------
+// display image
+//---------------------------------------
                   ClipRRect(
                     borderRadius: BorderRadius.circular(40.r),
-                    child: _userAvatar(userId), // avatar that tries base64 > asset > placeholder
+                    child: _userAvatar(userId),
                   ),
                   SizedBox(width: 12.w),
+ //---------------------------------------
+// display name
+//---------------------------------------
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // display name text
                         Text(
                           displayName,
                           style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700),
@@ -417,7 +455,9 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 4.h),
-                        // star rating visuals
+//---------------------------------------
+// display star
+//---------------------------------------
                         _buildStars(rating),
                       ],
                     ),
@@ -451,42 +491,45 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
     );
   }
 
-  // ----------------------------------------
-  // Avatar loader: base64 -> asset -> dummy
-  // ----------------------------------------
+//---------------------------------------
+// get the image
+//---------------------------------------
+
   Widget _userAvatar(String userId) {
-    // return placeholder when empty id
     if (userId.isEmpty == true) {
+      //---------------------------------------
+// display placeholder image if no image found
+//---------------------------------------
       return _placeholderAvatar();
     }
 
-    // create stream to watch user info
+//---------------------------------------
+// get image from database
+//---------------------------------------
     final userDocStream = FirebaseFirestore.instance
         .collection('UserInformation')
         .doc(userId)
         .snapshots();
 
-    // build avatar depending on stored fields
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: userDocStream,
       builder: (context, snap) {
-        // fallback while loading or missing doc
         if (snap.connectionState == ConnectionState.waiting || !snap.hasData || !snap.data!.exists) {
           return _placeholderAvatar();
         }
 
-        // unwrap map safely
         final Map<String, dynamic> m = snap.data!.data() ?? <String, dynamic>{};
 
-        // try base64 image first
         if (m['profileImageBase64'] is String) {
           final String b64 = m['profileImageBase64'];
           if (b64.isNotEmpty == true) {
             try {
+//---------------------------------------
+// decode the image
+//---------------------------------------
               final Uint8List bytes = base64Decode(b64);
               return Image.memory(bytes, width: 48.w, height: 48.w, fit: BoxFit.cover);
             } catch (_) {
-              // fall through to asset if decode fails
             }
           }
         }
@@ -519,14 +562,16 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
   }
 }
 
-// ---------------------------------------------------
-// Shared star builder: draws up to 5 with half-stars
-// ---------------------------------------------------
+//---------------------------------------
+// build the star
+//---------------------------------------
+
 Widget _buildStars(double avg) {
-  // hold 5 icons with small gaps
+  //---------------------------------------
+// list to store five star
+//---------------------------------------
   final List<Widget> list = <Widget>[];
 
-  // walk from 1..5 and decide icon
   for (int i = 1; i <= 5; i++) {
     IconData icon;
 
@@ -543,7 +588,10 @@ Widget _buildStars(double avg) {
       }
     }
 
-    // push icon then optional spacer
+//---------------------------------------
+// add star into list and display
+//---------------------------------------
+
     list.add(Icon(icon, size: 20.sp, color: const Color(0xFFFFC107)));
     if (i < 5) list.add(SizedBox(width: 2.w));
   }

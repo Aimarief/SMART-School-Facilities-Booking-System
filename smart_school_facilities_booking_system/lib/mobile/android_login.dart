@@ -11,10 +11,14 @@ import 'android_list_of_facilities.dart';
 
 
 class AndroidLoginPage extends StatelessWidget {
+  //---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SingleChildScrollView( // ✅ Allows scrolling if content doesn't fit
+      body: SingleChildScrollView(
         child: Column(
           children: [
             GradientHeader(),
@@ -28,6 +32,9 @@ class AndroidLoginPage extends StatelessWidget {
     );
   }
 }
+//---------------------------------------
+// gradient header
+//---------------------------------------
 
 class GradientHeader extends StatelessWidget {
   @override
@@ -67,7 +74,10 @@ class GradientHeader extends StatelessWidget {
           ),
           SizedBox(height: 20.h),
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+ //---------------------------------------
+// log in page and sign up page navigate button
+//---------------------------------------
+          mainAxisAlignment: MainAxisAlignment.center,
             children: [
               ElevatedButton(
                 onPressed: () {},
@@ -109,90 +119,139 @@ class _LoginInformationState extends State<LoginInformation> {
   final TextEditingController _passwordController = TextEditingController();
 
   bool _obscurePassword = true;
-  String? _errorMessage; // ✅ Store the error message
+  String? _errorMessage;
+
+//---------------------------------------
+// log in proccess
+//---------------------------------------
 
   Future<void> loginUser(BuildContext context, String emailOrUsername, String password) async {
     setState(() { _errorMessage = null; });
 
+//---------------------------------------
+// check if it is empty
+//---------------------------------------
     String loginEmail = emailOrUsername.trim();
     if (loginEmail.isEmpty || password.isEmpty) {
       setState(() { _errorMessage = "Please enter your email/username and password"; });
       return;
     }
 
-    // 1) If user typed a username, resolve to email (ignoring deleted users)
+//---------------------------------------
+// if it is user name
+//---------------------------------------
     if (!loginEmail.contains('@')) {
       final String? resolved = await _getEmailByUsername(loginEmail);
       if (resolved == null) {
-        setState(() { _errorMessage = "No user found"; });
+        setState(() { _errorMessage = "Incorrect email/username or password"; });
         return;
       }
       loginEmail = resolved;
     } else {
-      // 2) If user typed an email, verify a non-deleted user exists before auth
-      final DocumentSnapshot<Map<String, dynamic>>? doc = await _getUserDocByEmail(loginEmail);
+//---------------------------------------
+// get user using email
+//---------------------------------------
+
+      final doc = await _getUserDocByEmail(loginEmail);
       if (doc == null) {
-        setState(() { _errorMessage = "No user found"; });
+        setState(() { _errorMessage = "Incorrect email/username or password"; });
         return;
       }
       final data = doc.data();
       if (data != null && data['deleted'] == true) {
-        setState(() { _errorMessage = "No user found"; });
+        setState(() { _errorMessage = "Incorrect email/username or password"; });
         return;
       }
     }
+
+//---------------------------------------
+// get the user doc again
+//---------------------------------------
+    final DocumentSnapshot<Map<String, dynamic>>? preDoc = await _getUserDocByEmail(loginEmail);
+    if (preDoc == null) {
+      setState(() { _errorMessage = "Incorrect email/username or password"; });
+      return;
+    }
+    final Map<String, dynamic> pre = preDoc.data() ?? <String, dynamic>{};
+    final bool isDeleted = pre['deleted']  == true;
+    final bool isActive  = pre['active']   == true;
+    final bool approval  = pre['approval'] == true;
+
+    //---------------------------------------
+// when user is deleted
+//---------------------------------------
+
+    if (isDeleted) {
+      setState(() { _errorMessage = "Incorrect email/username or password"; });
+      return;
+    }
+
+//---------------------------------------
+// when user getting rejected
+//---------------------------------------
+
+    if (approval && !isActive) {
+      setState(() { _errorMessage = "Login failed. This account has been rejected by Admin."; });
+      return;
+    }
+
+//---------------------------------------
+// when havent approve by admin
+//---------------------------------------
+
+    if (!approval && !isActive) {
+      setState(() { _errorMessage = "Login failed. This account hasn’t been approved by Admin."; });
+      return;
+    }
+//---------------------------------------
+// if weird thing happend
+//---------------------------------------
+    if (!(approval && isActive)) {
+      setState(() { _errorMessage = "Login failed. Please contact admin."; });
+      return;
+    }
+
+    //---------------------------------------
+// log in proccess
+//---------------------------------------
 
     try {
       final UserCredential cred = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: loginEmail, password: password);
 
       final User? u = cred.user;
-      if (u != null) {
-        final doc = await FirebaseFirestore.instance
-            .collection('UserInformation')
-            .doc(u.uid)
-            .get();
-
-        if (doc.exists) {
-          final data = doc.data();
-          // Block deleted users even if auth succeeded (double-safety)
-          if (data != null && data['deleted'] == true) {
-            await FirebaseAuth.instance.signOut();
-            setState(() { _errorMessage = "No user found"; });
-            return;
-          }
-          // Block not-yet-approved accounts
-          if (data != null && data['active'] is bool && data!['active'] == false) {
-            await FirebaseAuth.instance.signOut();
-            setState(() { _errorMessage = "Login failed. This account hasn’t been approved by Admin."; });
-            return;
-          }
-        }
+      if (u == null) {
+        setState(() { _errorMessage = "Login failed. Please try again."; });
+        return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login successful')),
-      );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => AndroidListOfFacilities()),
-      );
+//---------------------------------------
+// when success
+//---------------------------------------
 
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login successful')));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidListOfFacilities()));
+
+      //---------------------------------------
+// when there is problem while sing in
+//---------------------------------------
     } on FirebaseAuthException catch (e) {
       String message = "Incorrect email/username or password";
-      if (e.code == 'invalid-email') {
-        message = "Invalid email format";
-      } else if (e.code == 'user-not-found') {
-        message = "No user found";
-      }
+      if (e.code == 'invalid-email') message = "Invalid email format";
+      else if (e.code == 'user-not-found') message = "No user found";
+      else if (e.code == 'wrong-password') message = "Incorrect password";
+      else if (e.code == 'too-many-requests') message = "Too many attempts. Try later.";
       setState(() { _errorMessage = message; });
     } catch (_) {
       setState(() { _errorMessage = "Login failed. Please try again."; });
     }
   }
 
-  /// Resolve username -> email, but return null if the user doc is missing or deleted==true.
-  /// (Case-sensitive username match as you requested; for case-insensitive, store usernameLower.)
+//---------------------------------------
+// get username email
+//---------------------------------------
+
   Future<String?> _getEmailByUsername(String username) async {
     try {
       final String u = username.trim();
@@ -207,7 +266,7 @@ class _LoginInformationState extends State<LoginInformation> {
       if (qs.docs.isEmpty) return null;
 
       final data = qs.docs.first.data();
-      // ignore users marked deleted
+
       if (data['deleted'] == true) return null;
 
       final dynamic v = data['email'];
@@ -219,9 +278,10 @@ class _LoginInformationState extends State<LoginInformation> {
     }
   }
 
-  /// Get user doc by email; returns null if none found.
-  /// (We DON'T filter by deleted at query time so accounts without the field still work;
-  /// we check 'deleted' in code.)
+//---------------------------------------
+// see if email exist
+//---------------------------------------
+
   Future<DocumentSnapshot<Map<String, dynamic>>?> _getUserDocByEmail(String email) async {
     try {
       final String e = email.trim();
@@ -240,6 +300,9 @@ class _LoginInformationState extends State<LoginInformation> {
     }
   }
 
+//---------------------------------------
+// main build
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -254,8 +317,9 @@ class _LoginInformationState extends State<LoginInformation> {
           ),
         ),
         SizedBox(height: 20.h),
+
         Container(
-          width: 0.9.sw, // ✅ 90% of screen width
+          width: 0.9.sw,
           padding: EdgeInsets.all(20.w),
           decoration: BoxDecoration(
             color: Color(0xFFFDF9F9),
@@ -268,10 +332,13 @@ class _LoginInformationState extends State<LoginInformation> {
               ),
             ],
           ),
+//---------------------------------------
+// error box
+//---------------------------------------
+
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Error Box
               if (_errorMessage != null)
                 Container(
                   width: double.infinity,
@@ -291,7 +358,9 @@ class _LoginInformationState extends State<LoginInformation> {
                     ),
                   ),
                 ),
-
+//---------------------------------------
+// show email text box
+//---------------------------------------
               Text("Email / Username",
                   style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               SizedBox(height: 8.h),
@@ -304,6 +373,9 @@ class _LoginInformationState extends State<LoginInformation> {
                 ),
               ),
               SizedBox(height: 20.h),
+//---------------------------------------
+// pass word
+//---------------------------------------
               Text("Password",
                   style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               SizedBox(height: 8.h),
@@ -340,7 +412,9 @@ class _LoginInformationState extends State<LoginInformation> {
                       });
                       return;
                     }
-
+//---------------------------------------
+// sent reset password
+//---------------------------------------
                     try {
                       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
 
@@ -357,6 +431,9 @@ class _LoginInformationState extends State<LoginInformation> {
                       });
                     }
                   },
+//---------------------------------------
+// forget password text
+//---------------------------------------
                   child: Text(
                     "Forgot Password?",
                     style: TextStyle(
@@ -368,6 +445,9 @@ class _LoginInformationState extends State<LoginInformation> {
                 ),
               ),
               SizedBox(height: 20.h),
+//---------------------------------------
+// log in button
+//---------------------------------------
               Center(
                 child: ElevatedButton(
                   onPressed: () {

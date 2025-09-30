@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// bottom bar + other pages (unchanged)
 import 'android_bottom_menu.dart';
 import 'android_agenda.dart';
 import 'android_view_booking.dart';
@@ -11,15 +10,14 @@ import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_list_of_facilities.dart';
 
-// go to per-time slot picking page
 import 'android_select_slot.dart';
 
 import 'android_confirmation_booking.dart';
 
 class Booking_Date extends StatefulWidget {
-  // facility identity (must have)
-  final String facilityId;     // e.g., "fac_123"
-  final String facilityName;   // e.g., "Computer Lab 1"
+
+  final String facilityId;
+  final String facilityName;
 
   const Booking_Date({
     Key? key,
@@ -32,15 +30,16 @@ class Booking_Date extends StatefulWidget {
 }
 
 class _Booking_DateState extends State<Booking_Date> {
-  // ----- bottom bar -----
+//---------------------------------------
+// current page
+//---------------------------------------
+
   int _currentIndex = 2;
 
-  // ----- dates -----
-  late DateTime _today;                  // today (00:00)
-  late DateTime _selected;               // user selected date (00:00)
-  late List<DateTime> _next7;            // today..today+6
+  late DateTime _today;
+  late DateTime _selected;
+  late List<DateTime> _next7;
 
-  // ----- weekday rules (SystemInformation) -----
   bool _allowMon = true;
   bool _allowTue = true;
   bool _allowWed = true;
@@ -49,66 +48,74 @@ class _Booking_DateState extends State<Booking_Date> {
   bool _allowSat = false;
   bool _allowSun = false;
 
-  // ----- facility static data (read ONCE) -----
+
   bool _loadingFacility = true;
   Map<String, dynamic> _facilityData = {};
   List<Map<String, dynamic>> _slotsTemplate = <Map<String, dynamic>>[];
-  int _facilityCapacity = 1; // Facilities.availableSlots
+  int _facilityCapacity = 1;
 
-  // ----- per-day slot data (live) -----
   bool _loadingSlots = true;
-  final Map<String, int> _bookedByKey = <String, int>{};   // HHmm -> booked
-  final Map<String, int> _capByKey    = <String, int>{};   // HHmm -> slot.capacity (only if present)
+  final Map<String, int> _bookedByKey = <String, int>{};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _slotsSub;
 
-  // ----- user picks -----
-  final Set<String> _pickedStarts = <String>{}; // "08:00", "09:00"
+  final Set<String> _pickedStarts = <String>{};
   bool _autoAssign = true;
 
-  // ----- debug panel flag -----
   bool _debugPanel = false;
 
-  // ----- off-days cache -----
   final Set<String> _offDaysYMD = <String>{};
-
+//---------------------------------------
+// run init state first
+//---------------------------------------
   @override
   void initState() {
-    super.initState(); // call parent
+    super.initState();
 
-    // set today's date + default selected + next 7 dates
+    //---------------------------------------
+// set today date, selected date is today and next 7 days
+//---------------------------------------
+
     final DateTime now = DateTime.now();
     _today = DateTime(now.year, now.month, now.day);
     _selected = _today;
     _next7 = List<DateTime>.generate(7, (i) => _today.add(Duration(days: i)));
 
-    // serialized bootstrap so first paint already knows capacity + rules
+//---------------------------------------
+// get all the slot belongs to this facility
+//---------------------------------------
     _bootstrap();
   }
 
-  // do first-time data loads in order (no logic change)
+//---------------------------------------
+// loads data
+//---------------------------------------
+
   Future<void> _bootstrap() async {
-    await _loadWeekdayRules();   // working-day booleans
-    await _loadOffDays();        // holidays
-    await _loadFacilityOnce();   // capacity + template
+    await _loadWeekdayRules();
+    await _loadOffDays();
+    await _loadFacilityOnce();
     if (mounted) _startSlotsListenerForSelectedDay();
   }
 
   @override
   void dispose() {
-    // stop the live slots listener
     _slotsSub?.cancel();
     super.dispose();
   }
 
 
-  // make a 4-char key from "08:00"/"900" → "0800"/"0900" (used for map keys)
+//---------------------------------------
+// convert time to slot key
+//---------------------------------------
   String _slotKey4(String hhmmOrId) {
     String s = hhmmOrId.replaceAll(':', '');
     if (s.length < 4) s = s.padLeft(4, '0');
     return s;
   }
 
-  // safe int parser for dynamic
+//---------------------------------------
+// parse to int
+//---------------------------------------
   int _asInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.toInt();
@@ -116,7 +123,9 @@ class _Booking_DateState extends State<Booking_Date> {
     return p ?? 0;
   }
 
-  // month + year text like "August 2025"
+//---------------------------------------
+// get the month and set to month year
+//---------------------------------------
   String _monthYearText(DateTime d) {
     const List<String> months = <String>[
       'January','February','March','April','May','June',
@@ -125,21 +134,30 @@ class _Booking_DateState extends State<Booking_Date> {
     return '${months[d.month - 1]} ${d.year}';
   }
 
-  // "YYYY-MM-DD" for currently selected
+//---------------------------------------
+// get the ymd that is selected and turn into string
+//---------------------------------------
+
   String get _ymdSelected {
     final String mo = _selected.month.toString().padLeft(2, '0');
     final String da = _selected.day.toString().padLeft(2, '0');
     return '${_selected.year}-$mo-$da';
   }
 
-  // "YYYY-MM-DD" for any date
+//---------------------------------------
+// conver to ymd format
+//---------------------------------------
+
   String _ymd(DateTime d) {
     final String mo = d.month.toString().padLeft(2, '0');
     final String da = d.day.toString().padLeft(2, '0');
     return '${d.year}-$mo-$da';
   }
 
-  // convert "HH:MM" to minutes since midnight
+//---------------------------------------
+// convert hhmm to minute
+//---------------------------------------
+
   int _timeToMinutes(String hhmm) {
     final List<String> p = hhmm.split(':');
     int h = 0;
@@ -155,7 +173,10 @@ class _Booking_DateState extends State<Booking_Date> {
     return (h * 60) + m;
   }
 
-  // is the selected day equal to today?
+//---------------------------------------
+//  check if its the same day
+//---------------------------------------
+
   bool _isTodaySelected() {
     return _selected.year == _today.year &&
         _selected.month == _today.month &&
@@ -173,7 +194,10 @@ class _Booking_DateState extends State<Booking_Date> {
     return false;
   }
 
-  // "08:00" -> "8.00 am"
+//---------------------------------------
+// add am pm
+//---------------------------------------
+
   String _toAmPmDotStart(String hhmm) {
     final List<String> parts = hhmm.split(':');
     int hour = 0;
@@ -198,7 +222,10 @@ class _Booking_DateState extends State<Booking_Date> {
     return '$h12.$m $suffix';
   }
 
-  // one-letter weekday for header row
+  //---------------------------------------
+// get the letter of date
+//---------------------------------------
+
   String _letterFor(DateTime d) {
     if (d.weekday == DateTime.sunday) return 'S';
     if (d.weekday == DateTime.monday) return 'M';
@@ -209,10 +236,15 @@ class _Booking_DateState extends State<Booking_Date> {
     return 'S'; // Saturday
   }
 
-  // is this date in the OffDays set?
+//---------------------------------------
+// check it is is offday
+//---------------------------------------
+
   bool _isOffDay(DateTime d) => _offDaysYMD.contains(_ymd(d));
 
-  // is this date allowed to book (weekday rule + not OffDay)?
+//---------------------------------------
+// check which day can be book
+//---------------------------------------
   bool _isWeekdayAllowed(DateTime d) {
     final int wd = d.weekday;
     final bool byWeekday =
@@ -227,7 +259,9 @@ class _Booking_DateState extends State<Booking_Date> {
     if (!byWeekday) return false;
     if (_isOffDay(d)) return false;
 
-// block dates inside facility inactive window (if both ends present)
+//---------------------------------------
+// block inactive day also
+//---------------------------------------
     if (_inactiveFrom != null && _inactiveTo != null) {
       final DateTime dOnly = DateTime(d.year, d.month, d.day);
       if (!dOnly.isBefore(_inactiveFrom!) && !dOnly.isAfter(_inactiveTo!)) {
@@ -238,14 +272,19 @@ class _Booking_DateState extends State<Booking_Date> {
     return true;
   }
 
-  // --- lead time to lock a slot (minutes) ---
+//---------------------------------------
+// 3 hour before only can book
+//---------------------------------------
+
   final int _leadDisableMinutes = 180; // 3 hours
 
-// --- facility inactive window (date-only) ---
   DateTime? _inactiveFrom;
   DateTime? _inactiveTo;
 
-// Coerce any dynamic into a date-only (yyyy-MM-dd at 00:00)
+//---------------------------------------
+// parse to date format
+//---------------------------------------
+
   DateTime? _dateOnly(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) {
@@ -270,7 +309,10 @@ class _Booking_DateState extends State<Booking_Date> {
   }
 
 
-  // read weekday booleans from SystemInformation/Setting
+//---------------------------------------
+// read the week day which day is on and off
+//---------------------------------------
+
   Future<void> _loadWeekdayRules() async {
     try {
       final DocumentSnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance
@@ -281,36 +323,24 @@ class _Booking_DateState extends State<Booking_Date> {
       if (snap.exists) {
         final Map<String, dynamic> m = snap.data() ?? <String, dynamic>{};
 
-        // convert any type to bool
-        bool toBool(dynamic v) {
-          if (v is bool) return v;
-          if (v is num) return v != 0;
-          if (v is String) return v.trim().toLowerCase() == 'true';
-          return false;
-        }
-
-        // read with fallback to lowercase key (short with ??)
-        bool read(String key) {
-          final dynamic raw = m[key] ?? m[key.toLowerCase()];
-          return toBool(raw);
-        }
-
-        _allowSun = read('Sunday');
-        _allowMon = read('Monday');
-        _allowTue = read('Tuesday');
-        _allowWed = read('Wednesday');
-        _allowThu = read('Thursday');
-        _allowFri = read('Friday');
-        _allowSat = read('Saturday');
+        _allowSun = m['Sunday'];
+        _allowMon = m['Monday'];
+        _allowTue = m['Tuesday'];
+        _allowWed = m['Wednesday'];
+        _allowThu = m['Thursday'];
+        _allowFri = m['Friday'];
+        _allowSat = m['Saturday'];
       }
     } catch (_) {
-      // keep defaults on error
     }
 
     if (mounted) setState(() {});
   }
 
-  // read facility doc ONCE (capacity + slots template)
+//---------------------------------------
+// load all facility important thing liks available slot, time slot, inactive time
+//---------------------------------------
+
   Future<void> _loadFacilityOnce() async {
     setState(() => _loadingFacility = true);
 
@@ -322,7 +352,9 @@ class _Booking_DateState extends State<Booking_Date> {
 
       _facilityData = snap.data() ?? <String, dynamic>{};
 
-      // customTimeSlots (list of maps with 'start', 'end', etc.)
+      //---------------------------------------
+// add each time slot to list
+//---------------------------------------
       _slotsTemplate = <Map<String, dynamic>>[];
       final dynamic raw = _facilityData['customTimeSlots'];
       if (raw is List) {
@@ -333,10 +365,7 @@ class _Booking_DateState extends State<Booking_Date> {
         }
       }
 
-      // availableSlots -> base capacity
-      int cap = _asInt(_facilityData['availableSlots']);
-      if (cap <= 0) cap = 1;
-      _facilityCapacity = cap;
+      _facilityCapacity = _facilityData['availableSlots'];
 
       _inactiveFrom = _dateOnly(_facilityData['inactiveFrom']);
       _inactiveTo   = _dateOnly(_facilityData['inactiveTo']);
@@ -346,20 +375,25 @@ class _Booking_DateState extends State<Booking_Date> {
       _facilityCapacity = 1;
 
     }
-
-
+    //---------------------------------------
+// set loading facility to flase
+//---------------------------------------
 
     if (mounted) setState(() => _loadingFacility = false);
   }
 
-  // read OffDays (array of "YYYY-MM-DD")
+//---------------------------------------
+// load the off days or holidays
+//---------------------------------------
   Future<void> _loadOffDays() async {
     try {
       final DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance
           .collection('SystemInformation')
           .doc('OffDays')
           .get();
-
+//---------------------------------------
+// add each day into list
+//---------------------------------------
       final Set<String> next = <String>{};
       final Map<String, dynamic>? data = doc.data();
       if (doc.exists && data != null && data['offDays'] is List) {
@@ -369,6 +403,9 @@ class _Booking_DateState extends State<Booking_Date> {
         }
       }
 
+//---------------------------------------
+// set the UI
+//---------------------------------------
       if (mounted) {
         setState(() {
           _offDaysYMD
@@ -377,22 +414,22 @@ class _Booking_DateState extends State<Booking_Date> {
         });
       }
     } catch (_) {
-      // keep empty set on failure
     }
   }
 
   void _startSlotsListenerForSelectedDay() {
-    // stop previous
+
     _slotsSub?.cancel();
 
-    // reset loading + maps
     setState(() {
       _loadingSlots = true;
       _bookedByKey.clear();
-      _capByKey.clear();
     });
 
-    // subscribe to Slots collection for this day
+//---------------------------------------
+// get the time slot
+//---------------------------------------
+
     _slotsSub = FirebaseFirestore.instance
         .collection('Facilities')
         .doc(widget.facilityId)
@@ -401,31 +438,24 @@ class _Booking_DateState extends State<Booking_Date> {
         .collection('Slots')
         .snapshots()
         .listen((QuerySnapshot<Map<String, dynamic>> qs) {
-      // build new maps from snapshot
+
       final Map<String, int> nextBooked = <String, int>{};
-      final Map<String, int> nextCap = <String, int>{};
 
       for (final QueryDocumentSnapshot<Map<String, dynamic>> d in qs.docs) {
         final Map<String, dynamic> data = d.data();
 
-        // 4-char slot key based on doc id
+//---------------------------------------
+// get the slot key
+//---------------------------------------
         final String key4 = _slotKey4(d.id);
+        //---------------------------------------
+// get the booked total
+//---------------------------------------
 
-        // booked can be in several legacy fields → pick the first non-null
-        int booked = _asInt(data['booked'] ?? data['reserved'] ?? data['reserve'] ?? 0);
+        int booked = _asInt(data['booked']);
         if (booked < 0) booked = 0;
         nextBooked[key4] = booked;
 
-        // slot-level capacity overrides facility capacity only if present and > 0
-        final int slotCap = _asInt(data['capacity'] ?? 0);
-        if (slotCap > 0) {
-          nextCap[key4] = slotCap;
-        }
-
-        if (_debugPanel) {
-          // ignore: avoid_print
-          print('[SLOTS] $_ymdSelected $key4 => booked=$booked cap=${nextCap[key4] ?? _facilityCapacity}');
-        }
       }
 
       if (mounted) {
@@ -433,26 +463,24 @@ class _Booking_DateState extends State<Booking_Date> {
           _bookedByKey
             ..clear()
             ..addAll(nextBooked);
-          _capByKey
-            ..clear()
-            ..addAll(nextCap);
           _loadingSlots = false;
         });
       }
     }, onError: (e) {
       if (_debugPanel) {
-        // ignore: avoid_print
         print('Slots listener error: $e');
       }
       if (mounted) {
         setState(() {
           _bookedByKey.clear();
-          _capByKey.clear();
           _loadingSlots = false;
         });
       }
     });
   }
+//---------------------------------------
+// navigation page
+//---------------------------------------
 
   void _onTabSelected(int i) {
     if (i == 2) {
@@ -468,24 +496,39 @@ class _Booking_DateState extends State<Booking_Date> {
     }
   }
 
+  //---------------------------------------
+// pick date calender
+//---------------------------------------
+
   Future<void> _pickDateWithCalendar() async {
+    //---------------------------------------
+// set only allow today and next 6 days
+//---------------------------------------
     final DateTime first = _today;
     final DateTime last  = _today.add(const Duration(days: 6));
 
-    // open calendar
+    //---------------------------------------
+// open calender
+//---------------------------------------
+
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selected,
       firstDate: first,
       lastDate: last,
       helpText: 'Select date',
+      //---------------------------------------
+// make sure the allowable day is weekday allow and not before and after first adn last
+//---------------------------------------
       selectableDayPredicate: (DateTime day) {
         final bool inRange = !day.isBefore(first) && !day.isAfter(last);
         return inRange && _isWeekdayAllowed(day);
       },
     );
 
-    // apply picked date and refresh slots
+    //---------------------------------------
+// after its picked
+//---------------------------------------
     if (picked != null) {
       setState(() {
         _selected = DateTime(picked.year, picked.month, picked.day);
@@ -496,13 +539,15 @@ class _Booking_DateState extends State<Booking_Date> {
     }
   }
 
+  //---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    // bottom bar height scaled from screen
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
 
     return Scaffold(
-      // ----- Top AppBar -----
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -510,7 +555,6 @@ class _Booking_DateState extends State<Booking_Date> {
           centerTitle: true,
           elevation: 0,
           automaticallyImplyLeading: false,
-          // back button
           leading: IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -521,7 +565,6 @@ class _Booking_DateState extends State<Booking_Date> {
             'Date and time',
             style: TextStyle(color: Colors.white, fontSize: 18.sp, fontWeight: FontWeight.w600),
           ),
-          // close button
           actions: <Widget>[
             IconButton(
               onPressed: () {
@@ -538,20 +581,23 @@ class _Booking_DateState extends State<Booking_Date> {
         ),
       ),
 
-      // ----- Body -----
+//---------------------------------------
+// body
+//---------------------------------------
       body: SafeArea(
         child: Stack(
           children: <Widget>[
-            // scrollable content
             SingleChildScrollView(
               padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h).copyWith(bottom: 120.h),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
-                  // -- Month + Year + Calendar icon --
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
+//---------------------------------------
+// display the month year for selected day
+//---------------------------------------
                       Text(
                         _monthYearText(_selected),
                         style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
@@ -560,6 +606,9 @@ class _Booking_DateState extends State<Booking_Date> {
                       SizedBox(
                         width: 28.w,
                         height: 28.w,
+//---------------------------------------
+// allow to pick date
+//---------------------------------------
                         child: IconButton(
                           padding: EdgeInsets.zero,
                           onPressed: _pickDateWithCalendar,
@@ -573,7 +622,9 @@ class _Booking_DateState extends State<Booking_Date> {
 
                   SizedBox(height: 10.h),
 
-                  // -- Weekday letters (grey if closed) --
+//---------------------------------------
+// list the next seven days
+//---------------------------------------
                   Row(
                     children: List<Widget>.generate(_next7.length, (int i) {
                       final DateTime d = _next7[i];
@@ -582,7 +633,10 @@ class _Booking_DateState extends State<Booking_Date> {
 
                       return Expanded(
                         child: Center(
-                          child: Text(
+//---------------------------------------
+// list the day
+//---------------------------------------
+                        child: Text(
                             _letterFor(d),
                             style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600, color: c),
                           ),
@@ -593,15 +647,14 @@ class _Booking_DateState extends State<Booking_Date> {
 
                   SizedBox(height: 6.h),
 
-                  // -- Day numbers (selectable) --
+//---------------------------------------
+// for selectable day
+//---------------------------------------
                   Row(
                     children: List<Widget>.generate(_next7.length, (int i) {
                       final DateTime d = _next7[i];
 
-                      final bool isSelected =
-                          d.year == _selected.year &&
-                              d.month == _selected.month &&
-                              d.day == _selected.day;
+                      final bool isSelected = d.year == _selected.year && d.month == _selected.month && d.day == _selected.day;
 
                       final bool enabled = _isWeekdayAllowed(d);
 
@@ -611,13 +664,17 @@ class _Booking_DateState extends State<Booking_Date> {
                       return Expanded(
                         child: Center(
                           child: InkWell(
-                            onTap: enabled
+//---------------------------------------
+// if it is enable date will turn colour to selected , if not do nothing
+//---------------------------------------
+
+                          onTap: enabled
                                 ? () {
                               setState(() {
                                 _selected = d;
                                 _pickedStarts.clear();
                               });
-                              _startSlotsListenerForSelectedDay(); // switch listener to this date
+                              _startSlotsListenerForSelectedDay();
                             }
                                 : null,
                             borderRadius: BorderRadius.circular(20.r),
@@ -630,7 +687,10 @@ class _Booking_DateState extends State<Booking_Date> {
                                 shape: BoxShape.circle,
                               ),
                               child: Text(
-                                '${d.day}',
+//---------------------------------------
+// show day oonly whcih is the first of the date
+//---------------------------------------
+                              '${d.day}',
                                 style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600, color: fg),
                               ),
                             ),
@@ -644,7 +704,9 @@ class _Booking_DateState extends State<Booking_Date> {
                   Container(width: 1.0.sw, height: 1.h, color: Colors.black12),
                   SizedBox(height: 12.h),
 
-                  // -- Header: Slots Available --
+//---------------------------------------
+// display slot available
+//---------------------------------------
                   Row(
                     children: <Widget>[
                       Expanded(
@@ -653,24 +715,13 @@ class _Booking_DateState extends State<Booking_Date> {
                           style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700),
                         ),
                       ),
-                      if (_debugPanel) ...<Widget>[
-                        SizedBox(width: 8.w),
-                        Chip(
-                          label: Text('cap = $_facilityCapacity'),
-                          backgroundColor: Colors.black12,
-                        ),
-                        SizedBox(width: 8.w),
-                        Chip(
-                          label: Text(_ymdSelected),
-                          backgroundColor: Colors.black12,
-                        ),
-                      ],
                     ],
                   ),
 
                   SizedBox(height: 6.h),
-
-                  // -- Info row --
+//---------------------------------------
+// row info
+//---------------------------------------
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
@@ -688,7 +739,9 @@ class _Booking_DateState extends State<Booking_Date> {
 
                   SizedBox(height: 12.h),
 
-                  // -- Loading/Warnings/Slots grid --
+//---------------------------------------
+// if the picked day is not allowed day( normally wont happend )
+//---------------------------------------
                   if (!_isWeekdayAllowed(_selected))
                     Container(
                       width: 1.0.sw,
@@ -703,12 +756,18 @@ class _Booking_DateState extends State<Booking_Date> {
                         style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600, color: const Color(0xFFFF0707)),
                       ),
                     )
+//---------------------------------------
+// show loading if not done loading
+//---------------------------------------
                   else if (_loadingFacility || _loadingSlots)
                     SizedBox(
                       width: 28.w,
                       height: 28.w,
                       child: const CircularProgressIndicator(),
                     )
+//---------------------------------------
+// if no time slot
+//---------------------------------------
                   else if (_slotsTemplate.isEmpty)
                       Text(
                         'No time slots set by admin.',
@@ -717,21 +776,26 @@ class _Booking_DateState extends State<Booking_Date> {
                     else
                       Builder(
                         builder: (BuildContext _) {
-                          // responsive chip layout (3 per row)
                           final double fullW = 1.0.sw - 32.w;
                           final double gap = 8.w;
+//---------------------------------------
+// size to allow 3 chip to be display in a row
+//---------------------------------------
                           final double itemW = (fullW - (gap * 2.0)) / 3.0;
 
                           final List<Widget> chips = <Widget>[];
                           int i = 0;
+//---------------------------------------
+// slot time plate is the time slot list
+//---------------------------------------
                           while (i < _slotsTemplate.length) {
                             final Map<String, dynamic> m = _slotsTemplate[i];
-                            final String s = (m['start'] ?? '').toString(); // "08:00"
+                            final String s = (m['start']).toString(); // "08:00"
 
                             if (s.isNotEmpty) {
                               final String key = _slotKey4(s);          // "0800"
                               final int booked = _bookedByKey[key] ?? 0; // booked count (default 0)
-                              final int capForThis = _capByKey[key] ?? _facilityCapacity; // capacity override or facility cap
+                              final int capForThis = _facilityCapacity; // capacity override or facility cap
 
                               final bool isTooSoon = _isSlotTooSoon(s); // 3h lock
                               final bool isFull = booked >= capForThis;
@@ -743,21 +807,32 @@ class _Booking_DateState extends State<Booking_Date> {
                               Color textColor;
                               double borderWidth = 1.5;
                               double opacity = 1.0;
-
+//---------------------------------------
+// already within 3 hour
+//---------------------------------------
                               if (isTooSoon) {
                                 fillColor = Colors.grey.shade300;
                                 borderColor = Colors.grey.shade500;
                                 textColor = Colors.black54;
                                 opacity = 0.6;
+//---------------------------------------
+// slot already full
+//---------------------------------------
                               } else if (isFull) {
                                 fillColor = const Color(0xFFFFCDD2);
                                 borderColor = const Color(0xFFFF0707);
                                 textColor = const Color(0xFFB00020);
+//---------------------------------------
+// picked slot
+//---------------------------------------
                               } else if (isPicked) {
                                 fillColor = const Color(0xFF9747FF);
                                 borderColor = const Color(0xFF4A00B8);
                                 textColor = Colors.white;
                                 borderWidth = 2.0;
+//---------------------------------------
+// default slot
+//---------------------------------------
                               } else {
                                 fillColor = const Color(0xFFB779F1);
                                 borderColor = const Color(0xFF6E00D4);
@@ -766,36 +841,18 @@ class _Booking_DateState extends State<Booking_Date> {
 
                               final bool disabled = isTooSoon || isFull;
 
-                              // one slot chip (tap to toggle pick)
+//---------------------------------------
+// start chip build
+//---------------------------------------
                               chips.add(
-                                IgnorePointer(
+//---------------------------------------
+// ingnore pointer to ingnore disable time
+//---------------------------------------
+                              IgnorePointer(
                                   ignoring: disabled,
                                   child: Opacity(
                                     opacity: disabled ? 0.85 : 1.0,
                                     child: InkWell(
-                                      onLongPress: _debugPanel
-                                          ? () {
-                                        showDialog(
-                                          context: context,
-                                          builder: (_) => AlertDialog(
-                                            title: Text('Slot $key'),
-                                            content: Text(
-                                              'booked = $booked\n'
-                                                  'capacity (slot/fallback) = $capForThis\n'
-                                                  'facilityCap = $_facilityCapacity\n'
-                                                  'past = $isTooSoon\n'
-                                                  'full = $isFull',
-                                            ),
-                                            actions: <Widget>[
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(context),
-                                                child: const Text('Close'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }
-                                          : null,
                                       onTap: () {
                                         setState(() {
                                           if (isPicked) {
@@ -818,6 +875,9 @@ class _Booking_DateState extends State<Booking_Date> {
                                               borderRadius: BorderRadius.circular(20.r),
                                               border: Border.all(color: borderColor, width: borderWidth),
                                             ),
+//---------------------------------------
+// display time
+//---------------------------------------
                                             child: Text(
                                               _toAmPmDotStart(s),
                                               maxLines: 1,
@@ -829,18 +889,6 @@ class _Booking_DateState extends State<Booking_Date> {
                                               ),
                                             ),
                                           ),
-                                          if (_debugPanel)
-                                            Positioned(
-                                              bottom: 3.h,
-                                              child: Text(
-                                                '$booked/$capForThis',
-                                                style: TextStyle(
-                                                  fontSize: 10.sp,
-                                                  color: Colors.black87,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
                                         ],
                                       ),
                                     ),
@@ -852,7 +900,10 @@ class _Booking_DateState extends State<Booking_Date> {
                             i = i + 1;
                           }
 
-                          // chips + auto-assign switch
+//---------------------------------------
+// column to display chip
+//---------------------------------------
+
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
@@ -860,6 +911,9 @@ class _Booking_DateState extends State<Booking_Date> {
                                 alignment: Alignment.centerLeft,
                                 child: Wrap(spacing: gap, runSpacing: gap, children: chips),
                               ),
+//---------------------------------------
+// check box for auto asign
+//---------------------------------------
                               SizedBox(height: 16.h),
                               CheckboxListTile(
                                 value: _autoAssign,
@@ -870,13 +924,6 @@ class _Booking_DateState extends State<Booking_Date> {
                                 title: const Text('Auto-assign facility (slot number)'),
                                 contentPadding: EdgeInsets.zero,
                               ),
-                              if (_debugPanel) ...<Widget>[
-                                SizedBox(height: 8.h),
-                                Text(
-                                  'Debug: facilityId=${widget.facilityId}, date=$_ymdSelected, slots=${_bookedByKey.length}',
-                                  style: TextStyle(fontSize: 12.sp, color: Colors.black54),
-                                ),
-                              ],
                             ],
                           );
                         },
@@ -884,8 +931,9 @@ class _Booking_DateState extends State<Booking_Date> {
                 ],
               ),
             ),
-
-            // -- Bottom Confirm Button --
+//---------------------------------------
+// confirm button
+//---------------------------------------
             Positioned(
               left: 16.w,
               right: 16.w,
@@ -897,36 +945,21 @@ class _Booking_DateState extends State<Booking_Date> {
                     backgroundColor: const Color(0xFF9747FF),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28.r)),
                   ),
-                  // disable if no picks
+//---------------------------------------
+// if no date is pick
+//---------------------------------------
                   onPressed: _pickedStarts.isEmpty
                       ? null
                       : () async {
-                    // 1) sort selected times
+//---------------------------------------
+// sort the picked selected time
+//---------------------------------------
                     final List<String> times = _pickedStarts.toList()..sort();
+//---------------------------------------
+// if auto assign in true go to confirm booking page
+//---------------------------------------
 
-                    // 2) if today, reject past OR within-3h times
-                    if (_isTodaySelected()) {
-                      final DateTime now = DateTime.now();
-                      final int nowMin = (now.hour * 60) + now.minute;
-                      final List<String> bad = <String>[];
-                      for (final String t in times) {
-                        final int startMin = _timeToMinutes(t);
-                        if (nowMin >= (startMin - _leadDisableMinutes)) {
-                          bad.add(_toAmPmDotStart(t));
-                        }
-                      }
-                      if (bad.isNotEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('These times cannot be booked (less than 3h away): ${bad.join(', ')}')),
-                        );
-                        return;
-                      }
-                    }
-
-
-                    // 3) go next by auto-assign or manual seat selection
                     if (_autoAssign) {
-                      // directly to confirm
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -940,7 +973,10 @@ class _Booking_DateState extends State<Booking_Date> {
                         ),
                       );
                     } else {
-                      // open seat selection page first
+//---------------------------------------
+// or else go select slot page
+//---------------------------------------
+
                       final Map<String, int>? picks = await Navigator.push<Map<String, int>>(
                         context,
                         MaterialPageRoute(
@@ -953,7 +989,10 @@ class _Booking_DateState extends State<Booking_Date> {
                         ),
                       );
 
-                      // if user picked seats, go to confirm with seat map
+//---------------------------------------
+// await after slot is picked directly send to confirmation booking
+//---------------------------------------
+
                       if (picks != null && picks.isNotEmpty) {
                         final List<String> sortedKeys = picks.keys.toList()..sort();
                         Navigator.push(
@@ -983,7 +1022,10 @@ class _Booking_DateState extends State<Booking_Date> {
         ),
       ),
 
-      // ----- Bottom Navigation Bar -----
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
+
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,

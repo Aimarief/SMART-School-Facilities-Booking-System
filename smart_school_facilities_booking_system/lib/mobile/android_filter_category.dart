@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// bottom nav + pages
 import 'android_bottom_menu.dart';
 import 'android_agenda.dart';
 import 'android_view_booking.dart';
@@ -18,31 +17,34 @@ class FilterCategory extends StatefulWidget {
 }
 
 class _FilterCategoryState extends State<FilterCategory> {
-  // keep Facilities tab highlighted
+//---------------------------------------
+// current index page
+//---------------------------------------
   int _currentIndex = 2;
 
-  // search controller
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // firestore collection reference
   final CollectionReference<Map<String, dynamic>> _catCol =
   FirebaseFirestore.instance.collection('FacilitiesCategory');
 
-  // attach search listener to rebuild on change
   @override
   void initState() {
     super.initState();
+//---------------------------------------
+// when change will set state
+//---------------------------------------
     _searchCtrl.addListener(() => setState(() {}));
   }
 
-  // dispose controller to avoid leaks
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  // bottom bar navigation: simple if/else routing
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
   void _onTabSelected(int i) {
     if (i == 0) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
@@ -57,14 +59,16 @@ class _FilterCategoryState extends State<FilterCategory> {
     }
   }
 
-  // build main scaffold
+//---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
     final double sw = MediaQuery.of(context).size.width;
 
     return Scaffold(
-      // app bar with title
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -79,17 +83,15 @@ class _FilterCategoryState extends State<FilterCategory> {
         ),
       ),
 
-      // page body
       body: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           children: [
-            // search bar
+
             _buildSearchField(),
 
             SizedBox(height: 16.h),
 
-            // header
             Text(
               "Choose a category",
               style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600),
@@ -97,7 +99,6 @@ class _FilterCategoryState extends State<FilterCategory> {
 
             SizedBox(height: 12.h),
 
-            // category list
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _catCol.snapshots(),
@@ -109,14 +110,18 @@ class _FilterCategoryState extends State<FilterCategory> {
                     return const Center(child: Text('Failed to load categories'));
                   }
 
-                  // normalize query
+//---------------------------------------
+// search controller
+//---------------------------------------
                   final String q = _searchCtrl.text.trim().toLowerCase();
 
-                  // take docs (or empty)
                   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
                       snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-                  // filter visible names (skip deleted, match search)
+ //---------------------------------------
+// skip if category deleted = true
+//---------------------------------------
+
                   final List<String> names = <String>[];
                   for (final d in docs) {
                     final Map<String, dynamic> data = d.data();
@@ -137,10 +142,16 @@ class _FilterCategoryState extends State<FilterCategory> {
                     }
                   }
 
-                  // sort by name
+//---------------------------------------
+// sort category by name
+//---------------------------------------
+
                   names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-                  // leading "None" to clear filter
+//---------------------------------------
+// list first None
+//---------------------------------------
+
                   final List<Widget> tiles = <Widget>[
                     _categoryTile(
                       sw: sw,
@@ -149,8 +160,9 @@ class _FilterCategoryState extends State<FilterCategory> {
                     ),
                     SizedBox(height: 10.h),
                   ];
-
-                  // add items
+//---------------------------------------
+// List all other category
+//---------------------------------------
                   tiles.addAll(
                     names.map(
                           (n) => Padding(
@@ -164,7 +176,10 @@ class _FilterCategoryState extends State<FilterCategory> {
                     ),
                   );
 
-                  // show "no match" when empty
+//---------------------------------------
+// if search not match
+//---------------------------------------
+
                   if (names.isEmpty == true) {
                     return ListView(
                       children: <Widget>[
@@ -179,7 +194,6 @@ class _FilterCategoryState extends State<FilterCategory> {
                       ],
                     );
                   }
-
                   return ListView(children: tiles);
                 },
               ),
@@ -187,8 +201,9 @@ class _FilterCategoryState extends State<FilterCategory> {
           ],
         ),
       ),
-
-      // bottom navigation bar
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -197,7 +212,10 @@ class _FilterCategoryState extends State<FilterCategory> {
     );
   }
 
-  // build the search field with stable width for clear button
+//---------------------------------------
+// search button design
+//---------------------------------------
+
   Widget _buildSearchField() {
     return Container(
       height: 44.h,
@@ -216,12 +234,10 @@ class _FilterCategoryState extends State<FilterCategory> {
       padding: EdgeInsets.symmetric(horizontal: 12.w),
       child: Row(
         children: [
-          // search icon
           const Icon(Icons.search, color: Colors.grey),
 
           SizedBox(width: 8.w),
 
-          // input
           Expanded(
             child: TextField(
               controller: _searchCtrl,
@@ -235,8 +251,9 @@ class _FilterCategoryState extends State<FilterCategory> {
               ),
             ),
           ),
-
-          // reserved area for clear button (no layout jump)
+//---------------------------------------
+// when search box not empty , display clear button
+//---------------------------------------
           SizedBox(
             width: 36.w,
             child: Align(
@@ -260,7 +277,9 @@ class _FilterCategoryState extends State<FilterCategory> {
     );
   }
 
-  // build a single category tile row
+//---------------------------------------
+// display each category
+//---------------------------------------
   Widget _categoryTile({
     required double sw,
     required String title,

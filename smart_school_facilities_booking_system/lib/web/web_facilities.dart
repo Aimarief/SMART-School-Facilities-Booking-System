@@ -25,7 +25,7 @@ class _WebFacilitiesState extends State<WebFacilities> {
   Map<String, dynamic>? _facData;
 
   // Right panel mode
-  String _facInitial = 'view'; // 'add' | 'view' | 'edit'
+  String _facInitial = 'view';
 
   void _openAddFacility() {
     setState(() {
@@ -59,13 +59,15 @@ class _WebFacilitiesState extends State<WebFacilities> {
     });
   }
 
-
-
   @override
   void dispose() {
     _facSearch.dispose();
     super.dispose();
   }
+
+//---------------------------------------
+// Main build that show left and right panel
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +80,7 @@ class _WebFacilitiesState extends State<WebFacilities> {
         builder: (context, constraints) {
           return SingleChildScrollView(
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              constraints: BoxConstraints(minHeight: constraints.maxHeight), // stretch the box if zoom in, minimum height is fix, it can be taller but cannot be shorter
               child: Padding(
                 padding: EdgeInsets.all(16.w),
                 child: Align(
@@ -87,7 +89,7 @@ class _WebFacilitiesState extends State<WebFacilities> {
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth: 460.w + 24.w + 1200.w,
+                        maxWidth: 1684.w,
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,6 +102,7 @@ class _WebFacilitiesState extends State<WebFacilities> {
                             onAddTap: _openAddFacility,
                             onSelect: _selectFacility,
                           ),
+
                           SizedBox(width: 24.w),
                           // RIGHT: Details
                           FacilityRightPanel(
@@ -267,7 +270,9 @@ class _ListTileCard extends StatelessWidget {
     );
   }
 }
-
+//---------------------------------------
+// list at the left side
+//---------------------------------------
 class FacilityLeftList extends StatefulWidget {
   const FacilityLeftList({
     Key? key,
@@ -291,7 +296,9 @@ class FacilityLeftList extends StatefulWidget {
 
 class _FacilityLeftListState extends State<FacilityLeftList> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _facStream() {
-    return FirebaseFirestore.instance.collection('Facilities').orderBy('name').snapshots();
+    return FirebaseFirestore.instance
+        .collection('Facilities')
+        .orderBy('name').snapshots();
   }
 
   String _clean(String s) => s.trim();
@@ -320,7 +327,7 @@ class _FacilityLeftListState extends State<FacilityLeftList> {
           List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
           if (snap.hasData) {
             docs = snap.data!.docs;
-          }
+          } // keep all the facilities in this docs
 
           final String q = _clean(widget.search.text).toLowerCase();
           final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -337,55 +344,58 @@ class _FacilityLeftListState extends State<FacilityLeftList> {
 
             String name = '';
             if (m.containsKey('name')) {
-              if (m['name'] != null) {
-                name = m['name'].toString();
-              }
+                name = m['name'];
             }
 
             bool matches = true;
             if (q.isNotEmpty) {
               final String lower = name.toLowerCase();
-              if (!lower.contains(q)) {
+              if (!lower.contains(q)) { // if lower which is the facility name contain key word in the search controller
                 matches = false;
               }
             }
 
             if (!del) {
               if (matches) {
-                filtered.add(d);
+                filtered.add(d); //if match and no deleted , will add in the filtered list
               }
             }
           }
-
           if (filtered.isEmpty) {
             return Center(child: Text('empty', style: TextStyle(fontSize: 14.sp)));
           }
 
-          return ListView.separated(
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => SizedBox(height: 8.h),
-            itemBuilder: (context, i) {
-              final doc = filtered[i];
-              final Map<String, dynamic> data = doc.data();
+          final List<Widget> children = <Widget>[];
+          for (int i = 0; i < filtered.length; i++) {
+            final doc = filtered[i];
+            final Map<String, dynamic> data = doc.data();
 
-              String name = '';
-              if (data.containsKey('name')) {
-                if (data['name'] != null) {
-                  name = data['name'].toString();
-                }
-              }
+            String name = '';
+                name = data['name'].toString();
 
-              return _ListTileCard(
+            children.add(
+              _ListTileCard(
                 label: name,
                 onTap: () => widget.onSelect(doc.id, data),
-              );
-            },
+              ),
+            );
+            if (i < filtered.length - 1) {
+              children.add(SizedBox(height: 8.h));
+            }
+          }
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: children,
           );
         },
       ),
     );
   }
 }
+
+//---------------------------------------
+// The place that run the right panel
+//---------------------------------------
 
 class FacilityRightPanel extends StatefulWidget {
   const FacilityRightPanel({
@@ -416,13 +426,13 @@ class FacilityRightPanel extends StatefulWidget {
 
 class _FacilityRightPanelState extends State<FacilityRightPanel> {
   // --- Form controllers ---
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>(); // use to check and validate all form
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _locationCtrl = TextEditingController();
   final TextEditingController _detailsCtrl = TextEditingController();
   final TextEditingController _durationCtrl = TextEditingController(text: '1');
   final TextEditingController _inactiveReasonCtrl = TextEditingController();
-  final GlobalKey<FormFieldState> _slotFieldKey = GlobalKey<FormFieldState>();
+  final GlobalKey<FormFieldState> _slotFieldKey = GlobalKey<FormFieldState>(); //only for slot because its not text field, it have to use different way to validate
 
   // --- Form runtime state ---
   int _slots = 1;
@@ -497,14 +507,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return '$y-$mo-$da';
   }
 
-  String _fmtTime(TimeOfDay t) {
-    final String h = t.hour.toString().padLeft(2, '0');
-    final String m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  int _toMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
-
+//---------------------------------------
+// parse the time to int
+//---------------------------------------
   int _safeParseInt(Object? v, int fallback) {
     if (v is int) return v;
     if (v == null) return fallback;
@@ -512,13 +517,18 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return p ?? fallback;
   }
 
+//---------------------------------------
+// convert minute back to hour and minute
+//---------------------------------------
   String _showHHMM(int m) {
     final String h = (m ~/ 60).toString().padLeft(2, '0');
     final String mm = (m % 60).toString().padLeft(2, '0');
     return '$h:$mm';
   }
 
-  /// Parse either minutes (int) or "HH:MM"/"HH:MM AM/PM" (String) into minutes.
+//---------------------------------------
+// convert hh mm time to minute
+//---------------------------------------
   int _parseToMinutes(Object? v) {
     if (v == null) return -1;
     if (v is int) return v;
@@ -547,41 +557,21 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return -1;
   }
 
-  /// Read working window (start/end minutes) from SystemInformation.
+//---------------------------------------
+// get the working hour in System information
+//---------------------------------------
   Future<Map<String, int>?> _getWorkingMinutes() async {
     try {
       final col = FirebaseFirestore.instance.collection('SystemInformation');
 
-      // Correct doc id (capital S)
       DocumentSnapshot<Map<String, dynamic>> doc = await col
           .doc('Setting')
           .get();
 
-      // Optional legacy fallback (lowercase) if you really need it:
-      if (!doc.exists) {
-        final lower = await col.doc('settings').get();
-        if (lower.exists) doc = lower;
-      }
-
-      // Last-resort fallback: find any doc that has start/end (without returning null in orElse)
-      if (!doc.exists) {
-        final qs = await col.get();
-        QueryDocumentSnapshot<Map<String, dynamic>>? hit;
-        for (final d in qs.docs) {
-          final m = d.data();
-          if (m.containsKey('start') && m.containsKey('end')) {
-            hit = d;
-            break;
-          }
-        }
-        if (hit == null) return null;
-        doc =
-            hit; // QueryDocumentSnapshot extends DocumentSnapshot, so this is fine
-      }
 
       final data = doc.data();
       if (data == null) return null;
-
+//set the start and end in minute
       final start = _parseToMinutes(data['start']);
       final end = _parseToMinutes(data['end']);
       if (start < 0 || end < 0) return null;
@@ -591,6 +581,10 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       return null;
     }
   }
+
+//---------------------------------------
+// notify user the booking need to be update
+//---------------------------------------
 
   Future<void> _notifyBookingsInDisabledRange({
     required String facilityId, // facility doc id
@@ -631,7 +625,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         final DateTime? bd = _readBookingDate(m);
         if (bd == null) continue;
 
-        // compare by date only
+        // compare by date only if there is booking in that date
         final DateTime only = DateTime(bd.year, bd.month, bd.day);
         if (only.isBefore(startDay)) continue;
         if (only.isAfter(endDay)) continue;
@@ -640,14 +634,10 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         final String approval = _readApprovalLower(m);
         if (approval == 'rejected') continue;
 
-        // read userId (several possible keys)
+        // read userId
         String userId = '';
         if (m.containsKey('userId') && m['userId'] != null) {
           userId = m['userId'].toString().trim();
-        } else if (m.containsKey('bookBy') && m['bookBy'] != null) {
-          userId = m['bookBy'].toString().trim();
-        } else if (m.containsKey('bookedBy') && m['bookedBy'] != null) {
-          userId = m['bookedBy'].toString().trim();
         }
         if (userId.isEmpty) continue; // nothing to notify
 
@@ -678,7 +668,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
           start: startStr,
           end: endStr,
           facilityId: facilityId,
-          bookingDate: _fmtDate(only), // "YYYY-MM-DD"
+          bookingDate: _fmtDate(only),
         );
       }
     } catch (_) {
@@ -711,7 +701,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return Image.asset(
       path,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) {
+      errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
         if (name == null || name.isEmpty) {
           return const Center(child: Text('No image'));
         } else {
@@ -721,7 +711,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     );
   }
 
-  // ---------- picks ----------
+//---------------------------------------
+// filepicker alows to open file and pick image
+//---------------------------------------
   Future<void> _pickImage() async {
     final FilePickerResult? res =
     await FilePicker.platform.pickFiles(type: FileType.image, withData: false);
@@ -732,33 +724,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     });
   }
 
-  Future<void> _pickStartTime() async {
-    final TimeOfDay? t =
-    await showTimePicker(
-        context: context, initialTime: const TimeOfDay(hour: 8, minute: 0));
-    if (t == null) return;
-    setState(() => _startTime = t);
-  }
-
-  Future<void> _pickEndTime() async {
-    final TimeOfDay? t =
-    await showTimePicker(
-        context: context, initialTime: const TimeOfDay(hour: 17, minute: 0));
-    if (t == null) return;
-
-    if (_startTime != null) {
-      final int endMin = t.hour * 60 + t.minute;
-      final int startMin = _startTime!.hour * 60 + _startTime!.minute;
-      if (endMin <= startMin) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
-            const SnackBar(content: Text('End must be after start')));
-        return;
-      }
-    }
-    setState(() => _endTime = t);
-  }
-
+//---------------------------------------
+// allows user to pick inactive range
+//---------------------------------------
   Future<void> _pickInactiveRange() async {
     if (_isRangePickerOpen) return;
     _isRangePickerOpen = true;
@@ -766,26 +734,29 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     try {
       final DateTime now = DateTime.now();
       final DateTime first = DateTime(now.year, now.month, now.day);
-      final DateTime last = DateTime(now.year + 2, 12, 31);
+      final DateTime last = DateTime(now.year + 2, 12, 31); // 2 year
 
       DateTimeRange init;
+      //check if previously choose is before first then today willl be come first
       if (_inactiveRange != null) {
         DateTime s = _inactiveRange!.start.isBefore(first)
             ? first
             : _inactiveRange!.start;
         DateTime e = _inactiveRange!.end.isAfter(last) ? last : _inactiveRange!
             .end;
-        if (e.isBefore(s)) e = s;
+        //here check if e is before the s then e become s
+        if (e.isBefore(s))
+          e = s;
         init = DateTimeRange(start: s, end: e);
       } else {
         init = DateTimeRange(start: first, end: first);
       }
-
+// after validate everything, then only open the picker
       final DateTimeRange? picked = await showDateRangePicker(
         context: context,
-        firstDate: first,
-        lastDate: last,
-        initialDateRange: init,
+        firstDate: first, // first day that can be pick
+        lastDate: last, // last day that can be pick
+        initialDateRange: init, // time range that allow
       );
 
       if (picked != null) {
@@ -796,6 +767,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     }
   }
 
+//---------------------------------------
+// If no facility is pick then show this
+//---------------------------------------
   Widget _emptyPlaceholder() {
     return SizedBox(
       height: 820.h,
@@ -808,7 +782,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     );
   }
 
-  // ---------- data hydrate / reset ----------
+//---------------------------------------
+// when add is press, set all to default or empty
+//---------------------------------------
   void _resetAddDefaults() {
     _formKey.currentState?.reset();
 
@@ -843,8 +819,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     if (d == null || _view == 'add') return;
 
     String nm = '';
-    if (d.containsKey('name') && d['name'] != null) {
-      nm = d['name'].toString();
+    if (d.containsKey('name')) {
+      nm = d['name'];
     }
     _nameCtrl.text = nm;
 
@@ -922,7 +898,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     }
     if (_maxCapacity < 1) _maxCapacity = 1;
 
-    Map at;
+    Map at; //hold a dictionary
     if (d.containsKey('availableTime') && d['availableTime'] is Map) {
       at = d['availableTime'] as Map;
     } else {
@@ -938,6 +914,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       endStr = at['end'].toString();
     }
 
+//---------------------------------------
+// this part will convert time to string
+//---------------------------------------
     TimeOfDay _parseHHMM(String s) {
       final List<String> p = s.split(':');
       if (p.length == 2) {
@@ -953,6 +932,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     _startTime = startStr.isNotEmpty ? _parseHHMM(startStr) : null;
     _endTime = endStr.isNotEmpty ? _parseHHMM(endStr) : null;
 
+//---------------------------------------
+// this part will add the time lost into customslot list
+//---------------------------------------
     _customSlots = <Map<String, int>>[];
     if (d.containsKey('customTimeSlots') && d['customTimeSlots'] is List) {
       final List raw = d['customTimeSlots'] as List;
@@ -984,7 +966,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     }
     _managerName = managerName;
 
-
+//---------------------------------------
+// check if the time stamp exist as null or timestamp
+//---------------------------------------
     final Timestamp? fromTs =
     (d['inactiveFrom'] is Timestamp) ? d['inactiveFrom'] as Timestamp : null;
     final Timestamp? toTs =
@@ -1009,8 +993,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     final bool hasWindow = fromTs != null && toTs != null;
     final bool scheduledFuture = hasWindow && fromTs!.toDate().isAfter(today);
     final bool inWindowNow =
-        hasWindow && !today.isBefore(fromTs!.toDate()) &&
-            !today.isAfter(toTs!.toDate());
+        hasWindow && !today.isBefore(fromTs!.toDate()) && !today.isAfter(toTs!.toDate());
 
     _disableFacility = (!dbActive) || scheduledFuture || inWindowNow;
 
@@ -1018,11 +1001,14 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
     final String? id = widget.selectedFacilityId;
     if (id != null) {
+      //this part will check the unaivalable facility, if pass already, then it will be turned to active
       _maybeAutoClearExpiredInactive(id, d);
     }
   }
 
-  // ---------- custom slots ----------
+//---------------------------------------
+// while adding time slot
+//---------------------------------------
   Future<void> _onAddCustomSlot() async {
     int dur = 1;
     final int? p = int.tryParse(_durationCtrl.text.trim());
@@ -1043,6 +1029,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     );
     if (picked == null) return;
 
+    //convert the picked time to minute
     final int sMin = picked.hour * 60 + picked.minute;
     final int eMin = sMin + (dur * 60);
 
@@ -1060,8 +1047,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     if (sMin < sysStart || eMin > sysEnd) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(
-            'Slot must be within ${_showHHMM(sysStart)} – ${_showHHMM(
-                sysEnd)}')),
+            'Slot must be within ${_showHHMM(sysStart)} – ${_showHHMM(sysEnd)}')),
       );
       _slotError = null;
       _slotFieldKey.currentState?.validate();
@@ -1093,7 +1079,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     _slotFieldKey.currentState?.validate();
   }
 
-  // ---------- streams ----------
+  // call the stream in database of Facilities categories
   Stream<QuerySnapshot<Map<String, dynamic>>> _catsStream() {
     return FirebaseFirestore.instance
         .collection('FacilitiesCategory')
@@ -1101,6 +1087,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         .snapshots();
   }
 
+  // call the stream in database of Facilities manager
   Stream<QuerySnapshot<Map<String, dynamic>>> _managersStream() {
     return FirebaseFirestore.instance
         .collection('UserInformation')
@@ -1167,6 +1154,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       _slotFieldKey.currentState?.validate();
     }
 
+//---------------------------------------
+// get the working time from database in SystemInformation
+//---------------------------------------
     final Map<String, int>? sys = await _getWorkingMinutes();
     if (sys == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1201,8 +1191,11 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         );
         return;
       }
-      if (s < earliest) earliest = s;
-      if (e > latest) latest = e;
+      // get the earliest and the latest time so we can have availaible time range
+      if (s < earliest)
+        earliest = s;
+      if (e > latest)
+        latest = e;
     }
 
     if (_slots < 1) _slots = 1;
@@ -1279,6 +1272,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
           .showSnackBar(SnackBar(content: Text('Failed to add: $e')));
     }
   }
+//---------------------------------------
+// housekeeping to check if reach time then set inactive to null and active to true
+//---------------------------------------
 
   Future<void> _maybeAutoClearExpiredInactive(String docId,
       Map<String, dynamic> d) async {
@@ -1345,6 +1341,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     int earliest = 999999;
     int latest = -1;
     for (final m in _customSlots) {
+      //convert into int
       final int s = _safeParseInt(m['startMin'], -1);
       final int e = _safeParseInt(m['endMin'], -1);
       if ((e - s) != step) {
@@ -1366,6 +1363,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       if (e > latest) latest = e;
     }
 
+    //check and see wether the facility exist or not
     final String name = _clean(_nameCtrl.text);
     if (await _facilityNameExists(name, ignoreId: widget.selectedFacilityId)) {
       ScaffoldMessenger.of(context)
@@ -1435,6 +1433,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
     };
 
+    //if the facility is disable
     if (_disableFacility) {
       final String reason = _inactiveReasonCtrl.text.trim();
       if (reason.isEmpty) {
@@ -1485,8 +1484,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
       bool unchangedExistingRange = false;
       if (dbFromTs != null && dbToTs != null) {
-        if (_sameDay(dbFromTs.toDate(), _inactiveRange!.start) &&
-            _sameDay(dbToTs.toDate(), _inactiveRange!.end)) {
+        if (_sameDay(dbFromTs.toDate(), _inactiveRange!.start) && _sameDay(dbToTs.toDate(), _inactiveRange!.end)) {
           unchangedExistingRange = true;
         }
       }
@@ -1519,15 +1517,12 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
           .doc(widget.selectedFacilityId)
           .update(update);
 
-      if (_disableFacility && widget.selectedFacilityId != null &&
-          _inactiveRange != null) {
+      if (_disableFacility && widget.selectedFacilityId != null && _inactiveRange != null) {
         final DateTime startDay = DateTime(
-          _inactiveRange!.start.year, _inactiveRange!.start.month,
-          _inactiveRange!.start.day,
+          _inactiveRange!.start.year, _inactiveRange!.start.month, _inactiveRange!.start.day,
         );
         final DateTime endDay = DateTime(
-          _inactiveRange!.end.year, _inactiveRange!.end.month,
-          _inactiveRange!.end.day,
+          _inactiveRange!.end.year, _inactiveRange!.end.month, _inactiveRange!.end.day,
         );
         await _notifyBookingsInDisabledRange(
           facilityId: widget.selectedFacilityId!,
@@ -1537,10 +1532,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       }
 
       final Map<String, dynamic> newMap = <String, dynamic>{};
-      final Map<String, dynamic> old =
-      widget.selectedFacilityData == null ? <String, dynamic>{} : Map<
-          String,
-          dynamic>.from(widget.selectedFacilityData!);
+      final Map<String, dynamic> old = widget.selectedFacilityData == null ? <String, dynamic>{} :
+      Map<String, dynamic>.from(widget.selectedFacilityData!);
       newMap.addAll(old);
       newMap.addAll(update);
       widget.onFacilityUpdated(widget.selectedFacilityId, newMap);
@@ -1553,9 +1546,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     }
   }
 
-  /// read bookingDate from a booking map in simple way
-  /// supports Firestore Timestamp or "YYYY-MM-DD" string
-  /// return DateTime? (null if cannot read)
+//---------------------------------------
+// read the booking date from firestore
+//---------------------------------------
   DateTime? _readBookingDate(Map<String, dynamic> m) {
     if (m.containsKey('bookingDate')) {
       final dynamic v = m['bookingDate'];
@@ -1586,8 +1579,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     return null;
   }
 
-  /// read an approval/status string in a very forgiving way
-  /// we only allow "rejected" to pass; everything else blocks
+  // read an approval/status string
+  // only allow "rejected" to pass everything else blocks
   String _readApprovalLower(Map<String, dynamic> m) {
     String a = '';
     if (m.containsKey('approval') && m['approval'] != null) {
@@ -1600,69 +1593,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       }
     }
     return a.toLowerCase().trim();
-  }
-
-  /// check bookings for this facility within a date range (inclusive)
-  /// return true if there is ANY booking that is NOT "rejected"
-  /// return false if none found (safe to disable)
-  Future<bool> _hasBlockingBookingsForDisable({
-    required String facilityId,
-    required DateTime startDay,
-    required DateTime endDay,
-  }) async {
-    try {
-      // get all bookings for this facility (simple, then filter by date)
-      final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore
-          .instance
-          .collection('Bookings')
-          .where('facilityId', isEqualTo: facilityId)
-          .get();
-
-      for (final doc in qs.docs) {
-        final Map<String, dynamic> m = doc.data();
-
-        // skip deleted if you use soft delete
-        if (m.containsKey('deleted')) {
-          if (m['deleted'] is bool) {
-            if (m['deleted'] == true) {
-              continue;
-            }
-          }
-        }
-
-        // read date
-        final DateTime? bd = _readBookingDate(m);
-        if (bd == null) {
-          // no date -> skip
-          continue;
-        }
-
-        // compare by day only
-        final DateTime only = DateTime(bd.year, bd.month, bd.day);
-
-        // outside the disable range -> skip
-        if (only.isBefore(startDay)) {
-          continue;
-        } else {
-          if (only.isAfter(endDay)) {
-            continue;
-          } else {
-            // inside the disable range -> check approval
-            final String approval = _readApprovalLower(m);
-            final bool isRejected = approval == 'rejected';
-            if (!isRejected) {
-              // this blocks the disable
-              return true;
-            }
-          }
-        }
-      }
-    } catch (_) {
-      // on read error we choose to be safe and block
-      return true;
-    }
-    // no blocking bookings found
-    return false;
   }
 
 
@@ -1723,7 +1653,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
   }
 
 
-  // ---------- small UI helpers ----------
+//---------------------------------------
+// show ro field
+//---------------------------------------
   Widget _ro(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1743,7 +1675,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     );
   }
 
-  // NEW: read-only field that looks up a Category name by id
+//---------------------------------------
+// read catogory id
+//---------------------------------------
   Widget _roCategoryLive(String? categoryId) {
     return _ReadOnlyLookupField(
       label: 'Facility Category',
@@ -1761,7 +1695,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
     );
   }
 
-  // NEW: read-only field that looks up a Manager/User name by id
+//---------------------------------------
+// read manager id
+//---------------------------------------
   Widget _roManagerLive(String? managerId) {
     return _ReadOnlyLookupField(
       label: 'Assign Manager',
@@ -1773,14 +1709,15 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
             .doc(id)
             .get();
         final data = snap.data();
-        // prefer "name", then "username"
-        final name = ((data?['name'] ?? data?['username']) as String?)
-            ?.trim() ?? '';
+        // then find "username"
+        final name = ((data?['username']) as String?)?.trim() ?? '';
         return name.isEmpty ? '—' : name;
       }(),
     );
   }
-
+//---------------------------------------
+// preview the image, means show the image
+//---------------------------------------
   Widget _imagePreviewBox(String? name) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1806,7 +1743,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
   String _statusLabel(bool dbActive) => dbActive ? 'Active' : 'Disabled';
 
-  // ---------- build ----------
+//---------------------------------------
+// Main build in right pannel
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return _BoxPanel(
@@ -1832,11 +1771,10 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       return _buildForm(isEdit: true);
     }
 
-    // VIEW
+    // if non of it meet then show below normal view of facility
     final Map<String, dynamic> d =
-    widget.selectedFacilityData == null ? <String, dynamic>{} : Map<
-        String,
-        dynamic>.from(widget.selectedFacilityData!);
+    widget.selectedFacilityData == null ? <String, dynamic>{} : Map<String, dynamic>
+        .from(widget.selectedFacilityData!);
 
     Map time;
     if (d.containsKey('availableTime') && d['availableTime'] is Map) {
@@ -1899,7 +1837,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       dbActive = false;
     }
 
-    // NEW: ids for live lookups
+
     final String? categoryId = (d['categoryId']?.toString());
     final String? managerId = (d['managerId']?.toString());
 
@@ -1908,7 +1846,6 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       children: [
         _ro('Facility Name', name),
         _imagePreviewBox(img),
-        // LIVE category / manager names (lookup by id)
         _roCategoryLive(categoryId),
         _ro('Facility Location', loc),
         _ro('Facility Details', det),
@@ -1917,8 +1854,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
         _ro('Max Capacity', maxCap),
         _ro('Available Time', '$startText – $endText'),
         _ro('Custom Slots', (() {
-          if (d.containsKey('customTimeSlots') &&
-              d['customTimeSlots'] is List) {
+          if (d.containsKey('customTimeSlots') && d['customTimeSlots'] is List) {
             final List raw = d['customTimeSlots'] as List;
             final List<String> labels = <String>[];
             for (final s in raw) {
@@ -1929,7 +1865,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                   st = s['start'].toString();
                 if (s.containsKey('end') && s['end'] != null)
                   en = s['end'].toString();
-                if (st.isNotEmpty && en.isNotEmpty) labels.add('$st–$en');
+                if (st.isNotEmpty && en.isNotEmpty)
+                  labels.add('$st–$en');
               }
             }
             return labels.isEmpty ? '-' : labels.join(', ');
@@ -1960,12 +1897,15 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       ],
     );
   }
-
+//---------------------------------------
+// Edit and Add new facility form
+//---------------------------------------
   Widget _buildForm({required bool isEdit}) {
     // Build any extra widgets shown only when disabled
     final List<Widget> disableExtras = <Widget>[];
-    if (_disableFacility) {
+    if (_disableFacility) { // we checked if it is true or false in the init state
       // Extra fields shown only when disabling
+      //if it ws disable the design
       disableExtras.addAll([
         // REASON
         Text('Reason', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500)),
@@ -2011,8 +1951,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       ]);
     }
 
-
     // Image preview name (used regardless of disabled/enabled)
+    // then when setstate it will set the image to newest pick image
     String? previewName;
     if (_pickedImageName != null) {
       previewName = _pickedImageName;
@@ -2024,7 +1964,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
       }
     }
 
-    // Always return the Form
+//---------------------------------------
+// The form design for edit and add
+//---------------------------------------
     return Form(
       key: _formKey,
       child: Column(
@@ -2043,6 +1985,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
             decoration:
             const InputDecoration(isDense: true, border: OutlineInputBorder()),
           ),
+
+
           SizedBox(height: 12.h),
 
           // image
@@ -2081,6 +2025,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
+
+              // here will check if it is deleted or not
               final List<QueryDocumentSnapshot<Map<String, dynamic>>> raw =
                   snap.data!.docs;
               final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
@@ -2100,6 +2046,9 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
               return SizedBox(
                 width: 380.w,
+//---------------------------------------
+//list down the drop down category for pick category
+//---------------------------------------
                 child: DropdownButtonFormField<String>(
                   isExpanded: true,
                   value: value,
@@ -2519,6 +2468,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                 return m['deleted'] != true; // treat null as active
               }).toList();
 
+              //list down the drop down item for Manager
+
               final List<DropdownMenuItem<String>> items =
               <DropdownMenuItem<String>>[];
               for (final d in docs) {
@@ -2572,10 +2523,8 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                     if (v) {
                       final now = DateTime.now();
                       final today = DateTime(now.year, now.month, now.day);
-                      if (_inactiveRange == null ||
-                          _inactiveRange!.end.isBefore(today)) {
-                        _inactiveRange =
-                            DateTimeRange(start: today, end: today);
+                      if (_inactiveRange == null || _inactiveRange!.end.isBefore(today)) {
+                        _inactiveRange = DateTimeRange(start: today, end: today);
                       }
                     }
                   }),
@@ -2624,7 +2573,7 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
 
 }
 
-/// Read-only lookup field with same visual style as `_ro(...)`.
+// Read-only lookup field with same visual style as `_ro(...)`.
 class _ReadOnlyLookupField extends StatelessWidget {
   const _ReadOnlyLookupField({
     Key? key,

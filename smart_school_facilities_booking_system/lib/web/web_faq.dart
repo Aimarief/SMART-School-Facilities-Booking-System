@@ -1,26 +1,8 @@
-// lib/web/web_faq.dart
-// -----------------------------------------------------------------------------
-// WEB FAQ PAGE (Admin-managed FAQ list)
-// - Uses your same WebCustomTopBar with 24-hour clock (like rating page).
-// - Single centered card (~70% of screen width) that contains:
-//     * Search bar + "Add" button (top)
-//     * Divider
-//     * List of FAQ titles with View/Edit actions
-// - Add/Edit popups (title + description). Data saved to Firestore collection "FAQ".
-// - Delete has a square-corner confirmation dialog with red Delete button (#FF0707).
-//
-// FYP CODING STYLE (BEGINNER FRIENDLY):
-// * Simple setState + StreamBuilder + showDialog.
-// * Comment every function and important actions.
-// * Use ScreenUtil: .w .h .sp .sw .sh to scale (Samsung A32 + Web zoom safe).
-// * Wrap long areas in SingleChildScrollView to avoid overflow on zoom.
-// -----------------------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-import 'web_top_bar.dart'; // uses WebCustomTopBar like your rating page
+import 'web_top_bar.dart';
 
 class WebFAQ extends StatefulWidget {
   const WebFAQ({Key? key}) : super(key: key);
@@ -30,36 +12,34 @@ class WebFAQ extends StatefulWidget {
 }
 
 class _WebFAQState extends State<WebFAQ> {
-  // --- Firestore reference to read/write the "FAQ" collection ---
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // --- top bar format flag (24h) ---
   final bool _use24HourFormat = true;
 
-  // --- search controller + in-memory keyword ---
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchKeyword = '';
 
-  // --------------------------- FIRESTORE HELPERS ----------------------------
-  // Return the typed reference to collection 'FAQ'.
+//---------------------------------------
+// get all the data from FAQ collection
+//---------------------------------------
   CollectionReference<Map<String, dynamic>> _faqCol() {
     return _firestore.collection('FAQ');
   }
 
-  // ------------------------------- BUILD ------------------------------------
-  // Build the full page with a top bar and one centered card box.
+//---------------------------------------
+// main outer build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
-    final double contentMaxWidth = 0.7.sw; // ~70% of screen width (scales)
+    final double contentMaxWidth = 0.8.sw;
 
     return Scaffold(
-      // --- your common web top bar with 24h clock ---
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(70.h),
         child: WebCustomTopBar(use24HourFormat: _use24HourFormat),
       ),
 
-      // --- body wrapped in a scroll view to avoid overflow on zoom ---
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(vertical: 16.h),
         child: Center(
@@ -70,7 +50,7 @@ class _WebFAQState extends State<WebFAQ> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildMainCard(), // the single center card (search + add + list)
+                  _buildMainCard(),
                 ],
               ),
             ),
@@ -80,11 +60,12 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // ------------------------ MAIN CARD (SEARCH + LIST) -----------------------
-  // One card that contains the search + add row and the list below it.
+//---------------------------------------
+// main build taht display FAQ
+//---------------------------------------
   Widget _buildMainCard() {
     return Card(
-      color: const Color(0xFFEDDFFF), // changed box color
+      color: const Color(0xFFEDDFFF),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
       child: Padding(
@@ -92,7 +73,9 @@ class _WebFAQState extends State<WebFAQ> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // --- header row: search field + add button ---
+//---------------------------------------
+// build the search and add button
+//---------------------------------------
             LayoutBuilder(
               builder: (context, constraints) {
                 return Wrap(
@@ -100,7 +83,6 @@ class _WebFAQState extends State<WebFAQ> {
                   runSpacing: 12.h,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    // search takes remaining width, falls to full width if narrow
                     SizedBox(
                       width: (constraints.maxWidth - 12.w - 120.w) > 240.w
                           ? constraints.maxWidth - 12.w - 120.w
@@ -117,7 +99,12 @@ class _WebFAQState extends State<WebFAQ> {
             Divider(height: 1.h, thickness: 1),
             SizedBox(height: 12.h),
 
-            // --- list area: stream + in-memory filter by title ---
+//---------------------------------------
+// List the FAQ
+//---------------------------------------
+// ---------------------------------------
+// sort by update first
+//---------------------------------------
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _faqCol().orderBy('updatedAt', descending: true).snapshots(),
               builder: (context, snapshot) {
@@ -144,15 +131,26 @@ class _WebFAQState extends State<WebFAQ> {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
-                final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered = docs
-                    .where((d) {
-                  final title = (d.data()['title'] ?? '').toString().toLowerCase();
-                  if (_searchKeyword.isEmpty) return true; // no filter when empty
-                  return title.contains(_searchKeyword);
-                })
-                    .toList();
+//---------------------------------------
+// add the searched faq to list
+//---------------------------------------
+                final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered = [];
+                final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snapshot.data?.docs ?? [];
+                final String q = _searchKeyword.trim().toLowerCase();
 
+                for (int i = 0; i < docs.length; i++) {
+                  final doc = docs[i];
+                  final data = doc.data();
+                  final String title = (data['title'] as String? ?? '').trim().toLowerCase();
+
+                  if (q.isEmpty || title.contains(q)) {
+                    filtered.add(doc);
+                  }
+                }
+
+//---------------------------------------
+// if cant found the key word
+//---------------------------------------
                 if (filtered.isEmpty) {
                   return Padding(
                     padding: EdgeInsets.all(16.w),
@@ -162,17 +160,22 @@ class _WebFAQState extends State<WebFAQ> {
                     ),
                   );
                 }
-
+//---------------------------------------
+// list one bye one for the founded filter list
+//---------------------------------------
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 8.h),
+                  separatorBuilder: (context, index) => SizedBox(height: 8.h),
                   itemBuilder: (context, index) {
                     final doc = filtered[index];
                     final data = doc.data();
                     final String title = (data['title'] ?? '').toString();
 
+//---------------------------------------
+// each item design
+//---------------------------------------
                     return Container(
                       padding: EdgeInsets.symmetric(vertical: 10.h),
                       decoration: BoxDecoration(
@@ -194,6 +197,9 @@ class _WebFAQState extends State<WebFAQ> {
                           Wrap(
                             spacing: 8.w,
                             runSpacing: 4.h,
+//---------------------------------------
+// view description pop up for the title
+//---------------------------------------
                             children: [
                               OutlinedButton.icon(
                                 onPressed: () {
@@ -205,6 +211,9 @@ class _WebFAQState extends State<WebFAQ> {
                                 icon: Icon(Icons.visibility, size: 16.sp),
                                 label: Text('View', style: TextStyle(fontSize: 13.sp)),
                               ),
+//---------------------------------------
+// edit pop up for the title and decription
+//---------------------------------------
                               ElevatedButton.icon(
                                 onPressed: () {
                                   _openEditDialog(doc.id, data);
@@ -227,14 +236,15 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // ------------------------ SEARCH FIELD (TOP) ------------------------------
-  // Simple text field that updates _searchKeyword in-memory for local filter.
+//---------------------------------------
+// search field design
+//---------------------------------------
   Widget _buildSearchField() {
     return TextField(
-      controller: _searchCtrl, // connect controller to field
+      controller: _searchCtrl,
       onChanged: (value) {
         setState(() {
-          _searchKeyword = value.trim().toLowerCase(); // update keyword
+          _searchKeyword = value.trim().toLowerCase();
         });
       },
       decoration: InputDecoration(
@@ -249,8 +259,9 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // --------------------------- ADD BUTTON ----------------------------------
-  // Opens the Add dialog to create a new FAQ item.
+//---------------------------------------
+// add button design, when press show pop up for add
+//---------------------------------------
   Widget _buildAddButton() {
     return SizedBox(
       height: 40.h,
@@ -264,8 +275,9 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // ------------------------------ ADD DIALOG --------------------------------
-  // Pop-up form to add new FAQ (title + description) and save to Firestore.
+//---------------------------------------
+// pop up form for add
+//---------------------------------------
   Future<void> _openAddDialog() async {
     final TextEditingController titleCtrl = TextEditingController();
     final TextEditingController descCtrl = TextEditingController();
@@ -357,8 +369,9 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // ------------------------------ EDIT DIALOG -------------------------------
-  // Pop-up to edit or delete an existing FAQ.
+//---------------------------------------
+// while edit , design
+//---------------------------------------
   Future<void> _openEditDialog(String docId, Map<String, dynamic> data) async {
     final TextEditingController titleCtrl = TextEditingController(text: data['title']?.toString() ?? '');
     final TextEditingController descCtrl = TextEditingController(text: data['description']?.toString() ?? '');
@@ -403,7 +416,9 @@ class _WebFAQState extends State<WebFAQ> {
           ),
           actionsAlignment: MainAxisAlignment.spaceBetween,
           actions: [
-            // --- LEFT: Delete ---
+//---------------------------------------
+// delete button
+//---------------------------------------
             TextButton(
               onPressed: () async {
                 final bool? ok = await _confirmDelete();
@@ -426,7 +441,10 @@ class _WebFAQState extends State<WebFAQ> {
               child: Text('Delete', style: TextStyle(fontSize: 14.sp, color: Colors.red)),
             ),
 
-            // --- RIGHT: Cancel + Save ---
+//---------------------------------------
+// cancel button
+//---------------------------------------
+
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -436,6 +454,11 @@ class _WebFAQState extends State<WebFAQ> {
                   },
                   child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
                 ),
+
+//---------------------------------------
+// save button
+//---------------------------------------
+
                 ElevatedButton(
                   onPressed: () async {
                     final String t = titleCtrl.text.trim();
@@ -448,12 +471,11 @@ class _WebFAQState extends State<WebFAQ> {
                     }
 
                     try {
-                      final now = DateTime.now();
                       await _faqCol().doc(docId).update({
                         'title': t,
                         'description': d,
                         'titleLower': t.toLowerCase(),
-                        'updatedAt': now,
+                        'updatedAt': DateTime.now(),
                       });
 
                       if (mounted) Navigator.of(context).pop();
@@ -478,8 +500,9 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // ------------------------------- VIEW DIALOG ------------------------------
-  // Read-only dialog to show title + description.
+//---------------------------------------
+// view dialog design
+//---------------------------------------
   Future<void> _openViewDialog({required String title, required String description}) async {
     await showDialog(
       context: context,
@@ -489,13 +512,14 @@ class _WebFAQState extends State<WebFAQ> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
           title: Text(title.isEmpty ? '(No title)' : title,
               style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
-          content: SizedBox(
+          content: Container(
             width: 560.w,
             child: SingleChildScrollView(
               child: Text(
                 description.isEmpty ? '(No description)' : description,
                 style: TextStyle(fontSize: 14.sp),
               ),
+
             ),
           ),
           actions: [
@@ -511,7 +535,9 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // -------------------------- DELETE CONFIRMATION ---------------------------
+//---------------------------------------
+// pop up delete confirmation
+//---------------------------------------
   // Square-corner confirmation dialog (barrierDismissible=false) for delete.
   Future<bool?> _confirmDelete() async {
     return showDialog<bool>(
@@ -550,8 +576,10 @@ class _WebFAQState extends State<WebFAQ> {
     );
   }
 
-  // -------------------------------- DISPOSE ---------------------------------
-  // Dispose controllers to free memory when leaving the page.
+//---------------------------------------
+// dispose
+//---------------------------------------
+
   @override
   void dispose() {
     _searchCtrl.dispose();

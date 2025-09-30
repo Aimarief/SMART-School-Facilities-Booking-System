@@ -1,7 +1,5 @@
-// lib/web_notification.dart
 import 'dart:convert';
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,40 +15,41 @@ class WebNotification extends StatefulWidget {
 }
 
 class _WebNotificationState extends State<WebNotification> {
-  // ----- top bar format -----
+
   final bool _use24HourFormat = true;
 
-  // ----- filter state: 'none' | 'unread' | 'read' -----
   String _filter = 'none';
 
-  // ----- date filter -----
   bool _dateFilterOn = false;
   DateTime _selectedDay = DateTime.now(); // default today
 
-  // ----- selection for right panel -----
   String? _selectedNotifId;
   Map<String, dynamic>? _selectedNotifData; // raw inbox doc (authoritative)
   Map<String, dynamic>? _selectedBooking;   // loaded from Bookings/{bookingId} (fallback)
   bool _loadingRight = false;
 
-  // =========================
-  // Small helpers
-  // =========================
-
   String _currentUid() => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   DateTime? _tsToDate(dynamic v) => (v is Timestamp) ? v.toDate() : null;
-
+//---------------------------------------
+// filter if filter is none next is unread, if f is unread next is read
+//---------------------------------------
   String _nextFilter(String f) => f == 'none' ? 'unread' : (f == 'unread' ? 'read' : 'none');
 
   String _toYMD(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+//---------------------------------------
+// format the day
+//---------------------------------------
   String _formatLongDate(DateTime d) {
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${d.day} ${months[d.month - 1]} ${d.year}';
   }
 
+//---------------------------------------
+// format time to am or pm
+//---------------------------------------
   String _formatTimeShort(DateTime d) {
     int hh = d.hour;
     final mm = d.minute;
@@ -63,44 +62,54 @@ class _WebNotificationState extends State<WebNotification> {
     return '$disp:$mmStr $ap';
   }
 
+//---------------------------------------
+// check same day
+//---------------------------------------
+
   bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
+  //---------------------------------------
+// open date picker
+//---------------------------------------
   Future<void> _openDayPicker() async {
     final today = DateTime.now();
     final first = DateTime(today.year - 1, today.month, today.day);
     final last  = DateTime(today.year + 1, today.month, today.day);
 
-    final picked = await showDatePicker(
+    //---------------------------------------
+// format date pick first date show and last date show and selected day
+//---------------------------------------
+
+    final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDay,
       firstDate: first,
       lastDate: last,
+      helpText: 'Select a day',
+      cancelText: 'Reset to All Days',
+      confirmText: 'Apply',
       builder: (ctx, child) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Expanded(child: child ?? const SizedBox()),
-            SizedBox(height: 4.h),
-            TextButton(
-              onPressed: () {
-                setState(() => _dateFilterOn = false);
-                Navigator.of(ctx).pop();
-              },
-              child: const Text('Reset to All Days'),
-            ),
-            SizedBox(height: 8.h),
-          ],
+        return Theme(
+          data: Theme.of(ctx),
+          child: child ?? const SizedBox(),
         );
       },
     );
 
-    if (picked != null) {
+// After the dialog:
+    if (picked == null) {
+      // User tapped “Reset to All Days” (Cancel) → treat as reset
+      setState(() => _dateFilterOn = false);
+    } else {
       setState(() {
-        _selectedDay = picked;
         _dateFilterOn = true;
+        _selectedDay = picked;
       });
     }
   }
+//---------------------------------------
+// get the inbox for user id and sort by date
+//---------------------------------------
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _inboxStream() {
     final uid = _currentUid();
@@ -113,58 +122,76 @@ class _WebNotificationState extends State<WebNotification> {
         .snapshots();
   }
 
-  /// Visibility: allow if recipientId == uid OR managerId == uid OR bookedBy/bookBy == uid OR createdBy == uid
+//---------------------------------------
+// check wether the database shown user id if have then user can see the message
+//---------------------------------------
   bool _canSee(Map<String, dynamic> m, String uid) {
     if (uid.isEmpty) return false;
-    String recipient = (m['recipientId'] ?? '').toString().trim();
-    String manager   = (m['managerId']   ?? '').toString().trim();
-    String bookedBy  = (m['bookedBy']    ?? m['bookBy'] ?? '').toString().trim();
-    String createdBy = (m['createdBy']   ?? m['creatorUid'] ?? m['creatorId'] ?? '').toString().trim();
+    String recipient = (m['recipientId'] ).toString().trim();
+    String manager   = (m['managerId']).toString().trim();
+    String bookedBy  = (m['bookedBy']).toString().trim();
+    String createdBy = (m['createdBy']).toString().trim();
     return recipient == uid || manager == uid || bookedBy == uid || createdBy == uid;
   }
-
+//---------------------------------------
+// mark as read
+//---------------------------------------
   Future<void> _markAsRead(DocumentReference<Map<String, dynamic>> ref) async {
     try { await ref.update({'isRead': true, 'readAt': FieldValue.serverTimestamp()}); } catch (_) {}
   }
 
-  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDate(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) {
+//---------------------------------------
+// sort it base on date and readed status
+//---------------------------------------
+
+  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDate(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,) {
     final groups = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
     final today = DateTime.now();
     final uid = _currentUid();
 
     for (final d in docs) {
       final m = d.data();
+ //---------------------------------------
+// check id the user can see
+//---------------------------------------
       if (!_canSee(m, uid)) continue;
-
-      // 🔎 hide rejected approval_status
+//---------------------------------------
+// admin or manager dun need to look for rejected approval
+//---------------------------------------
       final type = (m['type'] ?? '').toString().trim();
       if (type == 'approval_status') {
-        final appr = ((m['approval'] ?? m['approvalStatus'] ?? m['status'] ?? '') as String)
-            .toLowerCase();
+        final appr = ((m['approval'] ) as String).toLowerCase();
         if (appr.contains('rej')) continue; // skip "rejected"
       }
-
+//---------------------------------------
+// check if it is read or not
+//---------------------------------------
       final isRead = (m['isRead'] == true);
       if (_filter == 'unread' && isRead) continue;
       if (_filter == 'read' && !isRead) continue;
-
+//---------------------------------------
+// convert to date format
+//---------------------------------------
       DateTime? ts = _tsToDate(m['createdAt']);
-      if (ts == null) ts = _tsToDate(m['submittedAt']);  // <-- fallback for older docs
       if (ts == null) continue;
-
+//---------------------------------------
+// if no date filter or date filter same as created day then ok
+//---------------------------------------
       final dayOk = !_dateFilterOn || _sameDay(ts, _selectedDay);
       if (!dayOk) continue;
 
+//---------------------------------------
+//  if same dat put just if no put the date
+//---------------------------------------
       final key = _sameDay(ts, today) ? '__JUST__' : _toYMD(ts);
       groups.putIfAbsent(key, () => []);
       groups[key]!.add(d);
     }
     return groups;
   }
-
-
+//---------------------------------------
+// sort the date
+//---------------------------------------
   List<String> _sortedGroupKeys(Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> g) {
     final keys = g.keys.toList();
     final just = <String>[];
@@ -181,9 +208,12 @@ class _WebNotificationState extends State<WebNotification> {
     return Text(d == null ? key : _formatLongDate(d), style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700));
   }
 
-  // ======== EMAIL cache (for chip subtitle) ========
   final Map<String, String> _emailCache = <String, String>{};
   final Set<String> _emailLoading = <String>{};
+
+  //---------------------------------------
+// get email from user id
+//---------------------------------------
 
   Future<void> _ensureEmailCached(String uid) async {
     if (uid.isEmpty || _emailCache.containsKey(uid) || _emailLoading.contains(uid)) return;
@@ -193,7 +223,7 @@ class _WebNotificationState extends State<WebNotification> {
       final m = doc.data();
       String email = '';
       if (m != null) {
-        email = (m['email'] ?? m['userEmail'] ?? m['emailAddress'] ?? '').toString().trim();
+        email = (m['email']).toString().trim();
       }
       _emailCache[uid] = email.isEmpty ? uid : email;
       if (mounted) setState(() {});
@@ -204,21 +234,28 @@ class _WebNotificationState extends State<WebNotification> {
     }
   }
 
-  // ---------- Details helpers (parsing, formats) ----------
+//---------------------------------------
+// read the booking date
+//---------------------------------------
+
   static DateTime? _readBookingDate(Map<String, dynamic> m) {
-    for (final k in ['bookingDate', 'date', 'bookDate', 'day']) {
+    for (final k in ['bookingDate']) {
       if (m.containsKey(k)) {
         final v = m[k];
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
           final d1 = _tryParseYMD(v); if (d1 != null) return d1;
-          final d2 = _tryParseDMY(v); if (d2 != null) return d2;
+
         }
       }
     }
     return null;
   }
+
+  //---------------------------------------
+// parse time
+//---------------------------------------
 
   static DateTime? _readTime(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
@@ -227,7 +264,6 @@ class _WebNotificationState extends State<WebNotification> {
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
-          final t1 = _tryParseHMS(v); if (t1 != null) return t1;
           final t2 = _tryParseHM(v);  if (t2 != null) return t2;
         }
       }
@@ -256,24 +292,9 @@ class _WebNotificationState extends State<WebNotification> {
     if (booking != null) return _readFirstStr(booking, keys);
     return '';
   }
-
-  static DateTime? _readBookingDatePrefNotif(Map<String, dynamic> inbox, Map<String, dynamic>? booking) {
-    final a = _readBookingDate(inbox);
-    if (a != null) return a;
-    if (booking != null) return _readBookingDate(booking);
-    return null;
-  }
-
-  static DateTime? _readTimePrefNotif(
-      Map<String, dynamic> inbox,
-      Map<String, dynamic>? booking,
-      List<String> keys,
-      ) {
-    final a = _readTime(inbox, keys);
-    if (a != null) return a;
-    if (booking != null) return _readTime(booking, keys);
-    return null;
-  }
+//---------------------------------------
+// format the day year month
+//---------------------------------------
 
   static String _fmtDDMonYYYY(DateTime d) {
     const months = [
@@ -283,6 +304,9 @@ class _WebNotificationState extends State<WebNotification> {
     final day = d.day.toString().padLeft(2, '0');
     return '$day ${months[d.month - 1]} ${d.year}';
   }
+//---------------------------------------
+// formate time to pm am
+//---------------------------------------
 
   static String _fmt24WithAmPm(DateTime d) {
     final hh = d.hour.toString().padLeft(2, '0');
@@ -290,51 +314,48 @@ class _WebNotificationState extends State<WebNotification> {
     final ampm = (d.hour >= 12) ? 'pm' : 'am';
     return '$hh.$mm $ampm';
   }
+//---------------------------------------
+// split the date y m d
+//---------------------------------------
 
   static DateTime? _tryParseYMD(String s) {
     try { final p = s.split('-'); if (p.length == 3) return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2])); } catch (_) {}
     return null;
   }
 
-  static DateTime? _tryParseDMY(String s) {
-    try { final p = s.split('/'); if (p.length == 3) return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0])); } catch (_) {}
-    return null;
-  }
-
-  static DateTime? _tryParseHMS(String s) {
-    try { final p = s.split(':'); if (p.length == 3) { final now = DateTime.now(); return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]), int.parse(p[2])); } } catch (_) {}
-    return null;
-  }
+//---------------------------------------
+// split the time hh mm
+//---------------------------------------
 
   static DateTime? _tryParseHM(String s) {
     try { final p = s.split(':'); if (p.length == 2) { final now = DateTime.now(); return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1])); } } catch (_) {}
     return null;
   }
 
-  // ---- Approval status (prefer Booking doc) ----
-// ---- Approval status (from Booking doc only) ----
+//---------------------------------------
+// read the approval from inbox
+//---------------------------------------
   String _computeApprovalFromInbox(Map<String, dynamic> inbox) {
-    // Prefer the 'approval' field you now store
     String s = (inbox['approval'] ?? '').toString().trim();
-
-    // Fallbacks, in case some old items used these keys
-    if (s.isEmpty) s = (inbox['approvalStatus'] ?? '').toString().trim();
-    if (s.isEmpty) s = (inbox['status'] ?? '').toString().trim(); // only if it’s one of accepted/pending/rejected
-
     if (s.isEmpty) return 'pending';
 
     final l = s.toLowerCase();
-    if (l.contains('acc') || l.contains('approv')) return 'accepted';
-    if (l.contains('rej') || l.contains('declin') || l.contains('deni')) return 'rejected';
-    if (l.contains('pend') || l.contains('waiting')) return 'pending';
+    if (l.contains('accepted')) return 'accepted';
+    if (l.contains('reject') ) return 'rejected';
+    if (l.contains('pending'))  return 'pending';
 
-    // default if unknown text (avoid showing 'upcoming' etc.)
+//---------------------------------------
+// default
+//---------------------------------------
     return 'pending';
   }
 
-  // ======== FACILITY name cache (for chip subtitle when inbox lacks facilityName) ========
   final Map<String, String> _facilityNameCache = <String, String>{};
   final Set<String> _facilityLoading = <String>{};
+
+  //---------------------------------------
+// get the current facility name
+//---------------------------------------
 
   Future<void> _ensureFacilityNameCached(String fid) async {
     if (fid.isEmpty || _facilityNameCache.containsKey(fid) || _facilityLoading.contains(fid)) return;
@@ -344,7 +365,7 @@ class _WebNotificationState extends State<WebNotification> {
       final m = doc.data();
       String name = '';
       if (m != null) {
-        name = (m['name'] ?? m['facilityName'] ?? '').toString().trim();
+        name = (m['name'] ).toString().trim();
       }
       if (name.isEmpty) name = 'Facility';
       _facilityNameCache[fid] = name;
@@ -356,6 +377,9 @@ class _WebNotificationState extends State<WebNotification> {
     }
   }
 
+  //---------------------------------------
+// get the facility name
+//---------------------------------------
   String _displayFacilityName({
     required String facilityId,
     required String inboxFacilityName,
@@ -368,11 +392,9 @@ class _WebNotificationState extends State<WebNotification> {
     return 'Facility';
   }
 
-
-  // =========================
-  // BUILD
-  // =========================
-
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -392,17 +414,18 @@ class _WebNotificationState extends State<WebNotification> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: 460.w + 24.w + 1200.w),
+                      constraints: BoxConstraints(maxWidth: 1684.w),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // LEFT BOX
+//---------------------------------------
+// left box
+//---------------------------------------
                           _Box(
                             width: 460.w,
                             height: 965.h,
                             title: 'Notification',
                             header: _LeftHeader(
-                              onOpenSettings: () => Navigator.of(context).pushNamed('/webaccount'),
                               onCycleFilter: () => setState(() => _filter = _nextFilter(_filter)),
                               currentFilter: _filter,
                               onOpenCalendar: _openDayPicker,
@@ -413,7 +436,9 @@ class _WebNotificationState extends State<WebNotification> {
                             child: _buildLeftBody(),
                           ),
                           SizedBox(width: 24.w),
-                          // RIGHT BOX
+//---------------------------------------
+// right box
+//---------------------------------------
                           _Box(
                             width: 1200.w,
                             height: 965.h,
@@ -435,7 +460,9 @@ class _WebNotificationState extends State<WebNotification> {
       ),
     );
   }
-
+//---------------------------------------
+// left list design
+//---------------------------------------
   Widget _buildLeftBody() {
     final uid = _currentUid();
     if (uid.isEmpty) {
@@ -447,7 +474,9 @@ class _WebNotificationState extends State<WebNotification> {
         if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
         if (snap.hasError) return Center(child: Text('Failed to load', style: TextStyle(fontSize: 14.sp)));
         if (!snap.hasData) return Center(child: Text('Empty', style: TextStyle(fontSize: 14.sp)));
-
+//---------------------------------------
+// if no data show no notification
+//---------------------------------------
         final docs = snap.data!.docs;
         if (docs.isEmpty) return Center(child: Text('No notifications', style: TextStyle(fontSize: 14.sp)));
 
@@ -464,6 +493,9 @@ class _WebNotificationState extends State<WebNotification> {
               padding: EdgeInsets.only(bottom: 16.h),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+//---------------------------------------
+// then display
+//---------------------------------------
                 children: [
                   _groupHeader(k),
                   SizedBox(height: 8.h),
@@ -477,28 +509,30 @@ class _WebNotificationState extends State<WebNotification> {
     );
   }
 
-  /// Chip list (subtitle must show bookedBy/bookBy EMAIL)
+//---------------------------------------
+// show each item at left
+//---------------------------------------
   List<Widget> _buildChipList(List<QueryDocumentSnapshot<Map<String, dynamic>>> items) {
     final children = <Widget>[];
 
     for (final d in items) {
       final m = d.data();
 
-      // ----- type / approval -----
+//---------------------------------------
+// look at the type of mail
+//---------------------------------------
       final String type = (m['type'] ?? '').toString().trim();
       final String typeLc = type.toLowerCase();
-      final String approvalLc = (m['approval'] ?? m['approvalStatus'] ?? m['status'] ?? '')
-
-          .toString()
-          .toLowerCase();
-      final String facilityId = _readFirstStr(m, ['facilityId','facilityID','facilityDocId','facility_id']);
+      final String approvalLc = (m['approval'] ).toString().toLowerCase();
+      final String facilityId = _readFirstStr(m, ['facilityId']);
       final bool isPending =
           approvalLc.contains('pend') || approvalLc.contains('wait');
-      final bool isAmendment =
-      ((m['amendmentId'] ?? '').toString().trim().isNotEmpty);
+      final bool isAmendment = ((m['amendmentId'] ?? '').toString().trim().isNotEmpty);
 
+//---------------------------------------
+// set mail title base on type
+//---------------------------------------
 
-      // ----- title -----
       String title;
       if (type == 'system_issue') {
         title = 'System Issue';
@@ -508,19 +542,15 @@ class _WebNotificationState extends State<WebNotification> {
         title = 'Facility pending request' + (isAmendment ? ' (Amendment)' : '');
       } else if (type == 'booking_updated' && isPending) {
         title = 'Approval pending request';
-      } else if (typeLc == 'booking_deleted' || typeLc == 'deleted_booking') {
+      } else if (typeLc == 'booking_deleted') {
         title = 'Delete Booking';
       } else {
         title = (m['type'] != null) ? _titleForType(m['type'].toString()) : 'Message';
       }
 
-
-
-
-// ----- subtitle -----
       final String facilityName =
-      _readFirstStr(m, ['facilityName', 'facility', 'facilityTitle']);
-      final String bookedUid = _readFirstStr(m, ['bookedBy', 'bookBy']); // end-user id
+      _readFirstStr(m, ['facilityName']);
+      final String bookedUid = _readFirstStr(m, ['bookedBy']);
 
       String email = '-';
       if (bookedUid.isNotEmpty) {
@@ -532,7 +562,9 @@ class _WebNotificationState extends State<WebNotification> {
           email = '…';
         }
       }
-
+//---------------------------------------
+// subtitle for the title
+//---------------------------------------
       String subtitle;
       if (type == 'system_issue') {
         final reporterEmail = (m['email'] ?? '-').toString();
@@ -541,13 +573,15 @@ class _WebNotificationState extends State<WebNotification> {
         subtitle = '${facilityName.isEmpty ? '-' : facilityName} is approved';
       } else if ((type == 'booking_created' || type == 'booking_updated') &&
           (approvalLc.contains('pend') || approvalLc.contains('wait'))) {
+//---------------------------------------
+// get facility name and id
+//---------------------------------------
         final facLbl = _displayFacilityName(
           facilityId: facilityId,
           inboxFacilityName: facilityName,
         );
         subtitle = '$facLbl is currently waiting for approval';
-
-      } else if (typeLc == 'booking_deleted' || typeLc == 'deleted_booking') {           // <-- add this block
+      } else if (typeLc == 'booking_deleted') {
         final facLbl = _displayFacilityName(
           facilityId: facilityId,
           inboxFacilityName: facilityName,
@@ -558,15 +592,15 @@ class _WebNotificationState extends State<WebNotification> {
         subtitle = 'The ${facilityName.isEmpty ? '-' : facilityName} is booked by $email';
       }
 
+//---------------------------------------
+// check if is read or not
+//---------------------------------------
 
-
-      // ----- read/time -----
       final bool isRead = (m['isRead'] == true);
       String timeLbl = '-';
-      final created = _tsToDate(m['createdAt']) ?? _tsToDate(m['submittedAt']); // <-- fallback
+      final created = _tsToDate(m['createdAt']) ;
       if (created != null) timeLbl = _formatTimeShort(created);
 
-      // ----- chip -----
       children.add(
         _NotifChip(
           title: title,
@@ -577,7 +611,7 @@ class _WebNotificationState extends State<WebNotification> {
             setState(() { _selectedNotifId = d.id; _selectedNotifData = m; _loadingRight = true; });
             if (!isRead) await _markAsRead(d.reference);
 
-            final bookingId = _readFirstStr(m, ['bookingId', 'booking_id', 'id', 'bookingID']);
+            String bookingId = _readFirstStr(m, ['bookingId']);
             Map<String, dynamic>? booking;
             if (bookingId.isNotEmpty) {
               try {
@@ -586,7 +620,6 @@ class _WebNotificationState extends State<WebNotification> {
                 if (booking != null) booking['__id'] = snap.id;
               } catch (_) {}
             }
-
             setState(() { _selectedBooking = booking; _loadingRight = false; });
           },
         ),
@@ -597,11 +630,16 @@ class _WebNotificationState extends State<WebNotification> {
     return children;
   }
 
+//---------------------------------------
+// right panel design
+//---------------------------------------
 
-  // ---------- RIGHT PANEL ----------
   Widget _buildRightPanel() {
     if (_loadingRight) return const Center(child: CircularProgressIndicator());
     if (_selectedNotifId == null || _selectedNotifData == null) {
+//---------------------------------------
+// when nothing is chosen yet
+//---------------------------------------
       return Center(child: Text('Please select an option', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600)));
     }
 
@@ -610,14 +648,19 @@ class _WebNotificationState extends State<WebNotification> {
 
     final type = (inbox['type'] ?? '').toString();
     final typeLc = type.toLowerCase();
-    final bool isDeleted = typeLc == 'booking_deleted' || typeLc == 'deleted_booking';
-
+    final bool isDeleted = typeLc == 'booking_deleted';
+//---------------------------------------
+// for issue mail
+//---------------------------------------
     if (type == 'system_issue') {
-      final reporterEmail = (inbox['email'] ?? '-').toString();
-      final issueTitle = (inbox['title'] ?? inbox['issueTitle'] ?? '-').toString();
-      final description = (inbox['message'] ?? inbox['description'] ?? '-').toString();
+      final reporterEmail = (inbox['email']).toString();
+      final issueTitle = (inbox['title'] ).toString();
+      final description = (inbox['message'] ).toString();
       final base64Img = (inbox['imageBase64'] ?? '').toString().trim();
 
+//---------------------------------------
+// decode the image for system isuue type
+//---------------------------------------
       Uint8List? imgBytes;
       if (base64Img.isNotEmpty) {
         try {
@@ -669,54 +712,53 @@ class _WebNotificationState extends State<WebNotification> {
         ),
       );
     }
+//---------------------------------------
+// for other mail type
+//---------------------------------------
+    final facilityId = _readFirstStrPrefNotif(inbox, booking, ['facilityId']);
+    final bookedUid  = _readFirstStrPrefNotif(inbox, booking, ['bookedBy','userId']); // userId
+    final createdUid = _readFirstStrPrefNotif(inbox, booking, ['createdBy']); // actor
+    final managerUid = _readFirstStrPrefNotif(inbox, booking, ['managerId']);
 
-
-    // IDs — prefer Inbox, fallback Booking
-    final facilityId = _readFirstStrPrefNotif(inbox, booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-    final bookedUid  = _readFirstStrPrefNotif(inbox, booking, ['bookedBy','bookBy']); // end-user (userId)
-    final createdUid = _readFirstStrPrefNotif(inbox, booking, ['createdBy','creatorUid','creatorId']); // actor
-    final managerUid = _readFirstStrPrefNotif(inbox, booking, ['managerId','managerUID','managerUid']);
-
-// Always display these straight from INBOX (they’re present now)
-    final String seat = _readFirstStr(inbox, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+    final String seat = _readFirstStr(inbox, ['seatIndex']);
     final DateTime? bookDate = _readBookingDate(inbox);
-    final DateTime? tStart = _readTime(inbox, ['start','startTime','timeStart']);
-    final DateTime? tEnd   = _readTime(inbox, ['end','endTime','timeEnd']);
-
+    final DateTime? tStart = _readTime(inbox, ['start']);
+    final DateTime? tEnd   = _readTime(inbox, ['end']);
 
     final String dateStr  = (bookDate != null) ? _fmtDDMonYYYY(bookDate) : '';
     final String timeFancy = (tStart != null && tEnd != null)
         ? '${_fmt24WithAmPm(tStart)} - ${_fmt24WithAmPm(tEnd)}'
         : (tStart != null) ? _fmt24WithAmPm(tStart) : '';
 
-
-    // Use INBOX only. If absent, show "—"
-    final reason = _readFirstStr(inbox, ['approvalReason','reason','bookingReason','purpose','notes']);
-
+    final reason = _readFirstStr(inbox, ['approvalReason']);
     final approval = _computeApprovalFromInbox(inbox);
 
-
-    // NOTE: removed the old ConstrainedBox(maxWidth: 940.w) to let content stretch
     return Padding(
       padding: EdgeInsets.all(16.w),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start, // name at very top
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ===== Facility Name at the top =====
+//---------------------------------------
+// facility name
+//---------------------------------------
           _FacilityNameLive(
             facilityId: facilityId,
             style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827)),
           ),
           SizedBox(height: 12.h),
 
-          // ===== Row: Image (left) | Summary (right - stretches to end of panel) =====
+//---------------------------------------
+// show image
+//---------------------------------------
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _FacilityImageSimple(facilityId: facilityId),
               SizedBox(width: 16.w),
-              // Everything on the right grows to the end
+//---------------------------------------
+// show each of the item beside image
+//---------------------------------------
               Expanded(
                 child: _summaryColumn(
                   children: [
@@ -732,8 +774,9 @@ class _WebNotificationState extends State<WebNotification> {
           ),
 
           SizedBox(height: 16.h),
-
-          // ===== Reason of booking (full width) =====
+//---------------------------------------
+// approval details
+//---------------------------------------
           Text('Approval Details', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
           SizedBox(height: 6.h),
           Container(
@@ -749,7 +792,9 @@ class _WebNotificationState extends State<WebNotification> {
 
           SizedBox(height: 16.h),
 
-          // ===== Booked by (full width, base64-only photo) =====
+//---------------------------------------
+// booked by which use
+//---------------------------------------
           Text('Booked by', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
           SizedBox(height: 8.h),
           SizedBox(
@@ -761,10 +806,10 @@ class _WebNotificationState extends State<WebNotification> {
               photoMode: _PhotoMode.base64, // user: base64-only
             ),
           ),
-
           SizedBox(height: 14.h),
-
-          // ===== Facility Manager (full width, asset path only) =====
+//---------------------------------------
+// which facility manager it
+//---------------------------------------
           Text('Facility Manager', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
           SizedBox(height: 8.h),
           SizedBox(
@@ -776,10 +821,10 @@ class _WebNotificationState extends State<WebNotification> {
               photoMode: _PhotoMode.asset, // manager: asset path only
             ),
           ),
-
           SizedBox(height: 14.h),
-
-          // ===== Approval (from BookingId) =====
+//---------------------------------------
+// if it is deleted status then show deleted icon
+//---------------------------------------
           if (isDeleted)
             _summaryLine(icon: Icons.delete_outline, labelLower: 'status', value: 'The booking for this user have been deleted')
           else
@@ -789,19 +834,27 @@ class _WebNotificationState extends State<WebNotification> {
     );
   }
 
-  // ===== Vertical summary (slot/date/time) =====
+//---------------------------------------
+// show each column beside the image
+//---------------------------------------
+
   Widget _summaryColumn({required List<Widget> children}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch, // stretch children horizontally
       children: [
         for (int i = 0; i < children.length; i++) ...[
           children[i],
+//---------------------------------------
+// have a small ehight space every column
+//---------------------------------------
           if (i != children.length - 1) SizedBox(height: 8.h),
         ],
       ],
     );
   }
-
+//---------------------------------------
+// each of the column beside image design
+//---------------------------------------
   Widget _summaryLine({
     required IconData icon,
     required String labelLower,
@@ -828,7 +881,9 @@ class _WebNotificationState extends State<WebNotification> {
     );
   }
 
-  /// Same UI as _summaryLine but value is **email** resolved from uid
+//---------------------------------------
+// for email column design
+//---------------------------------------
   Widget _summaryLineLiveEmail({
     required IconData icon,
     required String labelLower,
@@ -856,7 +911,7 @@ class _WebNotificationState extends State<WebNotification> {
                 String value = '—';
                 final data = snap.data?.data();
                 if (data != null) {
-                  final e = (data['email'] ?? data['userEmail'] ?? data['emailAddress'] ?? '') as String?;
+                  final e = (data['email'] ) as String?;
                   value = (e != null && e.trim().isNotEmpty) ? e.trim() : (uid.isNotEmpty ? uid : '—');
                 }
                 return Text(value, style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)), overflow: TextOverflow.ellipsis);
@@ -867,20 +922,24 @@ class _WebNotificationState extends State<WebNotification> {
       ),
     );
   }
+  //---------------------------------------
+// for approve or new booked by admin
+//---------------------------------------
   String _titleForType(String? t) {
     final s = t?.toString() ?? '';
     if (s == 'booking_created') return 'New booked facility';
     if (s == 'booking_updated') return 'Booking updated';
-    if (s == 'approval_status') return 'Facility Approved'; // <- new
+    if (s == 'approval_status') return 'Facility Approved';
     return 'Message';
   }
 
 
 }
 
-// ==============================
-// Reusable purple box layout
-// ==============================
+//---------------------------------------
+// the box that design right and left panel
+//---------------------------------------
+
 class _Box extends StatelessWidget {
   const _Box({
     Key? key,
@@ -932,13 +991,13 @@ class _Box extends StatelessWidget {
   }
 }
 
-// ==============================
-// Header (filter + settings + date)
-// ==============================
+//---------------------------------------
+// left box header
+//---------------------------------------
+
 class _LeftHeader extends StatelessWidget {
   const _LeftHeader({
     Key? key,
-    required this.onOpenSettings,
     required this.onCycleFilter,
     required this.currentFilter,
     required this.onOpenCalendar,
@@ -947,9 +1006,8 @@ class _LeftHeader extends StatelessWidget {
     required this.formatDate,
   }) : super(key: key);
 
-  final VoidCallback onOpenSettings;
   final VoidCallback onCycleFilter;
-  final String currentFilter; // 'none' | 'unread' | 'read'
+  final String currentFilter;
   final VoidCallback onOpenCalendar;
   final bool dateFilterOn;
   final DateTime selectedDay;
@@ -957,27 +1015,43 @@ class _LeftHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     IconData icon;
     String tip;
-    if (currentFilter == 'unread') { icon = Icons.mark_email_unread; tip = 'Filter: Unread (tap to switch)'; }
-    else if (currentFilter == 'read') { icon = Icons.mark_email_read; tip = 'Filter: Read (tap to switch)'; }
-    else { icon = Icons.filter_list; tip = 'Filter: All (tap to switch)'; }
+    if (currentFilter == 'unread') {
+      icon = Icons.mark_email_unread;
+      tip  = 'Filter: Unread (tap to switch)';
+    } else if (currentFilter == 'read') {
+      icon = Icons.mark_email_read;
+      tip  = 'Filter: Read (tap to switch)';
+    } else {
+      icon = Icons.filter_list;
+      tip  = 'Filter: All (tap to switch)';
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Spacer(),
-            Tooltip(
-              message: tip,
-              child: SizedBox(
-                width: 36.w,
-                height: 36.h,
+            Expanded(
+              child: Text(
+                dateFilterOn ? formatDate(selectedDay) : 'Just',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700),
+              ),
+            ),
+            SizedBox(width: 8.w),
+            SizedBox(
+              width: 36.w,
+              height: 36.h,
+              child: Tooltip(
+                message: tip,
                 child: OutlinedButton(
                   onPressed: onCycleFilter,
                   style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
-                  child: Icon(icon, size: 18),
+                  child: Icon(icon, size: 18.sp),
                 ),
               ),
             ),
@@ -986,39 +1060,22 @@ class _LeftHeader extends StatelessWidget {
               width: 36.w,
               height: 36.h,
               child: OutlinedButton(
-                onPressed: onOpenSettings,
+                onPressed: onOpenCalendar,
                 style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
-                child: const Icon(Icons.settings, size: 18),
+                child: Icon(Icons.calendar_today, size: 18.sp),
               ),
             ),
           ],
         ),
         SizedBox(height: 8.h),
-        Row(
-          children: [
-            Expanded(
-              child: Text(dateFilterOn ? formatDate(selectedDay) : 'Just', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700)),
-            ),
-            SizedBox(width: 8.w),
-            SizedBox(
-              width: 36.w,
-              height: 36.h,
-              child: OutlinedButton(
-                onPressed: onOpenCalendar,
-                style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
-                child: const Icon(Icons.calendar_today, size: 18),
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
 }
 
-// ==============================
-// Notification chip (no overflow)
-// ==============================
+//---------------------------------------
+// each notification at the left side design
+//---------------------------------------
 class _NotifChip extends StatelessWidget {
   const _NotifChip({
     Key? key,
@@ -1066,9 +1123,9 @@ class _NotifChip extends StatelessWidget {
   }
 }
 
-/* ===========================
-   Live-resolved facility name
-   =========================== */
+//---------------------------------------
+// get the facility name live
+//---------------------------------------
 class _FacilityNameLive extends StatelessWidget {
   final String facilityId;
   final TextStyle style;
@@ -1097,9 +1154,10 @@ class _FacilityNameLive extends StatelessWidget {
   }
 }
 
-/* ===========================
-   Facility image (simple, asset path only)
-   =========================== */
+//---------------------------------------
+// show facility image
+//---------------------------------------
+
 class _FacilityImageSimple extends StatelessWidget {
   const _FacilityImageSimple({Key? key, required this.facilityId}) : super(key: key);
 
@@ -1127,7 +1185,9 @@ class _FacilityImageSimple extends StatelessWidget {
       },
     );
   }
-
+//---------------------------------------
+// return image box
+//---------------------------------------
   Widget _box(double size, Widget child) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12.r),
@@ -1142,13 +1202,16 @@ class _FacilityImageSimple extends StatelessWidget {
       ),
     );
   }
-
+//---------------------------------------
+// show this image if there is no image
+//---------------------------------------
   Widget _placeholder() => const Center(child: Icon(Icons.image, size: 44, color: Color(0xFF9CA3AF)));
 }
 
-/* ===========================
-   Person card (User/Manager) — simplified photo logic
-   =========================== */
+//---------------------------------------
+// check where the photofrom and display person profile
+//---------------------------------------
+
 enum _PhotoMode { base64, asset }
 
 class _PersonCard extends StatelessWidget {
@@ -1186,20 +1249,25 @@ class _PersonCard extends StatelessWidget {
       builder: (context, snap) {
         final data = snap.data?.data();
 
-        final String name  = _pickFirst(data?['name'], data?['userName'], data?['username']);
-        final String email = _pickFirst(data?['email'], data?['userEmail'], data?['emailAddress']);
-        final String phone = _pickFirst(data?['contact'], data?['phone'], data?['mobile']);
+        final String name  = _pickFirst(data?['username']);
+        final String email = _pickFirst(data?['email']);
+        final String phone = _pickFirst(data?['contact']);
         final String role  = _pickFirst(data?['role']);
 
         Uint8List? bytes;
         String? assetPath;
+//---------------------------------------
+// if image in base 64 mode decode
+//---------------------------------------
 
         if (photoMode == _PhotoMode.base64) {
-          final String b64 = _pickFirst(data?['profileImageBase64'], data?['imageBase64'], data?['profileImage64']);
+          final String b64 = _pickFirst(data?['profileImageBase64']);
           bytes = _tryDecodeBase64(b64);
         } else {
-          // asset path only (manager)
-          String? p = _pickFirst(data?['profileImagePath'], data?['profileImageName'], data?['imageName']);
+//---------------------------------------
+// if its not , then get from asset
+//---------------------------------------
+          String? p = _pickFirst(data?['profileImageName']);
           if (p != null && p.isNotEmpty && !p.startsWith('asset/')) {
             p = 'asset/image/$p';
           }
@@ -1229,7 +1297,9 @@ class _PersonCard extends StatelessWidget {
 
   final Uint8List? photoBytes; // base64 only
   final String? assetPath;     // asset only
-
+//---------------------------------------
+// check wether it is asset image or byte image
+//---------------------------------------
   bool get _hasBytes => photoBytes != null && photoBytes!.isNotEmpty;
   bool get _hasAsset => assetPath != null && assetPath!.isNotEmpty;
 
@@ -1245,6 +1315,10 @@ class _PersonCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+//---------------------------------------
+// display image
+//---------------------------------------
+
           ClipRRect(
             borderRadius: BorderRadius.circular(12.r),
             child: Container(
@@ -1255,6 +1329,9 @@ class _PersonCard extends StatelessWidget {
             ),
           ),
           SizedBox(width: 12.w),
+//---------------------------------------
+// display name, email and status
+//---------------------------------------
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1289,7 +1366,9 @@ class _PersonCard extends StatelessWidget {
     }
     return _avatarFallback(name);
   }
-
+//---------------------------------------
+// decode the image
+//---------------------------------------
   static Uint8List? _tryDecodeBase64(String? raw) {
     if (raw == null || raw.trim().isEmpty) return null;
     try { final s = raw.contains(',') ? raw.substring(raw.indexOf(',') + 1) : raw; return base64Decode(s); } catch (_) { return null; }
@@ -1301,6 +1380,9 @@ class _PersonCard extends StatelessWidget {
     }
     return '';
   }
+//---------------------------------------
+// key : v
+//---------------------------------------
 
   Widget _kv(String k, String v) {
     return Row(
@@ -1310,6 +1392,9 @@ class _PersonCard extends StatelessWidget {
       ],
     );
   }
+//---------------------------------------
+// when there is no image
+//---------------------------------------
 
   Widget _avatarFallback(String name) {
     final initials = _initials(name);

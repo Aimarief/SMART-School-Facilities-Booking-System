@@ -1,20 +1,8 @@
-// lib/web/web_tnc.dart
-// -----------------------------------------------------------------------------
-// WEB TERMS & CONDITIONS / PRIVACY POLICY (Admin)
-// - AppBar: WebCustomTopBar with 24-hour clock (same as other admin pages).
-// - Body: Single centered card (~70% screen width) with two toggle buttons
-//   (T&C / Privacy Policy). Content area shows the text for the selected tab.
-// - Edit flow: Press "Edit" -> multiline TextField -> "Save" writes to
-//   Firestore collection 'SystemInformation', docs 'TNC' or 'PrivacyPolicy',
-//   field 'content'.
-// - Beginner-friendly: setState + StreamBuilder + showDialog, ScreenUtil sizing.
-// -----------------------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'web_top_bar.dart'; // uses WebCustomTopBar like your other web pages
+import 'web_top_bar.dart';
 
 class WebTNC extends StatefulWidget {
   const WebTNC({Key? key}) : super(key: key);
@@ -24,22 +12,22 @@ class WebTNC extends StatefulWidget {
 }
 
 class _WebTNCState extends State<WebTNC> {
-  // ---------------- basic states ----------------
-  final bool _use24HourFormat = true; // top bar time format
-  String _tab = 'TNC';                // current tab: 'TNC' or 'PrivacyPolicy'
-  bool _isEditing = false;            // are we editing?
 
-  // controller for editing content
+  final bool _use24HourFormat = true;
+  String _tab = 'TNC';
+  bool _isEditing = false;
+
   final TextEditingController _contentCtrl = TextEditingController();
 
-  // Firestore helpers
+
   CollectionReference<Map<String, dynamic>> _sysCol() {
-    // action: return the collection reference
     return FirebaseFirestore.instance.collection('SystemInformation');
   }
-
+//---------------------------------------
+// if in tnc page return tnc from system information, if in privacy policy then return privacy policy
+//---------------------------------------
   DocumentReference<Map<String, dynamic>> _docRef() {
-    // action: choose document by current tab
+
     if (_tab == 'TNC') {
       return _sysCol().doc('TNC');
     } else {
@@ -47,10 +35,12 @@ class _WebTNCState extends State<WebTNC> {
     }
   }
 
-  // ---------------- build ----------------
+//---------------------------------------
+// main build in tnc
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
-    final double contentMaxWidth = 0.7.sw; // ~70% of screen width
+    final double contentMaxWidth = 0.8.sw;
 
     return Scaffold(
       appBar: PreferredSize(
@@ -72,10 +62,12 @@ class _WebTNCState extends State<WebTNC> {
     );
   }
 
-  // ---------------- main card ----------------
+//---------------------------------------
+// outer main design
+//---------------------------------------
   Widget _buildMainCard() {
     return Card(
-      color: const Color(0xFFEDDFFF), // your box color
+      color: const Color(0xFFEDDFFF),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
       child: Padding(
@@ -94,7 +86,9 @@ class _WebTNCState extends State<WebTNC> {
     );
   }
 
-  // ---------------- toggle buttons (match login hover style) ----------------
+//---------------------------------------
+// toggle button for tnc or pp
+//---------------------------------------
   Widget _buildToggleRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -124,7 +118,9 @@ class _WebTNCState extends State<WebTNC> {
     );
   }
 
-  // ---------------- content viewer / editor ----------------
+//---------------------------------------
+// content design for tnc and pp
+//---------------------------------------
   Widget _buildContentArea() {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _docRef().snapshots(),
@@ -141,7 +137,10 @@ class _WebTNCState extends State<WebTNC> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // header row: title left, edit/save right
+//---------------------------------------
+// header row: title left, edit/save right
+//---------------------------------------
+
             Row(
               children: [
                 Expanded(
@@ -150,10 +149,13 @@ class _WebTNCState extends State<WebTNC> {
                     style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w700),
                   ),
                 ),
+
+//---------------------------------------
+// if not editing above button
+//---------------------------------------
                 if (_isEditing == false)
                   ElevatedButton.icon(
                     onPressed: () {
-                      // load current content into controller and enter edit mode
                       _contentCtrl.text = content;
                       setState(() { _isEditing = true; });
                     },
@@ -166,7 +168,9 @@ class _WebTNCState extends State<WebTNC> {
                     children: [
                       TextButton(
                         onPressed: () {
-                          // cancel editing
+//---------------------------------------
+// when cancel button is press
+//---------------------------------------
                           setState(() { _isEditing = false; });
                         },
                         child: Text('Cancel', style: TextStyle(fontSize: 13.sp)),
@@ -185,7 +189,9 @@ class _WebTNCState extends State<WebTNC> {
 
             SizedBox(height: 10.h),
 
-            // content body
+//---------------------------------------
+// if not editing
+//---------------------------------------
             if (_isEditing == false)
               Container(
                 width: double.infinity,
@@ -203,9 +209,12 @@ class _WebTNCState extends State<WebTNC> {
                 ),
               )
             else
+            Container(
+            height:820.h,
+            child:
               TextField(
                 controller: _contentCtrl,
-                maxLines: 20,
+                maxLines: 80,
                 minLines: 10,
                 decoration: InputDecoration(
                   isDense: false,
@@ -213,22 +222,25 @@ class _WebTNCState extends State<WebTNC> {
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.r)),
                   hintText: 'Enter content...',
                   contentPadding: EdgeInsets.all(12.w),
-                  filled: true, // make background white in edit mode
+                  filled: true,
                   fillColor: Colors.white,
                 ),
                 style: TextStyle(fontSize: 14.sp),
               ),
+            )
           ],
         );
       },
     );
   }
 
-  // ---------------- save to Firestore ----------------
+//---------------------------------------
+// when save button is press
+//---------------------------------------
   Future<void> _saveContent(String text) async {
     try {
-      await _docRef().set({'content': text}, SetOptions(merge: true)); // write field
-      setState(() { _isEditing = false; }); // exit edit
+      await _docRef().set({'content': text}, SetOptions(merge: true));
+      setState(() { _isEditing = false; });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -244,7 +256,7 @@ class _WebTNCState extends State<WebTNC> {
     }
   }
 
-  // ---------------- dispose ----------------
+
   @override
   void dispose() {
     _contentCtrl.dispose();
@@ -252,7 +264,9 @@ class _WebTNCState extends State<WebTNC> {
   }
 }
 
-// ---------------- CUSTOM TOGGLE BUTTON (login-style) ------------------------
+//---------------------------------------
+// design for the gover toggle button
+//---------------------------------------
 class _HoverToggleButton extends StatefulWidget {
   final String text;         // label
   final bool isSelected;     // selected?
@@ -274,7 +288,7 @@ class _HoverToggleButtonState extends State<_HoverToggleButton> {
 
   @override
   Widget build(BuildContext context) {
-    // colors copied from WebLoginPage HoverToggleButton
+
     const Color basePurple = Color(0xFF6E00D4);
     const Color hoverPurple = Color(0xFF7A1AE4);
 

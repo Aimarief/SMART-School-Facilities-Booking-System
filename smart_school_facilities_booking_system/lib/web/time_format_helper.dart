@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class TimeFormatHelper {
-  /// Converts a TimeOfDay (24-hour) to a 12-hour format string like "02:30 PM"
+//---------------------------------------
+//
+//---------------------------------------
+
   static String formatTimeOfDayTo12Hour(TimeOfDay time) {
     final now = DateTime.now();
     final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);

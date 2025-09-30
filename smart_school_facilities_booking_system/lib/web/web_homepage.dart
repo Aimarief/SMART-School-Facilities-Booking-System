@@ -13,42 +13,48 @@ class Homepage extends StatefulWidget {
 }
 
 class _HomepageState extends State<Homepage> {
-  // -------- BASIC STATES --------
+
   late DateTime _selectedDate;
   late DateTime _visibleMonthFirst;
   bool _filterByDate = false;
-  bool _use24HourFormat = false;
-
-  // -------- STATUS FILTER (one at a time) --------
+  bool _use24HourFormat = true;
   bool _stUpcoming = false;
   bool _stOngoing = false;
   bool _stEnded = false;
 
-  // -------- CATEGORY FILTER (Admin) --------
+
   final Set<String> _selectedCategoryIds = <String>{};
 
-  // -------- FACILITY FILTER (Manager) --------
   final Set<String> _selectedFacilityIds = <String>{};
 
-  // -------- ROLE + USER INFO --------
-  String _role = 'unknown'; // 'Admin' | 'Manager' | 'unknown'
+  String _role = 'unknown'; // 'Admin' | 'Manager' |
   String? _currentUid;
   String _managerName = '';
 
-  // -------- scroll controllers (for visible scrollbars) --------
+
   final ScrollController _hCtrl = ScrollController();
   final ScrollController _vCtrl = ScrollController();
+
+  //---------------------------------------
+// do init state first before anything
+//---------------------------------------
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
+    //---------------------------------------
+// set today as selected and the month taht show in calender is this month then load user role first
+//---------------------------------------
+
     _selectedDate = DateTime(now.year, now.month, now.day);
     _visibleMonthFirst = DateTime(now.year, now.month, 1);
     _loadUserRole();
   }
 
-  // read UserInformation/{uid}
+//---------------------------------------
+// load user role
+//---------------------------------------
   Future<void> _loadUserRole() async {
     try {
       final u = FirebaseAuth.instance.currentUser;
@@ -76,15 +82,14 @@ class _HomepageState extends State<Homepage> {
           final r = data['role'];
           if (r is String && r.trim().isNotEmpty) newRole = r.trim();
 
-          if (data['name'] is String && (data['name'] as String).trim().isNotEmpty) {
-            newName = (data['name'] as String).trim();
-          } else if (data['userName'] is String && (data['userName'] as String).trim().isNotEmpty) {
-            newName = (data['userName'] as String).trim();
-          } else if (data['username'] is String && (data['username'] as String).trim().isNotEmpty) {
+         if (data['username'] is String && (data['username'] as String).trim().isNotEmpty) {
             newName = (data['username'] as String).trim();
           }
         }
       }
+//---------------------------------------
+// get the role and set state
+//---------------------------------------
 
       setState(() {
         _role = newRole;
@@ -99,21 +104,33 @@ class _HomepageState extends State<Homepage> {
     }
   }
 
-  // -------- CALENDAR HELPERS --------
+//---------------------------------------
+// get the start of first day in the month (get next month first day, then minuz 1 get total day
+//---------------------------------------
   int _daysInMonth(DateTime firstOfMonth) {
     final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
     final lastCurrent = firstNext.subtract(const Duration(days: 1));
     return lastCurrent.day;
   }
+//---------------------------------------
+// modulus to get empty cell at the back of the first day
+//---------------------------------------
 
   int _leadingEmptyCells(DateTime firstOfMonth) {
     final wd = firstOfMonth.weekday % 7; // Sun=0
     return wd;
   }
 
+//---------------------------------------
+// check if same day
+//---------------------------------------
+
   bool _isSameYMD(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+//---------------------------------------
+//get the month name
+//---------------------------------------
   String _monthName(int m) {
     const names = <String>[
       'January',
@@ -132,7 +149,9 @@ class _HomepageState extends State<Homepage> {
     return names[m - 1];
   }
 
-
+//---------------------------------------
+// check if the same date as pick previously
+//---------------------------------------
 
   void _onPickDate(DateTime d) {
     setState(() {
@@ -145,6 +164,9 @@ class _HomepageState extends State<Homepage> {
       }
     });
   }
+//---------------------------------------
+// go to previous month
+//---------------------------------------
 
   void _prevMonth() {
     final f = _visibleMonthFirst;
@@ -152,6 +174,9 @@ class _HomepageState extends State<Homepage> {
       _visibleMonthFirst = DateTime(f.year, f.month - 1, 1);
     });
   }
+//---------------------------------------
+// go to next month
+//---------------------------------------
 
   void _nextMonth() {
     final f = _visibleMonthFirst;
@@ -160,13 +185,10 @@ class _HomepageState extends State<Homepage> {
     });
   }
 
-  void _clearDateFilter() {
-    setState(() {
-      _filterByDate = false;
-    });
-  }
+//---------------------------------------
+// when the status is toggle
+//---------------------------------------
 
-  // -------- STATUS TOGGLERS --------
   void _tapStUpcoming(bool? v) {
     final on = v == true;
     setState(() {
@@ -200,7 +222,10 @@ class _HomepageState extends State<Homepage> {
     });
   }
 
-  // -------- CATEGORY SELECT --------
+//---------------------------------------
+// when category is selected
+//---------------------------------------
+
   void _toggleCategory(String id, bool? v) {
     final on = v == true;
     setState(() {
@@ -212,13 +237,11 @@ class _HomepageState extends State<Homepage> {
     });
   }
 
-  void _clearAllCategories() {
-    setState(() {
-      _selectedCategoryIds.clear();
-    });
-  }
 
-  // -------- FACILITY SELECT --------
+//---------------------------------------
+// when facility is press
+//---------------------------------------
+
   void _toggleFacility(String id, bool? v) {
     final on = v == true;
     setState(() {
@@ -235,6 +258,11 @@ class _HomepageState extends State<Homepage> {
       _selectedFacilityIds.clear();
     });
   }
+
+//---------------------------------------
+// decide the legend colour
+//---------------------------------------
+
   Widget _legendSwatch(Color fill, Color border) {
     return Container(
       width: 16.w,
@@ -247,7 +275,9 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
-  // -------- UI BUILD --------
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final sideMinW = 260.w;
@@ -262,7 +292,9 @@ class _HomepageState extends State<Homepage> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // LEFT (unchanged)
+//---------------------------------------
+// left box
+//---------------------------------------
           SizedBox(
             width: sideW,
             height: 1.0.sh,
@@ -271,6 +303,9 @@ class _HomepageState extends State<Homepage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
+//---------------------------------------
+// list the widget that have in left bar
+//---------------------------------------
                   Text('List of Bookings',
                       style:
                       TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
@@ -285,9 +320,13 @@ class _HomepageState extends State<Homepage> {
               ),
             ),
           ),
-
-          // RIGHT — 7-day timetable
-          Expanded(child: _buildTimetablePanel()),
+//---------------------------------------
+// the right part
+//---------------------------------------
+          Expanded(
+              child:
+          _buildTimetablePanel()
+          ),
         ],
       ),
     );
@@ -318,7 +357,9 @@ class _HomepageState extends State<Homepage> {
       child: Text(label, style: TextStyle(fontSize: 12.sp, color: fg)),
     );
   }
-
+//---------------------------------------
+// build calender main design
+//---------------------------------------
   Widget _buildCalendarCard() {
     return Container(
       decoration: BoxDecoration(
@@ -336,18 +377,13 @@ class _HomepageState extends State<Homepage> {
           SizedBox(height: 8.h),
           _buildCalendarGrid(),
           SizedBox(height: 8.h),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _clearDateFilter,
-              child:
-              Text('Clear Date Filter', style: TextStyle(fontSize: 12.sp)),
-            ),
-          ),
         ],
       ),
     );
   }
+//---------------------------------------
+// header of calendar design
+//---------------------------------------
 
   Widget _buildCalendarHeader() {
     final m = _visibleMonthFirst;
@@ -357,10 +393,12 @@ class _HomepageState extends State<Homepage> {
         Expanded(
             child: Text(label,
                 style:
-                TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600))),
+                TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600))
+        ),
         TextButton(
             onPressed: _prevMonth,
-            child: Text('Prev', style: TextStyle(fontSize: 12.sp))),
+            child: Text('Prev', style: TextStyle(fontSize: 12.sp))
+        ),
         SizedBox(width: 4.w),
         TextButton(
             onPressed: _nextMonth,
@@ -369,10 +407,13 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
+//---------------------------------------
+// build calendar week that row
+//---------------------------------------
   Widget _buildWeekdayRow() {
     const days = <String>['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     return LayoutBuilder(
-      builder: (_, c) {
+      builder: (context, c) {
         final gap = 6.w;
         final totalGaps = gap * 6.0;
         double cellW = (c.maxWidth - totalGaps) / 7.0;
@@ -385,10 +426,8 @@ class _HomepageState extends State<Homepage> {
               width: cellW,
               child: Center(
                 child: Text(days[i],
-                    style: TextStyle(
-                        fontSize: 11.sp,
-                        color: const Color(0xFF6B7280),
-                        fontWeight: FontWeight.w600)),
+                    style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280), fontWeight: FontWeight.w600)
+                ),
               ),
             );
           }),
@@ -397,6 +436,9 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
+//---------------------------------------
+// display the calender to pick date
+//---------------------------------------
   Widget _buildCalendarGrid() {
     final f = _visibleMonthFirst;
     final days = _daysInMonth(f);
@@ -406,7 +448,7 @@ class _HomepageState extends State<Homepage> {
     if (rows < 6) rows = 6;
 
     return LayoutBuilder(
-      builder: (_, c) {
+      builder: (context, c) {
         final gap = 6.w;
         final totalGapW = gap * 6.0;
         double cellW = (c.maxWidth - totalGapW) / 7.0;
@@ -421,6 +463,9 @@ class _HomepageState extends State<Homepage> {
                 padding: EdgeInsets.only(bottom: r == rows - 1 ? 0 : gap),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//---------------------------------------
+// calculate the day date
+//---------------------------------------
                   children: List.generate(7, (cIdx) {
                     final cellIndex = (r * 7) + cIdx;
                     final dayNum = cellIndex - lead + 1;
@@ -431,7 +476,9 @@ class _HomepageState extends State<Homepage> {
                     final isSelected = (cellDate != null && _filterByDate)
                         ? _isSameYMD(cellDate, _selectedDate)
                         : false;
-
+//---------------------------------------
+// builde the cell day each day each day
+//---------------------------------------
                     return _buildDayCell(
                       width: cellW,
                       height: cellW,
@@ -449,6 +496,9 @@ class _HomepageState extends State<Homepage> {
       },
     );
   }
+//---------------------------------------
+// design for each day cell
+//---------------------------------------
 
   Widget _buildDayCell({
     required double width,
@@ -486,134 +536,18 @@ class _HomepageState extends State<Homepage> {
             ),
             alignment: Alignment.center,
             child: Text(label,
-                style: TextStyle(
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w600,
-                    color: text)),
+                style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600, color: text)
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ====== small generic grid helpers ======
-  Widget _gridCell({
-    required Border border,
-    Widget? child,
-    Alignment align = Alignment.centerLeft,
-    EdgeInsets? pad,
-    Color? bg,
-  }) {
-    return Container(
-      alignment: align,
-      padding: pad ?? EdgeInsets.all(8.w),
-      decoration: BoxDecoration(color: bg, border: border),
-      child: child ?? const SizedBox.shrink(),
-    );
-  }
+//---------------------------------------
+// cell for header
+//---------------------------------------
 
-  // header cell (legacy – not used by the new table, kept to avoid breaking anything else)
-  Widget _ttHeaderCell(String text,
-      {Alignment align = Alignment.center, double padH = 8.0, double padV = 10.0}) {
-    return Container(
-      alignment: align,
-      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700),
-      ),
-    );
-  }
-
-  // booking chips inside a cell (legacy style with explicit border – unused by the new table)
-  Widget _bookingCell({
-    required List<Map<String, dynamic>> items,
-    required Border border,
-  }) {
-    const greenBg = Color(0xFFD1FAE5);
-    const greenBd = Color(0xFF10B981);
-    const yellowBg = Color(0xFFFEF3C7);
-    const yellowBd = Color(0xFFF59E0B);
-    const greyBg = Color(0xFFE5E7EB);
-    const greyBd = Color(0xFF9CA3AF);
-
-    final nowDT = DateTime.now();
-
-    return Container(
-      decoration: BoxDecoration(border: border),
-      padding: EdgeInsets.all(8.w),
-      constraints: BoxConstraints(minHeight: 74.h),
-      child: (items.isEmpty)
-          ? const SizedBox.shrink()
-          : Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: List.generate(items.length, (i) {
-          final m = items[i];
-          final uid = _readFirstStr(
-              m, const ['uid', 'userId', 'bookedByUid', 'bookedById', 'bookedBy']);
-          final st = _readTime(m, const ['start', 'startTime', 'timeStart']);
-          final en = _readTime(m, const ['end', 'endTime', 'timeEnd']);
-          final bd = _readBookingDate(m) ?? st;
-
-          final status = _computeStatus(
-            nowDT,
-            bd != null ? DateTime(bd.year, bd.month, bd.day) : null,
-            st,
-            en,
-          );
-
-          Color bg = greyBg, bdColor = greyBd;
-          if (status == 'upcoming') {
-            bg = greenBg;
-            bdColor = greenBd;
-          } else if (status == 'ongoing') {
-            bg = yellowBg;
-            bdColor = yellowBd;
-          }
-
-          String timeLabel = '-';
-          if (st != null) {
-            timeLabel = (en != null)
-                ? _formatRange(st, en, _use24HourFormat)
-                : _formatOne(st, _use24HourFormat);
-          }
-
-          return Container(
-            width: double.infinity,
-            margin: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6.h),
-            padding: EdgeInsets.all(8.w),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(8.r),
-              border: Border.all(color: bdColor, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _UserNameLive(
-                  uid: uid,
-                  style: TextStyle(
-                      fontSize: 12.sp, fontWeight: FontWeight.w600),
-                ),
-                SizedBox(height: 2.h),
-                Text(timeLabel,
-                    style: TextStyle(
-                        fontSize: 11.sp, color: const Color(0xFF374151))),
-              ],
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  // ===========================================================
-  // RIGHT PANEL — 7-day timetable (today + next 6) as SIMPLE TABLE
-  // ===========================================================
-  // Small header cell for the simple table
   Widget _hdrCell(String text,
       {Alignment align = Alignment.center, EdgeInsets? pad}) {
     return Container(
@@ -629,19 +563,14 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
-  // Day cell for the simple table (no per-cell borders; table draws them)
+//---------------------------------------
+// each design for the cell in the table
+//---------------------------------------
+
   Widget _dayCellSimple(List<Map<String, dynamic>> items) {
-    const greenBg = Color(0xFFD1FAE5);
-    const greenBd = Color(0xFF10B981);
-    const yellowBg = Color(0xFFFEF3C7);
-    const yellowBd = Color(0xFFF59E0B);
-    const greyBg = Color(0xFFE5E7EB);
-    const greyBd = Color(0xFF9CA3AF);
+
 
     final nowDT = DateTime.now();
-
-
-
 
     return Container(
       padding: EdgeInsets.all(8.w),
@@ -653,9 +582,9 @@ class _HomepageState extends State<Homepage> {
         children: List.generate(items.length, (i) {
           final m = items[i];
           final uid = _readFirstStr(
-              m, const ['uid','userId','bookedByUid','bookedById','bookedBy']);
-          final st = _readTime(m, const ['start','startTime','timeStart']);
-          final en = _readTime(m, const ['end','endTime','timeEnd']);
+              m, const ['userId']);
+          final st = _readTime(m, const ['start']);
+          final en = _readTime(m, const ['end']);
           final bd = _readBookingDate(m) ?? st;
 
           final status = _computeStatus(
@@ -663,10 +592,17 @@ class _HomepageState extends State<Homepage> {
             bd != null ? DateTime(bd.year, bd.month, bd.day) : null,
             st, en,
           );
+//---------------------------------------
+// set colour for each cell
+//---------------------------------------
 
           Color bg = const Color(0xFFE5E7EB), bdColor = const Color(0xFF9CA3AF);
           if (status == 'upcoming') { bg = const Color(0xFFD1FAE5); bdColor = const Color(0xFF10B981); }
           else if (status == 'ongoing') { bg = const Color(0xFFFEF3C7); bdColor = const Color(0xFFF59E0B); }
+
+//---------------------------------------
+// label time
+//---------------------------------------
 
           String timeLabel = '-';
           if (st != null) {
@@ -674,13 +610,16 @@ class _HomepageState extends State<Homepage> {
                 : _formatOne(st, _use24HourFormat);
           }
 
-          final double chipMinH = 52.h; // min chip height (tweak 48–56.h as you like)
+          final double chipMinH = 52.h;
+//---------------------------------------
+// display
+//---------------------------------------
 
           return Container(
             width: double.infinity,
             margin: EdgeInsets.only(bottom: i == items.length - 1 ? 0 : 6.h),
-            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h), // use .h vertically
-            constraints: BoxConstraints(minHeight: chipMinH),              // no fixed height
+            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
+            constraints: BoxConstraints(minHeight: chipMinH),
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(8.r),
@@ -690,6 +629,9 @@ class _HomepageState extends State<Homepage> {
               mainAxisSize: MainAxisSize.min,                               // shrink to content
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+//---------------------------------------
+// get the username
+//---------------------------------------
                 _UserNameLive(
                   uid: uid,
                   style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600, height: 1.1),
@@ -716,8 +658,12 @@ class _HomepageState extends State<Homepage> {
 
   }
 
+//---------------------------------------
+// status filter design
+//---------------------------------------
+
   Widget _buildStatusFilter() {
-    // Same colors you use in the chips:
+
     const upcomingFill  = Color(0xFFD1FAE5);
     const upcomingBd    = Color(0xFF10B981);
     const ongoingFill   = Color(0xFFFEF3C7);
@@ -738,7 +684,9 @@ class _HomepageState extends State<Homepage> {
         children: <Widget>[
           Text('Status', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
           SizedBox(height: 6.h),
-
+//---------------------------------------
+// each of the check box
+//---------------------------------------
           CheckboxListTile(
             value: _stUpcoming,
             onChanged: _tapStUpcoming,
@@ -746,7 +694,6 @@ class _HomepageState extends State<Homepage> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            // swatch on the right
             secondary: _legendSwatch(upcomingFill, upcomingBd),
           ),
 
@@ -780,14 +727,23 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
+//---------------------------------------
+// decide category or facility filter
+//---------------------------------------
 
   Widget _buildCategoryOrFacilityFilter() {
+//---------------------------------------
+// if role is manager then build for manager, if admin then build for admin
+//---------------------------------------
     return (_role.toLowerCase() == 'manager')
         ? _buildFacilityFilter()
         : _buildCategoryFilter();
   }
 
-  // CATEGORY (Admin)
+  //---------------------------------------
+//  category filter design
+//---------------------------------------
+
   Widget _buildCategoryFilter() {
     return Container(
       width: double.infinity,
@@ -845,18 +801,16 @@ class _HomepageState extends State<Homepage> {
           Text('Tip: You can pick more than one category.',
               style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280))),
           SizedBox(height: 4.h),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-                onPressed: _clearAllCategories,
-                child: Text('Clear Categories', style: TextStyle(fontSize: 12.sp))),
-          ),
+
         ],
       ),
     );
   }
 
-  // FACILITY (Manager) — show manager’s facilities, hide deleted==true
+//---------------------------------------
+// facility filter for manager
+//---------------------------------------
+
   Widget _buildFacilityFilter() {
     return Container(
       width: double.infinity,
@@ -882,7 +836,7 @@ class _HomepageState extends State<Homepage> {
                   .collection('Facilities')
                   .where('managerId', isEqualTo: _currentUid)
                   .snapshots(),
-              builder: (_, snap) {
+              builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return Padding(
                     padding: EdgeInsets.symmetric(vertical: 6.h),
@@ -897,14 +851,16 @@ class _HomepageState extends State<Homepage> {
                     Text('No facilities', style: TextStyle(fontSize: 12.sp)),
                   );
                 }
-
+//---------------------------------------
+// get only the not deleted facility
+//---------------------------------------
                 final all = snap.data!.docs;
                 final visible = all.where((d) {
                   final m = d.data();
                   final del = m['deleted'];
                   if (del is bool) return del == false;
                   if (del is String) return del.toLowerCase() != 'true';
-                  return true; // missing => keep
+                  return true;
                 }).toList();
 
                 if (visible.isEmpty) {
@@ -956,39 +912,38 @@ class _HomepageState extends State<Homepage> {
           Text('Tip: You can pick more than one facility.',
               style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280))),
           SizedBox(height: 4.h),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-                onPressed: _clearAllFacilities,
-                child: Text('Clear Facilities', style: TextStyle(fontSize: 12.sp))),
-          ),
+
         ],
       ),
     );
   }
-
+//---------------------------------------
+// build the time table right side
+//---------------------------------------
   Widget _buildTimetablePanel() {
-    // days: selected day (if any) + next 6
+
     final base = _filterByDate ? _selectedDate : DateTime.now();
     final startDay = DateTime(base.year, base.month, base.day);
     final days = List<DateTime>.generate(7, (i) =>
         DateTime(startDay.year, startDay.month, startDay.day + i));
 
-    // Streams
+//---------------------------------------
+// for manager
+//---------------------------------------
     final facilitiesQuery = (_role.toLowerCase() == 'manager' && _currentUid != null)
         ? FirebaseFirestore.instance.collection('Facilities')
         .where('managerId', isEqualTo: _currentUid).snapshots()
         : FirebaseFirestore.instance.collection('Facilities').snapshots();
-
+//---------------------------------------
+// get the bookings taht is accepted
+//---------------------------------------
     final bookingsQuery = FirebaseFirestore.instance
         .collection('Bookings')
         .where('deleted', isEqualTo: false)
         .where('approval', isEqualTo: 'accepted')
         .snapshots();
 
-
-    // layout
-    final wFacilityCol = 260.w; // BIG first column
+    final wFacilityCol = 260.w;
     final wSlotCol = 120.w;
     final wDayCol = 180.w;
 
@@ -1002,7 +957,7 @@ class _HomepageState extends State<Homepage> {
       padding: EdgeInsets.all(16.w),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: facilitiesQuery,
-        builder: (_, facSnap) {
+        builder: (context, facSnap) {
           if (facSnap.connectionState == ConnectionState.waiting) {
             return Center(child: Text('Loading timetable...',
                 style: TextStyle(fontSize: 14.sp)));
@@ -1012,7 +967,9 @@ class _HomepageState extends State<Homepage> {
                 style: TextStyle(fontSize: 14.sp)));
           }
 
-          // facilities filtered + sorted
+//---------------------------------------
+// only take no deleted facility
+//---------------------------------------
           final allFacDocs = facSnap.data!.docs.where((d) {
             final m = d.data();
             final del = m['deleted'];
@@ -1021,7 +978,9 @@ class _HomepageState extends State<Homepage> {
             return true;
           }).toList();
 
-          // Admin: filter by selected category ids
+//---------------------------------------
+// for admin get the booking with the category id
+//---------------------------------------
           List<QueryDocumentSnapshot<Map<String, dynamic>>> facDocs = allFacDocs;
           if (_role.toLowerCase() != 'manager' && _selectedCategoryIds.isNotEmpty) {
             facDocs = facDocs.where((d) {
@@ -1029,25 +988,31 @@ class _HomepageState extends State<Homepage> {
               return catId.isNotEmpty && _selectedCategoryIds.contains(catId);
             }).toList();
           }
-
-          // Manager: optional facility pick filter
+//---------------------------------------
+// if have the facility id is picked , search it in booking
+//---------------------------------------
           if (_selectedFacilityIds.isNotEmpty) {
             facDocs = facDocs.where((d) => _selectedFacilityIds.contains(d.id)).toList();
           }
 
+//---------------------------------------
+// sort by name
+//---------------------------------------
           facDocs.sort((a, b) {
             final na = (a.data()['name'] ?? '').toString().toLowerCase();
             final nb = (b.data()['name'] ?? '').toString().toLowerCase();
             return na.compareTo(nb);
           });
-
+//---------------------------------------
+// find the available slot for the facility
+//---------------------------------------
           final slotsByFid = <String, int>{
             for (final d in facDocs) d.id: _readSlots(d.data())
           };
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: bookingsQuery,
-            builder: (_, bookSnap) {
+            builder: (context, bookSnap) {
               if (bookSnap.connectionState == ConnectionState.waiting) {
                 return Center(child: Text('Loading bookings...',
                     style: TextStyle(fontSize: 14.sp)));
@@ -1056,8 +1021,10 @@ class _HomepageState extends State<Homepage> {
                 return Center(child: Text('Failed to load bookings',
                     style: TextStyle(fontSize: 14.sp)));
               }
+//---------------------------------------
+// 7 slot for day
+//---------------------------------------
 
-              // grid map: (facility, slot) -> dayIdx -> bookings[]
               final startInclusive = startDay;
               final endInclusive = days.last;
               final dayIndexByYMD = {
@@ -1075,49 +1042,64 @@ class _HomepageState extends State<Homepage> {
                   {for (int i = 0; i < 7; i++) i: <Map<String, dynamic>>[]};
                 }
               }
+//---------------------------------------
+// get bookind id from database
+//---------------------------------------
 
-              // fill grid (with STATUS filter applied)
               final nowDT = DateTime.now();
               for (final doc in bookSnap.data!.docs) {
                 final m = doc.data();
+//---------------------------------------
+// get facility id belong to the booking id
+//---------------------------------------
 
-                // facility scope
-                final fid = _readFirstStr(m, const [
-                  'facilityId','facilityID','facilityDocId','facility_id'
-                ]);
+                final fid = _readFirstStr(m, const ['facilityId']);
                 if (!facIds.contains(fid)) continue;
 
-                // day range scope
+//---------------------------------------
+// get and read the booking date
+//---------------------------------------
+
                 final bd = _readBookingDate(m);
                 if (bd == null) continue;
                 final dayOnly = DateTime(bd.year, bd.month, bd.day);
                 if (dayOnly.isBefore(startInclusive) || dayOnly.isAfter(endInclusive)) continue;
 
-                // status scope
-                final st = _readTime(m, const ['start','startTime','timeStart']);
-                final en = _readTime(m, const ['end','endTime','timeEnd']);
-                final status = _computeStatus(
-                  nowDT,
-                  DateTime(dayOnly.year, dayOnly.month, dayOnly.day),
-                  st, en,
-                );
+//---------------------------------------
+// get and read the time
+//---------------------------------------
+                final st = _readTime(m, const ['start']);
+                final en = _readTime(m, const ['end']);
+
+//---------------------------------------
+// get the sattus and check whether the status is in the filter list
+//---------------------------------------
+
+                final status = _computeStatus(nowDT, DateTime(dayOnly.year, dayOnly.month, dayOnly.day), st, en,);
                 if (!_isStatusAllowed(status)) continue;
 
-                // seat mapping
+//---------------------------------------
+// decide which slot
+//---------------------------------------
+
                 final seatStr = _readFirstStr(
-                    m, const ['seatIndex','slotNumber','seatNumber','slot','seat']);
+                    m, const ['seatIndex']);
                 final seatIndex = int.tryParse(seatStr) ?? -1;
 
                 final di = dayIndexByYMD['${bd.year}-${bd.month}-${bd.day}'];
                 if (di == null) continue;
-
+//---------------------------------------
+// get the facility and seat index
+//---------------------------------------
                 final key = _RowKey(fid: fid, seatIndex: seatIndex);
                 grid.putIfAbsent(key,
                         () => {for (int i = 0; i < 7; i++) i: <Map<String, dynamic>>[]});
                 grid[key]![di]!.add(m);
               }
 
-              // Header (no gap below)
+//---------------------------------------
+// header for the table
+//---------------------------------------
               final header = SizedBox(
                 width: totalWidth,
                 child: Table(
@@ -1140,8 +1122,10 @@ class _HomepageState extends State<Homepage> {
                   ],
                 ),
               );
+//---------------------------------------
+// the place the design the whole table
+//---------------------------------------
 
-              // Body blocks (merged facility column). First block: remove top border to avoid a visible gap
               return Scrollbar(
                 controller: _vCtrl,
                 thumbVisibility: true,
@@ -1158,6 +1142,10 @@ class _HomepageState extends State<Homepage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           header,
+//---------------------------------------
+// function displaying each row by each row
+//---------------------------------------
+
                           for (int idx = 0; idx < facDocs.length; idx++)
                             _facilityBlock(
                               fid: facDocs[idx].id,
@@ -1183,6 +1171,9 @@ class _HomepageState extends State<Homepage> {
       ),
     );
   }
+//---------------------------------------
+// part where id display the design of the table
+//---------------------------------------
 
   Widget _facilityBlock({
     required String fid,
@@ -1218,7 +1209,9 @@ class _HomepageState extends State<Homepage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // FACILITY (single tall cell)
+//---------------------------------------
+// display facility column
+//---------------------------------------
           Container(
             width: wFacilityCol,
             alignment: Alignment.centerLeft,
@@ -1226,7 +1219,9 @@ class _HomepageState extends State<Homepage> {
             decoration: BoxDecoration(color: const Color(0xFFF8F5FF), border: leftBorder),
             child: Text(facilityName, style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
           ),
-          // SLOTS + 7 DAYS
+//---------------------------------------
+// display each slot for next 7 days
+//---------------------------------------
           SizedBox(
             width: wSlotCol + daysCount * wDayCol,
             child: Table(
@@ -1251,6 +1246,10 @@ class _HomepageState extends State<Homepage> {
     );
   }
 
+//---------------------------------------
+// filter base on status
+//---------------------------------------
+
   bool _isStatusAllowed(String status) {
     final anyOn = _stUpcoming || _stOngoing || _stEnded;
     if (!anyOn) return true;
@@ -1260,8 +1259,12 @@ class _HomepageState extends State<Homepage> {
     return false;
   }
 
+//---------------------------------------
+// get the booking with the categoryid
+//---------------------------------------
+
   String _readFacilityCategoryId(Map<String, dynamic> m) {
-    for (final k in const ['categoryId','categoryID','category','catId']) {
+    for (final k in const ['categoryId']) {
       final v = m[k];
       if (v is String && v.trim().isNotEmpty) return v.trim();
       if (v != null) return v.toString();
@@ -1272,7 +1275,9 @@ class _HomepageState extends State<Homepage> {
 
   Widget _cell(Widget child) => Container(padding: EdgeInsets.all(8.w), child: child);
 
-
+//---------------------------------------
+// header cell for day
+//---------------------------------------
   String _fmtDayHeader(DateTime d) {
     const wd = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     final w = wd[d.weekday % 7];
@@ -1280,9 +1285,12 @@ class _HomepageState extends State<Homepage> {
     return '$w\n$dm';
   }
 
-  // ------- parsing / formatting helpers -------
+//---------------------------------------
+// get the available slot
+//---------------------------------------
+
   int _readSlots(Map<String, dynamic> m) {
-    final keys = ['availableSlots', 'slotCount', 'slots'];
+    final keys = ['availableSlots'];
     for (final k in keys) {
       if (m.containsKey(k)) {
         final v = m[k];
@@ -1295,24 +1303,28 @@ class _HomepageState extends State<Homepage> {
     }
     return 1;
   }
+//---------------------------------------
+//  get the bookingdate
+//---------------------------------------
 
   DateTime? _readBookingDate(Map<String, dynamic> m) {
-    const keys = ['bookingDate', 'date', 'bookDate', 'day'];
+    const keys = ['bookingDate'];
     for (final k in keys) {
       if (m.containsKey(k)) {
         final v = m[k];
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
-          final p1 = _tryParseYMD(v);
-          if (p1 != null) return p1;
-          final p2 = _tryParseDMY(v);
-          if (p2 != null) return p2;
+          final p = _tryParseYMD(v);
+          if (p != null) return p;
         }
       }
     }
     return null;
   }
+//---------------------------------------
+// get the time
+//---------------------------------------
 
   DateTime? _readTime(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
@@ -1321,10 +1333,8 @@ class _HomepageState extends State<Homepage> {
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
-          final t1 = _tryParseHMS(v);
-          if (t1 != null) return t1;
-          final t2 = _tryParseHM(v);
-          if (t2 != null) return t2;
+          final t = _tryParseHM(v);
+          if (t != null) return t;
         }
       }
     }
@@ -1341,9 +1351,11 @@ class _HomepageState extends State<Homepage> {
     }
     return '';
   }
+//---------------------------------------
+// get the status
+//---------------------------------------
 
-  String _computeStatus(
-      DateTime nowDT, DateTime? bookDay, DateTime? st, DateTime? en) {
+  String _computeStatus(DateTime nowDT, DateTime? bookDay, DateTime? st, DateTime? en) {
     if (bookDay == null) return 'upcoming';
     final today = DateTime(nowDT.year, nowDT.month, nowDT.day);
     if (bookDay.isAfter(today)) return 'upcoming';
@@ -1381,6 +1393,10 @@ class _HomepageState extends State<Homepage> {
   String _formatRange(DateTime st, DateTime en, bool use24) =>
       '${_formatOne(st, use24)} - ${_formatOne(en, use24)}';
 
+  //---------------------------------------
+// parse and get the year month and day
+//---------------------------------------
+
   DateTime? _tryParseYMD(String s) {
     try {
       final p = s.split('-');
@@ -1391,28 +1407,9 @@ class _HomepageState extends State<Homepage> {
     return null;
   }
 
-  DateTime? _tryParseDMY(String s) {
-    try {
-      final p = s.split('/');
-      if (p.length == 3) {
-        return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  DateTime? _tryParseHMS(String s) {
-    try {
-      final p = s.split(':');
-      if (p.length == 3) {
-        final n = DateTime.now();
-        return DateTime(n.year, n.month, n.day, int.parse(p[0]),
-            int.parse(p[1]), int.parse(p[2]));
-      }
-    } catch (_) {}
-    return null;
-  }
-
+//---------------------------------------
+// parse the time
+//---------------------------------------
   DateTime? _tryParseHM(String s) {
     try {
       final p = s.split(':');
@@ -1471,36 +1468,10 @@ class _ManagerNameLive extends StatelessWidget {
   }
 }
 
-class _FacilityNameLive extends StatelessWidget {
-  final String facilityId;
-  final TextStyle style;
-  final TextOverflow overflow;
 
-  const _FacilityNameLive({
-    Key? key,
-    required this.facilityId,
-    required this.style,
-    this.overflow = TextOverflow.ellipsis,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    if (facilityId.isEmpty) return Text('—', style: style, overflow: overflow);
-    final ref =
-    FirebaseFirestore.instance.collection('Facilities').doc(facilityId);
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ref.snapshots(),
-      builder: (_, snap) {
-        final data = snap.data?.data();
-        final name = (data?['name'] is String &&
-            (data?['name'] as String).trim().isNotEmpty)
-            ? (data!['name'] as String).trim()
-            : '—';
-        return Text(name, style: style, overflow: overflow);
-      },
-    );
-  }
-}
+//---------------------------------------
+// get the username
+//---------------------------------------
 
 class _UserNameLive extends StatelessWidget {
   final String uid;
@@ -1524,13 +1495,7 @@ class _UserNameLive extends StatelessWidget {
         final data = snap.data?.data();
         String name = '—';
         if (data != null) {
-          if (data['name'] is String &&
-              (data['name'] as String).trim().isNotEmpty) {
-            name = (data['name'] as String).trim();
-          } else if (data['userName'] is String &&
-              (data['userName'] as String).trim().isNotEmpty) {
-            name = (data['userName'] as String).trim();
-          } else if (data['username'] is String &&
+        if (data['username'] is String &&
               (data['username'] as String).trim().isNotEmpty) {
             name = (data['username'] as String).trim();
           }
@@ -1541,7 +1506,10 @@ class _UserNameLive extends StatelessWidget {
   }
 }
 
-// key for a row (facility + slot)
+//---------------------------------------
+// store the facility and slot together
+//---------------------------------------
+
 class _RowKey {
   final String fid;
   final int seatIndex;

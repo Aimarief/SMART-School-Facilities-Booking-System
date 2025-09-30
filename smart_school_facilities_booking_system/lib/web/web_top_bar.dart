@@ -28,11 +28,14 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
   String _role = ''; // ✅ Added: store Admin/Manager
   User? _user;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+//---------------------------------------
+//do init state first
+//---------------------------------------
 
   @override
   void initState() {
     super.initState();
-    _user = _auth.currentUser; // ✅ make sure we have the user early
+    _user = _auth.currentUser; // make sure we have the user
 
     _updateTime();
     _timer = Timer.periodic(Duration(seconds: 1), (timer) {
@@ -40,59 +43,24 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
     });
 
     _fetchUserRole();
-    _fetchUserTimeFormatSetting();
+
   }
+//---------------------------------------
+// get the current time and date
+//---------------------------------------
 
   void _updateTime() {
-    final now = DateTime.now();
-    String formattedTime;
-
-    if (widget.use24HourFormat) {
-      formattedTime =
-      "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(
-          2, '0')}:${now.second.toString().padLeft(2, '0')}";
-    } else {
-      int hour = now.hour % 12;
-      if (hour == 0) hour = 12;
-      String amPm = now.hour >= 12 ? 'PM' : 'AM';
-      formattedTime =
-      "$hour:${now.minute.toString().padLeft(2, '0')}:${now.second
-          .toString()
-          .padLeft(2, '0')} $amPm";
-    }
-
-    String formattedDate =
-        "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(
-        2, '0')}/${now.year}";
+    final now = DateTime.now(); // get current date-time
+    final formatted = DateFormat('dd/MM/yyyy  HH:mm:ss').format(now); // 24h with seconds
 
     setState(() {
-      _formattedDateTime = "$formattedDate  $formattedTime";
+      _formattedDateTime = formatted; // set the UI text
     });
   }
 
-  Future<void> _fetchUserTimeFormatSetting() async {
-    if (_user?.email == null) return;
-
-    try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('UserInformation')
-          .where('email', isEqualTo: _user!.email)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        final data = querySnapshot.docs.first.data();
-        final bool timeFormat24 = data['timeFormat24'] ?? true;
-        if (mounted) {
-          setState(() {
-            _use24HourFormat = timeFormat24;
-          });
-        }
-      }
-    } catch (e) {
-      print("Error fetching time format: $e");
-    }
-  }
+//---------------------------------------
+// find the correct role of user
+//---------------------------------------
 
   Future<void> _fetchUserRole() async {
     if (_user?.email == null) return;
@@ -124,6 +92,11 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
     super.dispose();
   }
 
+
+//---------------------------------------
+// show menu using pop up
+//---------------------------------------
+
   void _showMenuPopup(BuildContext context) {
     final screenHeight = MediaQuery
         .of(context)
@@ -139,6 +112,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
       menuWidth = screenWidth * 0.8;
     }
 
+
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -149,7 +123,7 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
           child: Container(
             margin: EdgeInsets.only(top: 70.h),
             width: menuWidth,
-            height: screenHeight - 70.h,
+            height: screenHeight ,
             color: Colors.white,
             padding: EdgeInsets.only(left: 20.w, top: 20.h),
             child: Column(
@@ -161,6 +135,9 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
       },
     );
   }
+//---------------------------------------
+// show all menu items
+//---------------------------------------
 
   List<Widget> _buildMenuItems(BuildContext context) {
     List<Widget> items = [];
@@ -239,6 +216,9 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
 
     return items;
   }
+//---------------------------------------
+// when tap it will navigate
+//---------------------------------------
 
   Widget _menuItem(String title, VoidCallback onTap) {
     return GestureDetector(
@@ -255,6 +235,9 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
     );
   }
 
+//---------------------------------------
+// main build for top bar
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +267,10 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Left side: Hamburger + Logo
+//---------------------------------------
+// left side menu button
+//---------------------------------------
+
           Row(
             children: [
               GestureDetector(
@@ -301,7 +287,10 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
             ],
           ),
 
-          // Center date/time box
+//---------------------------------------
+// show center time
+//---------------------------------------
+
           Expanded(
             child: Center(
               child: Container(
@@ -324,7 +313,10 @@ class _WebCustomTopBarState extends State<WebCustomTopBar> {
             ),
           ),
 
-          // Right side: Notification + Account icons
+//---------------------------------------
+// rihgt side notification page and account page
+//---------------------------------------
+
           Row(
             children: [
               GestureDetector(

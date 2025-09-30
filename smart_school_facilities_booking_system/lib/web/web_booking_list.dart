@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'web_top_bar.dart';
 import 'web_booking_details.dart';
-import 'package:smart_school_facilities_booking_system/notification_service.dart'; // <-- add this
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
 
 
 class BookingList extends StatefulWidget {
@@ -16,23 +16,20 @@ class BookingList extends StatefulWidget {
 }
 
 class _BookingListState extends State<BookingList> {
-  // ====== BASIC STATES ======
-  DateTime _selectedDate = DateTime.now();
-  DateTime _visibleMonthFirst =
-  DateTime(DateTime.now().year, DateTime.now().month, 1);
-  String _role = 'unknown';
-  bool _use24HourFormat = false;
 
-  // when false => show ALL dates; when true => filter by _selectedDate
+  DateTime _selectedDate = DateTime.now();
+  DateTime _visibleMonthFirst = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  String _role = 'unknown';
+  bool _use24HourFormat = true;
+
   bool _filterByDate = false;
 
-  // ====== FILTER STATES (one-at-a-time) ======
-  bool _apPending = false; // approval
+  bool _apPending = false;
   bool _apAccepted = false;
   bool _apRejected = false;
   bool _apAmendment = false;
 
-  bool _stUpcoming = false; // status/state
+  bool _stUpcoming = false;
   bool _stOngoing = false;
   bool _stEnded = false;
 
@@ -40,43 +37,43 @@ class _BookingListState extends State<BookingList> {
   String? _currentUid;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _bookingsStream;
 
-  // ====== SEARCH BAR ======
-  final TextEditingController _searchCtrl =
-  TextEditingController(); // simple text search
 
-  // ====== LIFECYCLE ======
+  final TextEditingController _searchCtrl = TextEditingController();
+
+//---------------------------------------
+// run this first before doing anything
+//---------------------------------------
   @override
   void initState() {
     super.initState();
     _loadUserRole();
 
-    // plain stream; we’ll sort client-side
     _bookingsStream = FirebaseFirestore.instance
         .collection('Bookings')
         .snapshots();
 
     _runHousekeepingOnce();
   }
-  // ====== SORTING (string key + dir) ======
+
   String _sortKey = '';      // '', 'date'   (no more 'time')
   String _sortDir = 'asc';   // 'asc' or 'desc'
 
-
+//---------------------------------------
+// sort the day
+//---------------------------------------
   void _toggleSort(String key) {
     setState(() {
       if (_sortKey != key) {
-        // switching column → start with ASC
         _sortKey = key;
         _sortDir = 'asc';
       } else {
-        // same column → cycle asc → desc → none(default)
+
         if (_sortDir == 'asc') {
           _sortDir = 'desc';
         } else if (_sortDir == 'desc') {
-          _sortKey = '';   // reset to default (no symbol)
-          _sortDir = 'asc'; // keep a neutral default
+          _sortKey = '';
+          _sortDir = 'asc';
         } else {
-          // (not really hit, but safe default)
           _sortDir = 'asc';
         }
       }
@@ -84,8 +81,9 @@ class _BookingListState extends State<BookingList> {
   }
 
 
-
-  // ====== FIRESTORE: READ ROLE ======
+//---------------------------------------
+// load user role first
+//---------------------------------------
   Future<void> _loadUserRole() async {
     try {
       final User? u = FirebaseAuth.instance.currentUser;
@@ -111,7 +109,9 @@ class _BookingListState extends State<BookingList> {
         final r = data?['role'];
         if (r is String && r.trim().isNotEmpty) newRole = r.trim();
       }
-
+//---------------------------------------
+// set the state for role to change the ui accordingly to the role
+//---------------------------------------
       setState(() => _role = newRole);
       _configureBookingsStream();
     } catch (e) {
@@ -122,7 +122,9 @@ class _BookingListState extends State<BookingList> {
       });
     }
   }
-
+//---------------------------------------
+// get the bookings that belong to the role
+//---------------------------------------
   void _configureBookingsStream() {
     final r = _role.toLowerCase();
     final uid = _currentUid;
@@ -133,12 +135,12 @@ class _BookingListState extends State<BookingList> {
       s = FirebaseFirestore.instance
           .collection('Bookings')
           .where('managerId', isEqualTo: uid)
-          .where('deleted', isEqualTo: false) // ⬅️ optional
+          .where('deleted', isEqualTo: false)
           .snapshots();
     } else {
       s = FirebaseFirestore.instance
           .collection('Bookings')
-          .where('deleted', isEqualTo: false) // ⬅️ optional
+          .where('deleted', isEqualTo: false)
           .snapshots();
     }
 
@@ -153,19 +155,25 @@ class _BookingListState extends State<BookingList> {
   }
 
 
-
-  // ====== CALENDAR HELPERS ======
+//---------------------------------------
+// look for the day in month
+//---------------------------------------
   int _daysInMonth(DateTime firstOfMonth) {
     final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
     final lastCurrent = firstNext.subtract(const Duration(days: 1));
     return lastCurrent.day;
   }
-
+//---------------------------------------
+//look how many day previous need to be empty
+//---------------------------------------
   int _leadingEmptyCells(DateTime firstOfMonth) {
-    final int wd = firstOfMonth.weekday % 7; // Sun=0
+    final int wd = firstOfMonth.weekday % 7;
     return wd;
   }
 
+//---------------------------------------
+// check if picked date is same as filtered date then set default, if not same then set the date
+//---------------------------------------
   void _onPickDate(DateTime d) {
     setState(() {
       if (_filterByDate && _isSameYMD(d, _selectedDate)) {
@@ -190,7 +198,9 @@ class _BookingListState extends State<BookingList> {
     setState(() => _visibleMonthFirst = DateTime(f.year, f.month + 1, 1));
   }
 
-  // ====== APPROVAL FILTER TOGGLERS ======
+//---------------------------------------
+// approval filter base on taped
+//---------------------------------------
   void _tapApPending(bool? v) => setState(() {
     final on = v ?? false;
     _apPending = on;
@@ -223,17 +233,18 @@ class _BookingListState extends State<BookingList> {
 
   // toggle the "Amendment" approval filter
   void _tapApAmendment(bool? v) => setState(() {
-    final on = v ?? false;        // fallback false if null
-    _apAmendment = on;            // set our new flag
+    final on = v ?? false;
+    _apAmendment = on;
     if (on) {
-      // keep one-at-a-time behavior: turn off the other approval filters
       _apPending = false;
       _apAccepted = false;
       _apRejected = false;
     }
   });
 
-  // ====== STATUS FILTER TOGGLERS ======
+//---------------------------------------
+// for status filter after check box
+//---------------------------------------
   void _tapStUpcoming(bool? v) => setState(() {
     final on = v ?? false;
     _stUpcoming = on;
@@ -261,7 +272,9 @@ class _BookingListState extends State<BookingList> {
     }
   });
 
-  // ====== ONE-TIME HOUSEKEEPING ======
+//---------------------------------------
+// run the house keeping to set everything to correct status
+//---------------------------------------
   Future<void> _runHousekeepingOnce() async {
     if (_didRunHousekeeping) return;
     _didRunHousekeeping = true;
@@ -270,25 +283,17 @@ class _BookingListState extends State<BookingList> {
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
-      // accepted -> set ongoing/ended by time
-      final acceptedValues = <String>[
-        'accepted',
-        'Accepted',
-        'ACCEPTED',
-        'approved',
-        'Approved',
-        'APPROVED',
-      ];
-
       final acceptedSnap = await FirebaseFirestore.instance
           .collection('Bookings')
-          .where('approval', whereIn: acceptedValues)
+          .where('approval', isEqualTo:  'accepted')
           .get();
 
       for (final doc in acceptedSnap.docs) {
         final m = doc.data();
         if (m == null) continue;
-
+//---------------------------------------
+// get the booking date
+//---------------------------------------
         final bookDate = _readBookingDate(m);
         if (bookDate == null) continue;
 
@@ -298,6 +303,9 @@ class _BookingListState extends State<BookingList> {
 
         if (bookDayStart.isBefore(todayStart)) {
           newStatus = 'ended';
+//---------------------------------------
+// is same date with now
+//---------------------------------------
         } else if (_isSameYMD(bookDate, now)) {
           final tStart = _readTime(m, ['start']);
           final tEnd = _readTime(m, ['end']);
@@ -309,7 +317,7 @@ class _BookingListState extends State<BookingList> {
 
             if (endDT.isAfter(startDT)) {
               if (now.isBefore(startDT)) {
-                // keep
+                // do nothing
               } else if (!now.isBefore(endDT)) {
                 newStatus = 'ended';
               } else {
@@ -318,7 +326,9 @@ class _BookingListState extends State<BookingList> {
             }
           }
         }
-
+//---------------------------------------
+// update the new status to database
+//---------------------------------------
         if (newStatus.isNotEmpty) {
           final current = _readLowerStr(m, ['status']);
           if (current != newStatus) {
@@ -342,16 +352,23 @@ class _BookingListState extends State<BookingList> {
 
         final bookDayStart = DateTime(bookDate.year, bookDate.month, bookDate.day);
         bool shouldReject = false;
-
+//---------------------------------------
+// if booking is before today then reject
+//---------------------------------------
         if (bookDayStart.isBefore(todayStart)) {
           shouldReject = true;
+//---------------------------------------
+// check is same day year month
+//---------------------------------------
         } else if (_isSameYMD(bookDate, now)) {
           final tStart = _readTime(m, ['start']);
           if (tStart != null) {
             final startDT = DateTime(
-              bookDate.year, bookDate.month, bookDate.day,
-              tStart.hour, tStart.minute, tStart.second,
+              bookDate.year, bookDate.month, bookDate.day, tStart.hour, tStart.minute, tStart.second,
             );
+//---------------------------------------
+// if now is after the start date time, reject
+//---------------------------------------
             if (!now.isBefore(startDT)) shouldReject = true;
           }
         }
@@ -359,31 +376,30 @@ class _BookingListState extends State<BookingList> {
         if (shouldReject) {
           final currAppr = _readLowerStr(m, ['approval']);
           if (currAppr != 'rejected') {
-            // 1) flip Firestore fields to rejected
+//---------------------------------------
+// change approval to rejected
+//---------------------------------------
             await doc.reference.update({
               'approval': 'rejected',
             });
 
-            // 2) send approval_status (hardcoded rejected)
+//---------------------------------------
+// get the nessecary information to send rejected maillbox
+//---------------------------------------
             try {
               final String bookingId  = doc.id;
               final String userId     = _readFirstStr(m, ['userId']);
               final String bookedBy   = _readFirstStr(m, ['bookedBy']);
               final String facilityId = _readFirstStr(m, ['facilityId']);
               final String managerId  = _readFirstStr(m, ['managerId']);
-
-              // NEW: ensure we include seat/time/date in the notification payload
               final String seatRaw = _readFirstStr(m, ['seatIndex']);
               final int seatIndex  = int.tryParse(seatRaw) ?? -1;
-
-              // prefer raw string; if missing, format from parsed DateTime
               String startStr = _readFirstStr(m, ['start']);
               String endStr   = _readFirstStr(m, ['end']);
               final DateTime? tStart = _readTime(m, ['start']);
               final DateTime? tEnd   = _readTime(m, ['end']);
-              if (startStr.isEmpty && tStart != null) startStr = _formatOne(tStart, true); // "HH:mm"
-              if (endStr.isEmpty   && tEnd   != null) endStr   = _formatOne(tEnd,   true); // "HH:mm"
-
+              if (startStr.isEmpty && tStart != null) startStr = _formatOne(tStart, true);
+              if (endStr.isEmpty   && tEnd   != null) endStr   = _formatOne(tEnd,   true);
               String bookingDate = _readFirstStr(m, ['bookingDate']);
               final DateTime? bd = _readBookingDate(m);
               if (bookingDate.trim().isEmpty && bd != null) bookingDate = _fmtYMD(bd); // "YYYY-MM-DD"
@@ -412,12 +428,15 @@ class _BookingListState extends State<BookingList> {
     }
   }
 
-  // ====== UI BUILD ======
+//---------------------------------------
+// main UI build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
-    final double sideMinW = 260.w;
+    // final double sideMinW = 260.w;
     double sideW = 0.20.sw;
-    if (sideW < sideMinW) sideW = sideMinW;
+    // if (sideW < sideMinW)
+    //   sideW = sideMinW;
 
     return Scaffold(
       appBar: PreferredSize(
@@ -427,7 +446,9 @@ class _BookingListState extends State<BookingList> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // ---------- LEFT: Calendar + Filters ----------
+//---------------------------------------
+// left side for calender and filter bar design
+//---------------------------------------
           SizedBox(
             width: sideW,
             height: 1.0.sh,
@@ -440,22 +461,20 @@ class _BookingListState extends State<BookingList> {
                       style: TextStyle(
                           fontSize: 18.sp, fontWeight: FontWeight.bold)),
                   SizedBox(height: 16.h),
-
                   _buildCalendarCard(),
-
-
                   SizedBox(height: 16.h),
                   _buildApprovalFilter(),
                   SizedBox(height: 12.h),
                   _buildStatusFilter(),
                   SizedBox(height: 16.h),
-                  _buildRoleInfo(),
                 ],
               ),
             ),
           ),
 
-          // ---------- RIGHT: Table ----------
+//---------------------------------------
+// build for the right table
+//---------------------------------------
           Expanded(
             child: Container(
               height: 1.0.sh,
@@ -506,7 +525,9 @@ class _BookingListState extends State<BookingList> {
 
                     SizedBox(height: 10.h),
 
-                    // the table itself
+//---------------------------------------
+// build the booking table
+//---------------------------------------
                     Expanded(child: _buildBookingsTable()),
                   ],
                 ),
@@ -518,29 +539,9 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
-  // ====== Small UI pieces ======
-  Widget _buildRoleInfo() {
-    String label = 'Role: $_role';
-    Color bg = const Color(0xFFE5E7EB);
-    Color fg = const Color(0xFF111827);
-
-    if (_role == 'admin') {
-      bg = const Color(0xFFD1FAE5);
-      fg = const Color(0xFF065F46);
-    } else if (_role == 'manager') {
-      bg = const Color(0xFFDBEAFE);
-      fg = const Color(0xFF1E3A8A);
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(16.w, 10.h, 12.w, 10.h),
-      decoration:
-      BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8.r)),
-      child: Text(label, style: TextStyle(fontSize: 12.sp, color: fg)),
-    );
-  }
-
+//---------------------------------------
+// build calendar design
+//---------------------------------------
   Widget _buildCalendarCard() {
     return Container(
       decoration: BoxDecoration(
@@ -561,7 +562,9 @@ class _BookingListState extends State<BookingList> {
       ),
     );
   }
-
+//---------------------------------------
+// head of the calender
+//---------------------------------------
   Widget _buildCalendarHeader() {
     final m = _visibleMonthFirst;
     final monthName = _monthName(m.month);
@@ -584,6 +587,9 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
+//---------------------------------------
+// week day row of calender
+//---------------------------------------
   Widget _buildWeekdayRow() {
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
@@ -615,6 +621,9 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
+//---------------------------------------
+// build a day a day for calender
+//---------------------------------------
   Widget _buildCalendarGrid() {
     final f = _visibleMonthFirst;
     final days = _daysInMonth(f);
@@ -630,6 +639,7 @@ class _BookingListState extends State<BookingList> {
         final totalGapW = gap * 6;
         double cellW = (c.maxWidth - totalGapW) / 7.0;
         if (cellW < 10.w) cellW = 10.w;
+        // get the overall height
         final gridH = (rows * cellW) + ((rows - 1) * gap);
 
         return SizedBox(
@@ -645,12 +655,9 @@ class _BookingListState extends State<BookingList> {
                     final dayNum = cellIndex - lead + 1;
 
                     bool inMonth = (dayNum >= 1 && dayNum <= days);
-                    DateTime? cellDate =
-                    inMonth ? DateTime(f.year, f.month, dayNum) : null;
+                    DateTime? cellDate = inMonth ? DateTime(f.year, f.month, dayNum) : null;
 
-                    final isSelected = cellDate != null &&
-                        _isSameYMD(cellDate, _selectedDate) &&
-                        _filterByDate;
+                    final isSelected = cellDate != null && _isSameYMD(cellDate, _selectedDate) && _filterByDate;
 
                     return _buildDayCell(
                       width: cellW,
@@ -669,7 +676,9 @@ class _BookingListState extends State<BookingList> {
       },
     );
   }
-
+//---------------------------------------
+// build each day each day for the calender
+//---------------------------------------
   Widget _buildDayCell({
     required double width,
     required double height,
@@ -715,7 +724,9 @@ class _BookingListState extends State<BookingList> {
       ),
     );
   }
-
+//---------------------------------------
+// A place that design build approval filter
+//---------------------------------------
   Widget _buildApprovalFilter() {
     return Container(
       width: double.infinity,
@@ -772,7 +783,9 @@ class _BookingListState extends State<BookingList> {
       ),
     );
   }
-
+//---------------------------------------
+// A place that design status filter
+//---------------------------------------
   Widget _buildStatusFilter() {
     return Container(
       width: double.infinity,
@@ -821,14 +834,17 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
-
-  // ====== TABLE (RIGHT) ======
+//---------------------------------------
+// Design for the right table
+//---------------------------------------
   Widget _buildBookingsTable() {
     if (_bookingsStream == null) {
       return Center(child: Text('Loading...', style: TextStyle(fontSize: 14.sp)));
     }
 
-    // 1) Read bookings stream
+//---------------------------------------
+// read the booking stream first check have data or not
+//---------------------------------------
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _bookingsStream,
       builder: (context, snap) {
@@ -842,7 +858,9 @@ class _BookingListState extends State<BookingList> {
           return Center(child: Text('No data', style: TextStyle(fontSize: 14.sp)));
         }
 
-        // 2) Collect + sort
+//---------------------------------------
+// collect and sort
+//---------------------------------------
         final all = <Map<String, dynamic>>[];
         for (final d in snap.data!.docs) {
           final m = d.data();
@@ -850,16 +868,22 @@ class _BookingListState extends State<BookingList> {
         }
         all.sort((a, b) => _readSortTime(b).compareTo(_readSortTime(a)));
 
-        // 3) Filters (date, approval, status) — exactly as you already have
+//---------------------------------------
+// get all the status filter
+//---------------------------------------
         final byStatus = _applyAllFilters(all);
 
-        // 4) ONE future for rows: plain list when no query, async filtered when query
+//---------------------------------------
+// filter by search
+//---------------------------------------
         final q = _searchCtrl.text.trim().toLowerCase();
         final Future<List<Map<String, dynamic>>> rowsFuture =
         q.isEmpty ? Future.value(byStatus)
             : _filterRowsByBookingIdFacilityNameUserName(byStatus, q);
 
-        // 5) ONE FutureBuilder that always renders the SAME table UI
+//---------------------------------------
+// build the table
+//---------------------------------------
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: rowsFuture,
           builder: (context, fsnap) {
@@ -881,8 +905,9 @@ class _BookingListState extends State<BookingList> {
             }
 
             final rows = fsnap.data ?? <Map<String, dynamic>>[];
-// --- apply sorting based on header clicks ---
-            // --- apply sorting based on header clicks ---
+//---------------------------------------
+// apply searching
+//---------------------------------------
             if (_sortKey == 'date') {
               rows.sort((a, b) {
                 final minDate = DateTime.fromMillisecondsSinceEpoch(0);
@@ -905,10 +930,11 @@ class _BookingListState extends State<BookingList> {
                 return at.compareTo(bt); // always ascending
               });
             }
-// when _sortKey == '' (default), we keep your original lastActivity desc order
+// when _sortKey == '' (default), we keep your original order
 
-
-            // constants in ONE place so both states look identical
+//---------------------------------------
+// a place that display the each data column
+//---------------------------------------
             const gapCount = 8;
             final double wDate = 130.w;
             final double wFacility = 220.w;
@@ -938,7 +964,9 @@ class _BookingListState extends State<BookingList> {
               );
             }
 
-            // 6) SINGLE renderer used for both default + search
+//---------------------------------------
+// render the table
+//---------------------------------------
             return _renderTable(
               rows: rows,
               targetW: targetW,
@@ -950,7 +978,6 @@ class _BookingListState extends State<BookingList> {
               state: wState,
               status: wStatus,
               user: wUser,
-              // NEW
               role: wRole,
               action: wAction,
               gap: gapW
@@ -961,9 +988,14 @@ class _BookingListState extends State<BookingList> {
       },
     );
   }
-// === NEW: compact all filters (date + approval/amendment + status) ===
+
+//---------------------------------------
+// apply filter for all booking
+//---------------------------------------
   List<Map<String, dynamic>> _applyAllFilters(List<Map<String, dynamic>> all) {
-    // date filter
+//---------------------------------------
+// check if there is filter date
+//---------------------------------------
     final byDate = _filterByDate
         ? all.where((m) {
       final bd = _readBookingDate(m);
@@ -971,7 +1003,10 @@ class _BookingListState extends State<BookingList> {
     }).toList()
         : List<Map<String, dynamic>>.from(all);
 
-    // approval / amendment filter
+//---------------------------------------
+// check if there is approval fileter
+//---------------------------------------
+
     String? needApproval;
     var filterByAmendment = false;
     if (_apAmendment) {
@@ -989,7 +1024,10 @@ class _BookingListState extends State<BookingList> {
       return ap == needApproval;
     }).toList();
 
-    // status filter
+//---------------------------------------
+// check if any status filter
+//---------------------------------------
+
     String? needStatus;
     if (_stUpcoming) needStatus = 'upcoming';
     else if (_stOngoing) needStatus = 'ongoing';
@@ -1000,13 +1038,15 @@ class _BookingListState extends State<BookingList> {
       final st = _readLowerStr(m, ['status']);
       return st == needStatus;
     }).toList();
-
+//---------------------------------------
+// return the bookings that meets the condition
+//---------------------------------------
     return byStatus;
   }
 
-// === NEW: single renderer used for both default + search ===
-// Note: this uses Dart 3 records for 'widths'. If you're not on Dart 3,
-// replace the record with a small class or a Map<String,double>.
+//---------------------------------------
+// table design
+//---------------------------------------
   Widget _renderTable({
     required List<Map<String, dynamic>> rows,
     required double targetW,
@@ -1018,11 +1058,14 @@ class _BookingListState extends State<BookingList> {
       double state,
       double status,
       double user,
-      double role,   // <-- NEW
+      double role,
       double action,
       double gap
     }) widths,
   }) {
+//---------------------------------------
+// this to let slot cell at the center
+//---------------------------------------
     Widget _headerCellCenter(String text, double width) => SizedBox(
       width: width,
       child: Center(
@@ -1040,8 +1083,6 @@ class _BookingListState extends State<BookingList> {
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
         padding: EdgeInsets.all(8.w),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
           child: Column(
             children: [
               // unified header
@@ -1058,6 +1099,9 @@ class _BookingListState extends State<BookingList> {
                     bottom: BorderSide(color: const Color(0xFFE5E7EB), width: 1),
                   ),
                 ),
+//---------------------------------------
+// The place where it build header for the table
+//---------------------------------------
                 child: Row(
                   children: [
                     _sortableHeaderCell('date', 'Booking Date', widths.date),
@@ -1065,7 +1109,6 @@ class _BookingListState extends State<BookingList> {
                     _headerCell('Facility', widths.facility),
                     _gapW(widths.gap),
                     _headerCell('Time', widths.time),
-
                     _gapW(widths.gap),
                     _headerCellCenter('Slot', widths.slot),
                     _gapW(widths.gap),
@@ -1084,12 +1127,16 @@ class _BookingListState extends State<BookingList> {
 
               SizedBox(height: 6.h),
 
-              // rows
+//---------------------------------------
+// each row
+//---------------------------------------
               Column(
                 children: List.generate(rows.length, (i) {
                   final m = rows[i];
 
-                  // date & time
+//---------------------------------------
+//format date and time first
+//---------------------------------------
                   final bd = _readBookingDate(m);
                   final dateStr = bd != null ? _fmtYMD(bd) : '-';
 
@@ -1102,7 +1149,9 @@ class _BookingListState extends State<BookingList> {
                         : _formatOne(st, _use24HourFormat);
                   }
 
-                  // misc fields
+//---------------------------------------
+// start displaying each row by each row data
+//---------------------------------------
                   final slot = _readFirstStr(m, ['seatIndex']);
                   final state = _readFirstStr(m, ['status']);
                   final appr  = _readFirstStr(m, ['approval']);
@@ -1119,7 +1168,10 @@ class _BookingListState extends State<BookingList> {
                   final facId = _readFirstStr(m, ['facilityId']);
                   final uid   = _readFirstStr(m, ['userId']);
 
-                  // seen/unread & row bg
+//---------------------------------------
+// see unread and read row and set by colour 1 row and second row
+//---------------------------------------
+
                   final bool seen = (m['seen'] is bool) ? (m['seen'] as bool) : true;
                   final bool isEven = i % 2 == 0;
                   final rowBaseReadA   = const Color(0xFFFDFDFE);
@@ -1130,13 +1182,15 @@ class _BookingListState extends State<BookingList> {
                       ? (isEven ? rowBaseReadA : rowBaseReadB)
                       : (isEven ? rowBaseUnreadA : rowBaseUnreadB);
 
-                  // pills
+//---------------------------------------
+// set all the colours for pill status and approval
+//---------------------------------------
                   Widget statePill(String txt) {
                     Color bg = const Color(0xFFE5E7EB);
                     Color fg = const Color(0xFF111827);
                     final t = txt.trim().toLowerCase();
                     if (t == 'upcoming') { bg = const Color(0xFFD1FAE5); fg = const Color(0xFF065F46); }
-                    if (t == 'ongoing')  { bg = const Color(0xFFDBEAFE); fg = const Color(0xFF1E3A8A); }
+                    if (t == 'ongoing')  { bg = const Color(0xFFFFF7D6); fg = const Color(0xFF92400E); }
                     if (t == 'ended')    { bg = const Color(0xFF9E9E9E); fg = const Color(0xFFFBFCFD); }
                     return Container(
                       padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
@@ -1151,8 +1205,8 @@ class _BookingListState extends State<BookingList> {
                     Color bg = const Color(0xFFE5E7EB);
                     Color fg = const Color(0xFF111827);
                     final t = txt.trim().toLowerCase();
-                    if (isAmend)            { bg = const Color(0xFFFFF7D6); fg = const Color(0xFF92400E); txt = 'Amendment'; }
-                    else if (t == 'pending'){ bg = const Color(0xFFE0E7FF); fg = const Color(0xFF3730A3); }
+                    if (isAmend) { bg = const Color(0xFFE0E7FF); fg = const Color(0xFF3730A3); txt = 'Amendment'; }
+                    else if (t == 'pending'){ bg = const Color(0xFFFFF7D6); fg = const Color(0xFF92400E); }
                     else if (t == 'accepted') { bg = const Color(0xFFD1FAE5); fg = const Color(0xFF065F46); }
                     else if (t == 'rejected'){ bg = const Color(0xFFFEE2E2); fg = const Color(0xFF991B1B); }
                     return Container(
@@ -1163,7 +1217,9 @@ class _BookingListState extends State<BookingList> {
                           style: TextStyle(fontSize: 11.sp, color: fg, fontWeight: FontWeight.w700)),
                     );
                   }
-
+//---------------------------------------
+// when the details is open, set seen to true in database
+//---------------------------------------
                   Future<void> _openDetails() async {
                     final String docId = (m['__id'] != null) ? m['__id'].toString() : '';
                     if (!seen && docId.isNotEmpty) {
@@ -1177,6 +1233,9 @@ class _BookingListState extends State<BookingList> {
                     }
                     final det = Map<String, dynamic>.from(m);
                     det['bookingId'] = det['bookingId'] ?? det['id'] ?? det['__id'];
+//---------------------------------------
+// show pop up
+//---------------------------------------
                     showDialog(
                       context: context,
                       barrierDismissible: true,
@@ -1189,12 +1248,18 @@ class _BookingListState extends State<BookingList> {
                     );
                   }
 
+//---------------------------------------
+// main design for each row
+//---------------------------------------
                   return MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: _openDetails,
+//---------------------------------------
+// set hover colour
+//---------------------------------------
                         hoverColor: Colors.black.withOpacity(0.03),
                         child: Container(
                           width: targetW,
@@ -1206,7 +1271,9 @@ class _BookingListState extends State<BookingList> {
                           ),
                           child: Row(
                             children: [
-                              // unread accent
+//---------------------------------------
+// for unread contaider add red edge
+//---------------------------------------
                               Container(
                                 width: 4.w,
                                 height: 44.h,
@@ -1219,7 +1286,9 @@ class _BookingListState extends State<BookingList> {
                                   ),
                                 ),
                               ),
-
+//---------------------------------------
+// each of the date in the row design
+//---------------------------------------
                               Expanded(
                                 child: Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
@@ -1258,7 +1327,7 @@ class _BookingListState extends State<BookingList> {
                                       _dataCellW(
                                         _UserNameLive(
                                           uid: uid,
-                                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+                                          style: TextStyle(fontSize: 12.sp),
                                         ),
                                         widths.user, false,
                                       ),
@@ -1266,7 +1335,7 @@ class _BookingListState extends State<BookingList> {
                                       _dataCellW(
                                         _UserRoleLive(
                                           uid: uid,
-                                          style: TextStyle(fontSize: 12.sp, color: const Color(0xFF111827)),
+                                          style: TextStyle(fontSize: 12.sp),
                                         ),
                                         widths.role, false,
                                       ),
@@ -1297,13 +1366,14 @@ class _BookingListState extends State<BookingList> {
               ),
             ],
           ),
-        ),
+
       ),
     );
   }
 
-
-  // build a header cell with fixed width
+//---------------------------------------
+// build header cell
+//---------------------------------------
   Widget _headerCell(String text, double width) {
     return SizedBox(
       width: width,
@@ -1315,7 +1385,9 @@ class _BookingListState extends State<BookingList> {
       ),
     );
   }
-
+//---------------------------------------
+// header that let u sort day and time
+//---------------------------------------
   Widget _sortableHeaderCell(String key, String text, double width) {
     final active = _sortKey == key;
     String arrow;
@@ -1331,9 +1403,9 @@ class _BookingListState extends State<BookingList> {
     );
   }
 
-
-
-  // build a data cell with fixed width (center = true centers it)
+//---------------------------------------
+// each column design in the row
+//---------------------------------------
   Widget _dataCell(String text, double width, bool center) {
     Alignment align = center ? Alignment.center : Alignment.centerLeft;
     return SizedBox(
@@ -1368,24 +1440,26 @@ class _BookingListState extends State<BookingList> {
   // horizontal gap between columns
   Widget _gapW(double w) => SizedBox(width: w);
 
-  // ====== FIELD READER HELPERS ======
+//---------------------------------------
+// read the booking date
+//---------------------------------------
   DateTime? _readBookingDate(Map<String, dynamic> m) {
-    for (final k in ['bookingDate']) {
-      if (m.containsKey(k)) {
-        final v = m[k];
+
+      if (m.containsKey('bookingDate')) {
+        final v = m['bookingDate'];
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
           final p1 = _tryParseYMD(v);
-          if (p1 != null) return p1;
-          final p2 = _tryParseDMY(v);
-          if (p2 != null) return p2;
+          if (p1 != null)
+            return p1;
         }
       }
-    }
     return null;
   }
-
+//---------------------------------------
+// read the time
+//---------------------------------------
   DateTime? _readTime(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       if (m.containsKey(k)) {
@@ -1393,16 +1467,16 @@ class _BookingListState extends State<BookingList> {
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
-          final t1 = _tryParseHMS(v);
-          if (t1 != null) return t1;
-          final t2 = _tryParseHM(v);
-          if (t2 != null) return t2;
+          final t = _tryParseHM(v);
+          if (t != null) return t;
         }
       }
     }
     return null;
   }
-
+//---------------------------------------
+// change the approval to string
+//---------------------------------------
   String _readFirstStr(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       if (m.containsKey(k)) {
@@ -1416,16 +1490,23 @@ class _BookingListState extends State<BookingList> {
     }
     return '';
   }
-
+//---------------------------------------
+// change all to lower case
+//---------------------------------------
   String _readLowerStr(Map<String, dynamic> m, List<String> keys) {
     final s = _readFirstStr(m, keys);
     return s.isEmpty ? '' : s.toLowerCase();
   }
 
-  // ====== DATE/TIME FORMAT + PARSE ======
+//---------------------------------------
+// check if they are same day year and month
+//---------------------------------------
   bool _isSameYMD(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+//---------------------------------------
+// month is base on number then - 1  to get actual month
+//---------------------------------------
   String _monthName(int m) {
     const names = [
       'January',
@@ -1448,9 +1529,12 @@ class _BookingListState extends State<BookingList> {
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
     final da = d.day.toString().padLeft(2, '0');
-    return '$y-$m-$da';
+    return '$da-$m-$y';
   }
 
+//---------------------------------------
+// return time format
+//---------------------------------------
   String _formatOne(DateTime d, bool use24) {
     if (use24) {
       final hh = d.hour.toString().padLeft(2, '0');
@@ -1475,7 +1559,9 @@ class _BookingListState extends State<BookingList> {
     final b = _formatOne(en, use24);
     return '$a - $b';
   }
-
+//---------------------------------------
+// parse date format
+//---------------------------------------
   DateTime? _tryParseYMD(String s) {
     try {
       final p = s.split('-');
@@ -1487,33 +1573,9 @@ class _BookingListState extends State<BookingList> {
       return null;
     }
   }
-
-  DateTime? _tryParseDMY(String s) {
-    try {
-      final p = s.split('/');
-      if (p.length == 3) {
-        return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  DateTime? _tryParseHMS(String s) {
-    try {
-      final p = s.split(':');
-      if (p.length == 3) {
-        final now = DateTime.now();
-        return DateTime(now.year, now.month, now.day, int.parse(p[0]),
-            int.parse(p[1]), int.parse(p[2]));
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
+//---------------------------------------
+// get the real date and time
+//---------------------------------------
   DateTime? _composeStartDateTime(Map<String, dynamic> m) {
     final d = _readBookingDate(m);
     final t = _readTime(m, ['start']);
@@ -1522,7 +1584,9 @@ class _BookingListState extends State<BookingList> {
   }
 
 
-
+//---------------------------------------
+// parse the HM to hour and minute format
+//---------------------------------------
   DateTime? _tryParseHM(String s) {
     try {
       final p = s.split(':');
@@ -1537,8 +1601,10 @@ class _BookingListState extends State<BookingList> {
     }
   }
 
-  // ====== SIMPLE SEARCH HELPER (NO CACHE) ======
-  // search by: bookingId OR facility name OR user name
+
+//---------------------------------------
+// search by the booking username, and facility name
+//---------------------------------------
   Future<List<Map<String, dynamic>>> _filterRowsByBookingIdFacilityNameUserName(
       List<Map<String, dynamic>> items,
       String q,
@@ -1549,12 +1615,13 @@ class _BookingListState extends State<BookingList> {
       bool match = false;
 
       // booking id (safe)
-      final bid = _readFirstStr(m, ['bookingId', '__id']).toLowerCase();
+      final bid = _readFirstStr(m, ['bookingId']).toLowerCase();
       if (bid.contains(q)) {
         match = true;
       }
-
-      // facility name (guard empty facId, cast name)
+//---------------------------------------
+// read facility name
+//---------------------------------------
       if (!match) {
         final facId = _readFirstStr(m, ['facilityId']);
         if (facId.isNotEmpty) {
@@ -1574,7 +1641,9 @@ class _BookingListState extends State<BookingList> {
         }
       }
 
-      // user name via UserInformation/{uid} (guard empty uid)
+//---------------------------------------
+// read user name
+//---------------------------------------
       if (!match) {
         final uid = _readFirstStr(m, ['userId', 'bookedBy']);
         if (uid.isNotEmpty) {
@@ -1604,9 +1673,9 @@ class _BookingListState extends State<BookingList> {
 
 }
 
-// ===========================
-// Live-resolved names
-// ===========================
+//---------------------------------------
+// get name through id
+//---------------------------------------
 class _FacilityNameLive extends StatelessWidget {
   final String facilityId;
   final TextStyle style;
@@ -1636,6 +1705,7 @@ class _FacilityNameLive extends StatelessWidget {
     );
   }
 }
+
 class _UserRoleLive extends StatelessWidget {
   final String uid;
   final TextStyle style;
@@ -1668,9 +1738,6 @@ class _UserRoleLive extends StatelessWidget {
   }
 }
 
-
-
-/// Live user name from UserInformation/{uid}
 class _UserNameLive extends StatelessWidget {
   final String uid;
   final TextStyle style;
@@ -1693,7 +1760,7 @@ class _UserNameLive extends StatelessWidget {
       stream: ref.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data();
-        final name = ((data?['username'] ?? data?['userName'] ?? data?['name']) as String?)
+        final name = ((data?['username']) as String?)
             ?.trim();
         return Text((name?.isNotEmpty ?? false) ? name! : '—',
             style: style, overflow: overflow);

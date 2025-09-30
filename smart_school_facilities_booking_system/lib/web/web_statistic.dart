@@ -1,10 +1,3 @@
-// web_statistic.dart
-// Line + 2 Bar Charts + 2 Pie Charts + 2 Rating Bars for "ended" bookings.
-// - All previous logic preserved.
-// - bookingDate is STRING only (parsed).
-// - Bars use quarter scaling (integer ticks) + headroom.
-// - Rating bars: averages from Facilities/{fid}/Rating where createdAt in range.
-
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -13,28 +6,37 @@ import 'package:fl_chart/fl_chart.dart';
 import 'web_top_bar.dart';
 import 'package:go_router/go_router.dart';
 import 'web_view_rating.dart';
-// ----------------------------- small point for line chart -----------------------------
+
+//---------------------------------------
+// point for line chart
+//---------------------------------------
+
 class _Point {
   final int xIndex;
   final double yValue;
   const _Point({required this.xIndex, required this.yValue});
 }
 
-// ----------------------------- small datum for bar charts (integer) -------------------
+//---------------------------------------
+// one point for data
+//---------------------------------------
+
 class _BarDatum {
   final String label; // shown on X axis
   final int count;    // bar height
   const _BarDatum(this.label, this.count);
 }
 
-// ----------------------------- small datum for rating bars (double) -------------------
+//---------------------------------------
+// one point for double data
+//---------------------------------------
+
 class _BarDoubleDatum {
   final String label; // shown on X axis
   final double value; // average rating
   const _BarDoubleDatum(this.label, this.value);
 }
 
-// ============================= main screen ==============================
 class WebStatistic extends StatefulWidget {
   const WebStatistic({Key? key}) : super(key: key);
 
@@ -43,7 +45,7 @@ class WebStatistic extends StatefulWidget {
 }
 
 class _WebStatisticState extends State<WebStatistic> {
-  // ---------- basic config ----------
+
   final bool _use24HourFormat = true;
   final String _bookingDateField = 'bookingDate';   // STRING date
   final String _statusField = 'status';
@@ -52,21 +54,17 @@ class _WebStatisticState extends State<WebStatistic> {
   final String _userIdField = 'userId';             // used for pie #1
   final String _ratedField = 'rated';               // used for pie #2
 
-  // ---------- collections ----------
   final String _colBookings   = 'Bookings';
   final String _colFacilities = 'Facilities';
   final String _colCategories = 'FacilitiesCategory';
   final String _colUsers      = 'UserInformation';
 
-  // ---------- date range ----------
-  late DateTime _fromDate;         // inclusive
-  late DateTime _toDate;           // exclusive
+  late DateTime _fromDate;         // from
+  late DateTime _toDate;           // to
   bool _loading = true;
 
-  // ---------- grouping ----------
   String _groupBy = 'Day';         // 'Day' or 'Month'
 
-  // ---------- data for line ----------
   final List<_Point> _linePoints = <_Point>[];
   final List<String> _xLabels = <String>[];
 
@@ -89,20 +87,35 @@ class _WebStatisticState extends State<WebStatistic> {
   final List<_BarDoubleDatum> _topHighestAvg = <_BarDoubleDatum>[];
   final List<_BarDoubleDatum> _topLowestAvg  = <_BarDoubleDatum>[];
 
+//---------------------------------------
+// init state first before anything
+//---------------------------------------
+
   @override
   void initState() {
     super.initState();
     final DateTime now = DateTime.now();
+    //---------------------------------------
+// get the first day of this month and last day of this month
+//---------------------------------------
     _fromDate = DateTime(now.year, now.month, 1);
     _toDate   = DateTime(now.year, now.month + 1, 1);
     _reload();
   }
 
-  // ---------- reload everything ----------
+//---------------------------------------
+// load data first
+//---------------------------------------
   Future<void> _reload() async {
     setState(() => _loading = true);
     await Future.wait([
+//---------------------------------------
+// load all data belong within the date, all the top 5 top 5 data
+//---------------------------------------
       _loadAllData(),
+//---------------------------------------
+// load amount of all user role
+//---------------------------------------
       _loadRoleCounts(),
     ]);
     if (!mounted) return;
@@ -112,6 +125,10 @@ class _WebStatisticState extends State<WebStatistic> {
 
   // ---------- open date range picker ----------
   Future<void> _pickDateRange() async {
+//---------------------------------------
+// show range picker for date
+//---------------------------------------
+
     final DateTimeRange? range = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2022, 1, 1),
@@ -127,7 +144,9 @@ class _WebStatisticState extends State<WebStatistic> {
     final DateTime start = DateTime(range.start.year, range.start.month, range.start.day);
     final DateTime endExclusive =
     DateTime(range.end.year, range.end.month, range.end.day).add(const Duration(days: 1));
-
+//---------------------------------------
+// set state to rebuild Ui base on date
+//---------------------------------------
     setState(() {
       _fromDate = start;
       _toDate   = endExclusive;
@@ -136,9 +155,12 @@ class _WebStatisticState extends State<WebStatistic> {
     await _reload();
   }
 
-  // ---------- load ended bookings and build: line + 2 bars + 2 pies + rating bars ----------
+//---------------------------------------
+// load all ended booking
+//---------------------------------------
+
   Future<void> _loadAllData() async {
-    // clear UI data
+
     _linePoints.clear();
     _xLabels.clear();
     _topFacilityBars.clear();
@@ -150,18 +172,26 @@ class _WebStatisticState extends State<WebStatistic> {
     _topHighestAvg.clear();
     _topLowestAvg.clear();
 
-    // 1) empty buckets & anchors for line
     final Map<String, int> bucketLine = <String, int>{};
     final List<DateTime> anchors = <DateTime>[];
 
+//---------------------------------------
+// default enter will be day
+//---------------------------------------
     if (_groupBy == 'Day') {
       DateTime d = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
+//---------------------------------------
+// add 1 day by 1 day into the list with value 0 and add into x
+//---------------------------------------
       while (d.isBefore(_toDate)) {
         bucketLine[_dayKey(d)] = 0;
         anchors.add(d);
         d = d.add(const Duration(days: 1));
       }
     } else {
+//---------------------------------------
+// if not group by day then it will get the month
+//---------------------------------------
       DateTime m = DateTime(_fromDate.year, _fromDate.month, 1);
       while (m.isBefore(_toDate)) {
         bucketLine[_monthKey(m)] = 0;
@@ -170,46 +200,64 @@ class _WebStatisticState extends State<WebStatistic> {
       }
     }
 
-    // 2) fetch ALL ended bookings, filter by parsed bookingDate string
+//---------------------------------------
+// get the booking where the status is equal ended
+//---------------------------------------
     final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance
         .collection(_colBookings)
         .where(_statusField, isEqualTo: _endedValue)
         .get();
 
-    // for bars
+//---------------------------------------
+// for bar
+//---------------------------------------
+
     final Map<String, int> facilityCount = <String, int>{};
     final Set<String> facilityIdsSeen = <String>{};
 
-    // for pie #1 (role)
+//---------------------------------------
+// for pie
+//---------------------------------------
+
     final List<String> userIdsForCount = <String>[]; // per booking
     final Set<String> userIdsUnique = <String>{};    // unique user fetch
 
+ //---------------------------------------
+// get the booking date
+//---------------------------------------
 
-
-    // 3) walk bookings
     for (final doc in qs.docs) {
       final data = doc.data();
       final String? raw = data[_bookingDateField]?.toString();
       if (raw == null) continue;
 
+//---------------------------------------
+// if the date is before or after the choosen date then skip them
+//---------------------------------------
       final DateTime? dt = _parseDateString(raw);
       if (dt == null) continue;
       if (dt.isBefore(_fromDate) || !dt.isBefore(_toDate)) continue;
 
-      // line buckets
+//---------------------------------------
+// make it to the correct format
+//---------------------------------------
       final String lineKey = (_groupBy == 'Day') ? _dayKey(dt) : _monthKey(dt);
       if (bucketLine.containsKey(lineKey)) {
         bucketLine[lineKey] = (bucketLine[lineKey] ?? 0) + 1;
       }
 
-      // bars: facility counts
+//---------------------------------------
+// plus one facility into the list for pie chart
+//---------------------------------------
       final String? fid = data[_facilityIdField]?.toString();
       if (fid != null && fid.isNotEmpty) {
         facilityCount[fid] = (facilityCount[fid] ?? 0) + 1;
         facilityIdsSeen.add(fid);
       }
 
-      // pie #2: rating participation
+//---------------------------------------
+// count how many rated for pie chart
+//---------------------------------------
       final bool rated = (data[_ratedField] == true);
       if (rated) {
         _countRated++;
@@ -217,7 +265,9 @@ class _WebStatisticState extends State<WebStatistic> {
         _countNotRated++;
       }
 
-      // pie #1: role via userId
+//---------------------------------------
+// add user id to count list and unique list for pie chart
+//---------------------------------------
       final String? uid = data[_userIdField]?.toString();
       if (uid != null && uid.isNotEmpty) {
         userIdsForCount.add(uid);
@@ -225,7 +275,10 @@ class _WebStatisticState extends State<WebStatistic> {
       }
     }
 
-    // 4) line: convert buckets to spots + labels
+//---------------------------------------
+// start to get x point and y point data for line chart
+//---------------------------------------
+
     int x = 0;
     for (final DateTime a in anchors) {
       final String key = (_groupBy == 'Day') ? _dayKey(a) : _monthKey(a);
@@ -235,9 +288,15 @@ class _WebStatisticState extends State<WebStatistic> {
       x = x + 1;
     }
 
-    // 5) Facilities names + categoryIds (for bars)
+//---------------------------------------
+// declare list for facility id and category id for bar chart for bar chart
+//---------------------------------------
+
     final Map<String, String> facilityNameById = <String, String>{};
     final Map<String, String> categoryIdByFid  = <String, String>{};
+//---------------------------------------
+// convert previous list data do the correct facility name along with category id
+//---------------------------------------
 
     for (final String fid in facilityIdsSeen) {
       try {
@@ -256,7 +315,9 @@ class _WebStatisticState extends State<WebStatistic> {
       }
     }
 
-    // 6) Top 5 Facilities
+//---------------------------------------
+// sort top 5 facilities
+//---------------------------------------
     final List<MapEntry<String, int>> sortedFacilities = facilityCount.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final int takeF = math.min(5, sortedFacilities.length);
@@ -266,7 +327,10 @@ class _WebStatisticState extends State<WebStatistic> {
       _topFacilityBars.add(_BarDatum(_shorten(label, 14), e.value));
     }
 
-    // 7) Category counts from facility -> categoryId
+//---------------------------------------
+// sort top 5 catogory
+//---------------------------------------
+
     final Map<String, int> categoryCount = <String, int>{};
     for (final MapEntry<String, int> e in facilityCount.entries) {
       final String fid = e.key;
@@ -275,13 +339,15 @@ class _WebStatisticState extends State<WebStatistic> {
       categoryCount[catId] = (categoryCount[catId] ?? 0) + cnt;
     }
 
-    // 8) Top 5 categories (resolve names)
     final List<MapEntry<String, int>> sortedCats = categoryCount.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final int takeC = math.min(5, sortedCats.length);
     for (int i = 0; i < takeC; i++) {
       final e = sortedCats[i];
       String catName = e.key;
+//---------------------------------------
+// after sorting top 5 then get the category name
+//---------------------------------------
       try {
         final cdoc = await FirebaseFirestore.instance.collection(_colCategories).doc(e.key).get();
         if (cdoc.exists) {
@@ -291,7 +357,10 @@ class _WebStatisticState extends State<WebStatistic> {
       _topCategoryBars.add(_BarDatum(_shorten(catName, 14), e.value));
     }
 
-    // 9) Pie #1: Student vs Lecturer — fetch roles for unique users, then count per booking
+//---------------------------------------
+// get the role from the previous list and get how many student and how many lecturer
+//---------------------------------------
+
     final Map<String, String> roleByUserId = <String, String>{};
     for (final String uid in userIdsUnique) {
       try {
@@ -314,7 +383,10 @@ class _WebStatisticState extends State<WebStatistic> {
     _countStudent = students;
     _countLecturer = lecturers;
 
-    // 10) Rating bars: average per facility from subcollection "Rating" (createdAt in range)
+//---------------------------------------
+// get the rating from subcollection facility and get the date of rating
+//---------------------------------------
+
     final QuerySnapshot<Map<String, dynamic>> allFacilities =
     await FirebaseFirestore.instance.collection(_colFacilities).get();
 
@@ -348,11 +420,13 @@ class _WebStatisticState extends State<WebStatistic> {
           averages.add(_BarDoubleDatum(_shorten(fname, 14), avg));
         }
       } catch (_) {
-        // ignore facility if query fails
       }
     }
 
-    // sort into top-highest and top-lowest (take 5 each)
+//---------------------------------------
+// then sort top highest adn top lowest rating
+//---------------------------------------
+
     averages.sort((a, b) => b.value.compareTo(a.value)); // desc
     final int takeHi = math.min(5, averages.length);
     _topHighestAvg.addAll(averages.take(takeHi));
@@ -362,8 +436,15 @@ class _WebStatisticState extends State<WebStatistic> {
     _topLowestAvg.addAll(asc.take(takeLo));
   }
 
+//---------------------------------------
+// count the amount of different role
+//---------------------------------------
+
   Future<void> _loadRoleCounts() async {
     Future<int> _countRole(String role) async {
+      //---------------------------------------
+// get the role, ingnore deleted role
+//---------------------------------------
       try {
         final qs = await FirebaseFirestore.instance
             .collection(_colUsers) // 'UserInformation'
@@ -380,7 +461,9 @@ class _WebStatisticState extends State<WebStatistic> {
         return 0;
       }
     }
-
+//---------------------------------------
+// get the required role
+//---------------------------------------
     final a = await _countRole('Admin');
     final m = await _countRole('Manager');
     final l = await _countRole('Lecturer');
@@ -392,73 +475,56 @@ class _WebStatisticState extends State<WebStatistic> {
     _totalStudent = s;
   }
 
+//---------------------------------------
+// shorten the name to ...
+//---------------------------------------
 
-  // ---------- small helper: cut long labels so bars fit without scroll ----------
   String _shorten(String s, int maxChars) {
     final String t = s.trim();
     if (t.length <= maxChars) return t;
     return t.substring(0, math.max(0, maxChars - 1)) + '…';
   }
 
-  // ---------- tiny string parsers ----------
+//---------------------------------------
+// parse into date format
+//---------------------------------------
+
   DateTime? _parseDateString(String s) {
     final String t = s.trim();
     final DateTime? iso = DateTime.tryParse(t);
     if (iso != null) return DateTime(iso.year, iso.month, iso.day);
-    final String z = t.replaceAll('/', '-').replaceAll('.', '-');
-    final DateTime? dmy = _tryDmy(z);
-    if (dmy != null) return dmy;
-    final DateTime? mdy = _tryMdy(z);
-    if (mdy != null) return mdy;
-    return null;
+
   }
 
-  DateTime? _tryDmy(String z) {
-    final parts = z.split('-');
-    if (parts.length != 3) return null;
-    if (parts[2].length != 4) return null;
-    final int? d = int.tryParse(parts[0]);
-    final int? m = int.tryParse(parts[1]);
-    final int? y = int.tryParse(parts[2]);
-    if (d == null || m == null || y == null) return null;
-    if (m < 1 || m > 12) return null;
-    if (d < 1 || d > 31) return null;
-    return DateTime(y, m, d);
-  }
+//---------------------------------------
+// make it to year month day format
+//---------------------------------------
 
-  DateTime? _tryMdy(String z) {
-    final parts = z.split('-');
-    if (parts.length != 3) return null;
-    if (parts[2].length != 4) return null;
-    final int? m = int.tryParse(parts[0]);
-    final int? d = int.tryParse(parts[1]);
-    final int? y = int.tryParse(parts[2]);
-    if (d == null || m == null || y == null) return null;
-    if (m < 1 || m > 12) return null;
-    if (d < 1 || d > 31) return null;
-    return DateTime(y, m, d);
-  }
-
-  // ---------- helpers: line chart keys/labels ----------
   String _dayKey(DateTime d) {
     final String y = d.year.toString().padLeft(4, '0');
     final String m = d.month.toString().padLeft(2, '0');
     final String dd = d.day.toString().padLeft(2, '0');
     return '$y-$m-$dd';
   }
-
+//---------------------------------------
+// make it to year month format
+//---------------------------------------
   String _monthKey(DateTime d) {
     final String y = d.year.toString().padLeft(4, '0');
     final String m = d.month.toString().padLeft(2, '0');
     return '$y-$m';
   }
-
+//---------------------------------------
+// convert to month day format
+//---------------------------------------
   String _mmdd(DateTime d) {
     final String m = d.month.toString().padLeft(2, '0');
     final String dd = d.day.toString().padLeft(2, '0');
     return '$m/$dd';
   }
-
+//---------------------------------------
+// convert to month year format
+//---------------------------------------
   String _mmmy(DateTime d) {
     const List<String> mm = <String>[
       'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
@@ -468,7 +534,9 @@ class _WebStatisticState extends State<WebStatistic> {
     return '$mon $yy';
   }
 
-  // ---------- width per bucket (scroll if many days) ----------
+  //---------------------------------------
+// get the chart width , count base on how many point we have
+//---------------------------------------
   double _chartWidth() {
     final int n = _linePoints.length;
     if (n == 0) return 0.9.sw;
@@ -476,7 +544,9 @@ class _WebStatisticState extends State<WebStatistic> {
     return math.max(0.9.sw, per * n);
   }
 
-  // ============================ build UI ============================
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -501,22 +571,34 @@ class _WebStatisticState extends State<WebStatistic> {
                   padding: EdgeInsets.symmetric(vertical: 24.h),
                   child: const Center(child: CircularProgressIndicator()),
                 ),
-
-              if (!_loading) _rolesSummaryRow(),        // NEW totals row
+//---------------------------------------
+// show total role
+//---------------------------------------
+              if (!_loading) _rolesSummaryRow(),
               if (!_loading) SizedBox(height: 16.h),
-
+//---------------------------------------
+// show line graph
+//---------------------------------------
               if (!_loading) _lineSection(),
               if (!_loading) SizedBox(height: 16.h),
-
+//---------------------------------------
+// show show bar chart
+//---------------------------------------
               if (!_loading) _twoBarsRow(),
               if (!_loading) SizedBox(height: 16.h),
-
+//---------------------------------------
+// show two donut pie chart
+//---------------------------------------
               if (!_loading) _twoPiesRow(),
               if (!_loading) SizedBox(height: 12.h),
-
+//---------------------------------------
+// show navigate to rating page
+//---------------------------------------
               if (!_loading) _ratingRow(),
               if (!_loading) SizedBox(height: 12.h),
-
+//---------------------------------------
+// show rating bar chart
+//---------------------------------------
               if (!_loading) _twoRatingBarsRow(),
             ],
           ),
@@ -527,9 +609,13 @@ class _WebStatisticState extends State<WebStatistic> {
   }
 
 
-  // ---------- header row ----------
+//---------------------------------------
+// row for header
+//---------------------------------------
+
   Widget _dateRow() {
     final DateTime toIncl = _toDate.subtract(const Duration(days: 1));
+
     return SizedBox(
       width: 0.9.sw,
       child: Card(
@@ -539,7 +625,9 @@ class _WebStatisticState extends State<WebStatistic> {
           padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
           child: Row(
             children: [
-              // Date range pill
+//---------------------------------------
+// show date range
+//---------------------------------------
               Expanded(
                 child: Container(
                   padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
@@ -557,6 +645,9 @@ class _WebStatisticState extends State<WebStatistic> {
                         style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600),
                       ),
                       const Spacer(),
+//---------------------------------------
+// show the pick date
+//---------------------------------------
                       OutlinedButton.icon(
                         onPressed: _pickDateRange,
                         icon: const Icon(Icons.edit_calendar, size: 16),
@@ -572,7 +663,9 @@ class _WebStatisticState extends State<WebStatistic> {
               ),
               SizedBox(width: 12.w),
 
-              // Group-by chips
+//---------------------------------------
+// group by button
+//---------------------------------------
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
                 decoration: BoxDecoration(
@@ -584,7 +677,6 @@ class _WebStatisticState extends State<WebStatistic> {
                   children: [
                     Text('Group by:', style: TextStyle(fontSize: 12.sp)),
                     SizedBox(width: 8.w),
-
                     _groupChip('Day'),
                     SizedBox(width: 6.w),
                     _groupChip('Month'),
@@ -598,16 +690,22 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
+//---------------------------------------
+// show user tole design
+//---------------------------------------
   Widget _rolesSummaryRow() {
     final double containerW = 0.9.sw;
     final double gap = 8.w;
-    final double boxW = (containerW - gap * 3) / 4;
+    final double boxW = (containerW - gap * 3) / 4; // get width for each display
 
     return SizedBox(
       width: containerW,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+//---------------------------------------
+// box for admin
+//---------------------------------------
           _summaryBox(
             width: boxW,
             icon: Icons.admin_panel_settings,
@@ -615,6 +713,9 @@ class _WebStatisticState extends State<WebStatistic> {
             label: 'Admin',
             total: _totalAdmin,
           ),
+//---------------------------------------
+//  box for manager
+//---------------------------------------
           SizedBox(width: gap),
           _summaryBox(
             width: boxW,
@@ -623,6 +724,9 @@ class _WebStatisticState extends State<WebStatistic> {
             label: 'Manager',
             total: _totalManager,
           ),
+//---------------------------------------
+//  box for lecturer
+//---------------------------------------
           SizedBox(width: gap),
           _summaryBox(
             width: boxW,
@@ -631,6 +735,9 @@ class _WebStatisticState extends State<WebStatistic> {
             label: 'Lecturer',
             total: _totalLecturer,
           ),
+//---------------------------------------
+// box for student
+//---------------------------------------
           SizedBox(width: gap),
           _summaryBox(
             width: boxW,
@@ -643,7 +750,9 @@ class _WebStatisticState extends State<WebStatistic> {
       ),
     );
   }
-
+//---------------------------------------
+//  design for each role box
+//---------------------------------------
   Widget _summaryBox({
     required double width,
     required IconData icon,
@@ -660,6 +769,9 @@ class _WebStatisticState extends State<WebStatistic> {
           padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
           child: Row(
             children: [
+//---------------------------------------
+// outer circle for icon
+//---------------------------------------
               Container(
                 width: 44.w,
                 height: 44.w,
@@ -670,6 +782,9 @@ class _WebStatisticState extends State<WebStatistic> {
                 child: Icon(icon, color: color, size: 22.sp),
               ),
               SizedBox(width: 12.w),
+//---------------------------------------
+//  show total
+//---------------------------------------
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -687,7 +802,10 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-// tiny helper for chips
+//---------------------------------------
+// change the group by and run reload
+//---------------------------------------
+
   Widget _groupChip(String label) {
     final bool selected = _groupBy == label;
     return ChoiceChip(
@@ -708,7 +826,9 @@ class _WebStatisticState extends State<WebStatistic> {
   }
 
 
-  // ---------- card that holds the line chart ----------
+//---------------------------------------
+//  line graph design
+//---------------------------------------
   Widget _lineSection() {
     final double chartWidth = _chartWidth();
     final double chartHeight = 450.h;
@@ -717,10 +837,17 @@ class _WebStatisticState extends State<WebStatistic> {
     final double leftLabelW  = 30.w;
     final double bottomH     = 46.h;
 
+//---------------------------------------
+// get the highest point
+//---------------------------------------
     int highest = 0;
     for (final _Point p in _linePoints) {
-      if (p.yValue.round() > highest) highest = p.yValue.round();
+      if (p.yValue.round() > highest)
+        highest = p.yValue.round();
     }
+//---------------------------------------
+// set the y axis bar, step which mean y axis point number, then we can get top line and get the max y
+//---------------------------------------
     int step = ((highest + 3) ~/ 4);
     if (step < 1) step = 1;
     final int topLine = step * 4;
@@ -755,6 +882,9 @@ class _WebStatisticState extends State<WebStatistic> {
                   children: <Widget>[
                     SizedBox(
                       width: yTitleWidth,
+//---------------------------------------
+// rotate the box
+//---------------------------------------
                       child: Center(
                         child: RotatedBox(
                           quarterTurns: 3,
@@ -770,7 +900,10 @@ class _WebStatisticState extends State<WebStatistic> {
                           return Column(
                             children: [
                               Expanded(
-                                child: SingleChildScrollView(
+//---------------------------------------
+// build the bar chart
+//---------------------------------------
+                              child: SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: SizedBox(
                                     width: w,
@@ -804,11 +937,14 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- row with 2 bar charts (42.sw each + 6.w gap) ----------
+//---------------------------------------
+// show the two bar chart
+//---------------------------------------
+
   Widget _twoBarsRow() {
     final double containerW = 0.9.sw;
     final double gap = 6.w;
-    final double half = (containerW - gap) / 2;
+    final double half = (containerW - gap) / 2; // half half
     final double cardW = math.min(42.sw, half);
 
     return SizedBox(
@@ -838,7 +974,10 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- 2 pie charts row (same widths as bars) ----------
+//---------------------------------------
+// display the two pie chart
+//---------------------------------------
+
   Widget _twoPiesRow() {
     final double containerW = 0.9.sw;
     final double gap = 6.w;
@@ -880,12 +1019,19 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- divider-like tappable Rating row ----------
+//---------------------------------------
+// rating row button
+//---------------------------------------
+
   Widget _ratingRow() {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Material(
         color: Colors.transparent,
+ //---------------------------------------
+// show button on tap
+//---------------------------------------
+
         child: InkWell(
           onTap: () => context.go('/webviewrating'), // or context.go(...) to replace
           hoverColor: Colors.black.withOpacity(.03),
@@ -902,14 +1048,15 @@ class _WebStatisticState extends State<WebStatistic> {
               ),
               child: Stack(
                 children: [
-                  // centered label
                   Center(
                     child: Text(
                       'Rating',
                       style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
                     ),
                   ),
-                  // right chevron
+//---------------------------------------
+// right arrow
+//---------------------------------------
                   Positioned(
                     right: 8,
                     top: 0,
@@ -927,7 +1074,10 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- 2 rating bars row (same widths as bars) ----------
+//---------------------------------------
+// show the two rating bar
+//---------------------------------------
+
   Widget _twoRatingBarsRow() {
     final double containerW = 0.9.sw;
     final double gap = 6.w;
@@ -961,16 +1111,25 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- bar card (integer counts) ----------
+//---------------------------------------
+// bar chart design
+//---------------------------------------
   Widget _barCard({
     required String title,
     required String xAxisTitle,
     required List<_BarDatum> data,
   }) {
+    //---------------------------------------
+// get highest point first
+//---------------------------------------
+
     int highest = 0;
     for (final _BarDatum d in data) {
       if (d.count > highest) highest = d.count;
     }
+    //---------------------------------------
+// find each of the y axis and maximum y axis
+//---------------------------------------
     int step = ((highest + 3) ~/ 4);
     if (step < 1) step = 1;
     final int topLine = step * 4;
@@ -991,6 +1150,9 @@ class _WebStatisticState extends State<WebStatistic> {
           children: [
             SizedBox(
               width: double.infinity,
+//---------------------------------------
+// place title
+//---------------------------------------
               child: Center(
                 child: Text(
                   title,
@@ -1013,6 +1175,9 @@ class _WebStatisticState extends State<WebStatistic> {
                       ),
                     ),
                   ),
+//---------------------------------------
+// build the bar chart
+//---------------------------------------
                   SizedBox(width: gapToYAxis),
                   Expanded(
                     child: _buildBarChart(
@@ -1033,21 +1198,25 @@ class _WebStatisticState extends State<WebStatistic> {
       ),
     );
   }
+//---------------------------------------
+// show bar chart but with double value
+//---------------------------------------
 
-  // ---------- bar card (double averages) ----------
-  // ---------- bar card (double averages) - fixed Y: 0..5 ----------
   Widget _barCardDouble({
     required String title,
     required String xAxisTitle,
     required List<_BarDoubleDatum> data,
   }) {
-    // Fixed 0..5 scale with integer ticks
+//---------------------------------------
+// maximum show to 5 star
+//---------------------------------------
+
     const double layoutMaxY = 5.0;
     const double gridInterval = 1.0;
     const double topLine = 5.0;
 
     final double bottomReserved = 56.h;
-    final double leftReserved   = 34.w; // a bit wider for decimals in tooltips
+    final double leftReserved   = 34.w;
     final double yTitleWidth    = 22.w;
     final double gapToYAxis     = 16.w;
 
@@ -1057,7 +1226,11 @@ class _WebStatisticState extends State<WebStatistic> {
       child: Padding(
         padding: EdgeInsets.all(12.w),
         child: Column(
-          children: [
+ //---------------------------------------
+// display the title
+//---------------------------------------
+
+        children: [
             SizedBox(
               width: double.infinity,
               child: Center(
@@ -1069,7 +1242,10 @@ class _WebStatisticState extends State<WebStatistic> {
             ),
             SizedBox(height: 8.h),
             SizedBox(
-              height: 320.h,
+//---------------------------------------
+// display y title
+//---------------------------------------
+            height: 320.h,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1077,7 +1253,7 @@ class _WebStatisticState extends State<WebStatistic> {
                     width: yTitleWidth,
                     child: Center(
                       child: RotatedBox(
-                        quarterTurns: 3,
+                        quarterTurns: 3, // rotate 180
                         child: Text('Average rating', style: TextStyle(fontSize: 12.sp)),
                       ),
                     ),
@@ -1103,7 +1279,10 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- pie card ----------
+//---------------------------------------
+// pie chart design
+//---------------------------------------
+
   Widget _pieCard({
     required String title,
     required String aLabel,
@@ -1122,6 +1301,10 @@ class _WebStatisticState extends State<WebStatistic> {
         padding: EdgeInsets.all(12.w),
         child: Column(
           children: [
+//---------------------------------------
+// show titles
+//---------------------------------------
+
             SizedBox(
               width: double.infinity,
               child: Center(
@@ -1138,10 +1321,13 @@ class _WebStatisticState extends State<WebStatistic> {
                   ? const Center(child: Text('No data'))
                   : PieChart(
                 PieChartData(
-                  sectionsSpace: 2.w,
-                  centerSpaceRadius: 44.w,
-                  startDegreeOffset: -90,
+                  sectionsSpace: 2.w, // alittle space betwen data
+                  centerSpaceRadius: 44.w, // center space
+                  startDegreeOffset: -90,// start from 90degree above
                   sections: [
+//---------------------------------------
+// tow selection data
+//---------------------------------------
                     PieChartSectionData(
                       color: aColor,
                       value: aCount.toDouble(),
@@ -1169,7 +1355,10 @@ class _WebStatisticState extends State<WebStatistic> {
               ),
             ),
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+//---------------------------------------
+// show legend
+//---------------------------------------
+            mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _legendDot(aColor),
                 SizedBox(width: 6.w),
@@ -1193,7 +1382,10 @@ class _WebStatisticState extends State<WebStatistic> {
     decoration: BoxDecoration(color: c, shape: BoxShape.circle),
   );
 
-  // ---------- fl_chart line chart ----------
+//---------------------------------------
+// fl graph line graph design
+//---------------------------------------
+
   Widget _buildLineChart({
     required double yMax,
     required double yInterval,
@@ -1202,7 +1394,9 @@ class _WebStatisticState extends State<WebStatistic> {
     required double leftLabelWidth,
   }) {
     if (_linePoints.isEmpty) return const Center(child: Text('No data'));
-
+//---------------------------------------
+// fl way to get the point
+//---------------------------------------
     final List<FlSpot> spots = <FlSpot>[
       for (final _Point p in _linePoints) FlSpot(p.xIndex.toDouble(), p.yValue),
     ];
@@ -1216,7 +1410,7 @@ class _WebStatisticState extends State<WebStatistic> {
         maxY: yMax,
         gridData: FlGridData(
           show: true,
-          drawVerticalLine: false,
+          drawVerticalLine: false, // no vertical line
           drawHorizontalLine: true,
           horizontalInterval: yInterval,
           getDrawingHorizontalLine: (value) {
@@ -1225,6 +1419,7 @@ class _WebStatisticState extends State<WebStatistic> {
             final bool isMultiple =
                 (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
             if (!isMultiple || value - topLine > eps) return const FlLine(strokeWidth: 0);
+            // grey line for yea y axis
             return FlLine(color: Colors.grey, strokeWidth: 1);
           },
         ),
@@ -1232,14 +1427,14 @@ class _WebStatisticState extends State<WebStatistic> {
           show: true,
           border: Border(
             left: BorderSide(color: Colors.black, width: 1.2.w),
-            right: const BorderSide(color: Colors.transparent, width: 0),
-            top: const BorderSide(color: Colors.transparent, width: 0),
+            right: const BorderSide(color: Colors.transparent, width: 0), // no border right
+            top: const BorderSide(color: Colors.transparent, width: 0), // no border above
             bottom: BorderSide(color: Colors.black, width: 1.2.w),
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), // no top title
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), // no right title
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -1250,6 +1445,9 @@ class _WebStatisticState extends State<WebStatistic> {
                 final bool isMultiple =
                     (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
                 if (!isMultiple || value - topLine > eps) return const SizedBox.shrink();
+//---------------------------------------
+// show y axis number
+//---------------------------------------
                 return Padding(
                   padding: EdgeInsets.only(right: 6.w),
                   child: Text(
@@ -1260,9 +1458,12 @@ class _WebStatisticState extends State<WebStatistic> {
               },
             ),
           ),
+//---------------------------------------
+// for x axis
+//---------------------------------------
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
-              showTitles: true,
+              showTitles: true, //show title which is the date by date
               reservedSize: bottomReserved,
               interval: 1,
               getTitlesWidget: (double x, TitleMeta meta) {
@@ -1273,7 +1474,7 @@ class _WebStatisticState extends State<WebStatistic> {
                 return Padding(
                   padding: EdgeInsets.only(top: 6.h),
                   child: Transform.rotate(
-                    angle: rotate ? -0.8 : 0.0,
+                    angle: rotate ? -0.8 : 0.0, // rotate the angle if its day
                     child: Text(_xLabels[i], style: TextStyle(fontSize: 11.sp)),
                   ),
                 );
@@ -1281,6 +1482,9 @@ class _WebStatisticState extends State<WebStatistic> {
             ),
           ),
         ),
+//---------------------------------------
+// when touch the line data show the value
+//---------------------------------------
         lineTouchData: LineTouchData(
           handleBuiltInTouches: true,
           touchTooltipData: LineTouchTooltipData(
@@ -1290,12 +1494,18 @@ class _WebStatisticState extends State<WebStatistic> {
             tooltipPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
           ),
         ),
+//---------------------------------------
+// line of the point design
+//---------------------------------------
         lineBarsData: <LineChartBarData>[
           LineChartBarData(
             spots: spots,
             isCurved: false,
             color: Colors.black,
             barWidth: 3.w,
+//---------------------------------------
+// dot of the point design
+//---------------------------------------
             dotData: FlDotData(
               show: true,
               getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(
@@ -1311,7 +1521,9 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- fl_chart bar chart (integer counts) ----------
+//---------------------------------------
+// fl barchart design
+//---------------------------------------
   Widget _buildBarChart({
     required List<_BarDatum> data,
     required double yMax,
@@ -1321,7 +1533,9 @@ class _WebStatisticState extends State<WebStatistic> {
     required double bottomReserved,
   }) {
     if (data.isEmpty) return const Center(child: Text('No data'));
-
+//---------------------------------------
+// fl design way
+//---------------------------------------
     final List<BarChartGroupData> groups = <BarChartGroupData>[];
     for (int i = 0; i < data.length; i++) {
       final _BarDatum d = data[i];
@@ -1330,6 +1544,9 @@ class _WebStatisticState extends State<WebStatistic> {
           x: i,
           barsSpace: 0,
           barRods: <BarChartRodData>[
+//---------------------------------------
+// barchart design colour and width
+//---------------------------------------
             BarChartRodData(
               toY: d.count.toDouble(),
               color: Colors.black,
@@ -1340,7 +1557,6 @@ class _WebStatisticState extends State<WebStatistic> {
         ),
       );
     }
-
     return BarChart(
       BarChartData(
         maxY: yMax,
@@ -1349,8 +1565,8 @@ class _WebStatisticState extends State<WebStatistic> {
         barGroups: groups,
         gridData: FlGridData(
           show: true,
-          drawVerticalLine: false,
-          drawHorizontalLine: true,
+          drawVerticalLine: false, // no vertical line
+          drawHorizontalLine: true, // only horizontal line
           horizontalInterval: yInterval,
           getDrawingHorizontalLine: (value) {
             const double eps = 1e-6;
@@ -1358,15 +1574,15 @@ class _WebStatisticState extends State<WebStatistic> {
             final bool isMultiple =
                 (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
             if (!isMultiple || value - topLine > eps) return const FlLine(strokeWidth: 0);
-            return FlLine(color: Colors.grey, strokeWidth: 1);
+            return FlLine(color: Colors.grey, strokeWidth: 1); // line colour grey
           },
         ),
         borderData: FlBorderData(
           show: true,
           border: Border(
             left: BorderSide(color: Colors.black, width: 1.2.w),
-            right: const BorderSide(color: Colors.transparent, width: 0),
-            top: const BorderSide(color: Colors.transparent, width: 0),
+            right: const BorderSide(color: Colors.transparent, width: 0),// no right border line
+            top: const BorderSide(color: Colors.transparent, width: 0), // no top border line
             bottom: BorderSide(color: Colors.black, width: 1.2.w),
           ),
         ),
@@ -1383,6 +1599,7 @@ class _WebStatisticState extends State<WebStatistic> {
                 final bool isMultiple =
                     (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
                 if (!isMultiple || value - topLine > eps) return const SizedBox.shrink();
+                // show each y axis value
                 return Padding(
                   padding: EdgeInsets.only(right: 6.w),
                   child: Text(value.toInt().toString(), style: TextStyle(fontSize: 11.sp)),
@@ -1390,6 +1607,9 @@ class _WebStatisticState extends State<WebStatistic> {
               },
             ),
           ),
+//---------------------------------------
+// x axis show each facility or category name
+//---------------------------------------
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -1402,7 +1622,7 @@ class _WebStatisticState extends State<WebStatistic> {
                 return Padding(
                   padding: EdgeInsets.only(top: 6.h),
                   child: Transform.rotate(
-                    angle: -0.6,
+                    angle: -0.6, // angle rounded
                     child: Text(data[i].label, style: TextStyle(fontSize: 11.sp)),
                   ),
                 );
@@ -1410,12 +1630,15 @@ class _WebStatisticState extends State<WebStatistic> {
             ),
           ),
         ),
+//---------------------------------------
+// bar chart when pointing text
+//---------------------------------------
         barTouchData: BarTouchData(
           enabled: true,
           touchTooltipData: BarTouchTooltipData(
             fitInsideHorizontally: true,
             fitInsideVertically: true,
-            tooltipRoundedRadius: 6.r,
+            tooltipRoundedRadius: 6.r, // text that show total when point
             tooltipPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final label = data[group.x].label;
@@ -1430,7 +1653,10 @@ class _WebStatisticState extends State<WebStatistic> {
     );
   }
 
-  // ---------- fl_chart bar chart (double averages) ----------
+//---------------------------------------
+// fl rating bar chart
+//---------------------------------------
+
   Widget _buildBarChartDouble({
     required List<_BarDoubleDatum> data,
     required double yMax,
@@ -1440,12 +1666,18 @@ class _WebStatisticState extends State<WebStatistic> {
     required double bottomReserved,
   }) {
     if (data.isEmpty) return const Center(child: Text('No data'));
-
+//---------------------------------------
+// fl chart way to gert data
+//---------------------------------------
     final List<BarChartGroupData> groups = <BarChartGroupData>[];
     for (int i = 0; i < data.length; i++) {
       final _BarDoubleDatum d = data[i];
       groups.add(
-        BarChartGroupData(
+
+//---------------------------------------
+// barchart colour design and width
+//---------------------------------------
+      BarChartGroupData(
           x: i,
           barsSpace: 0,
           barRods: <BarChartRodData>[
@@ -1459,6 +1691,9 @@ class _WebStatisticState extends State<WebStatistic> {
         ),
       );
     }
+//---------------------------------------
+// bar chart y axis date
+//---------------------------------------
 
     return BarChart(
       BarChartData(
@@ -1468,7 +1703,7 @@ class _WebStatisticState extends State<WebStatistic> {
         barGroups: groups,
         gridData: FlGridData(
           show: true,
-          drawVerticalLine: false,
+          drawVerticalLine: false, // no vertical line
           drawHorizontalLine: true,
           horizontalInterval: yInterval,
           getDrawingHorizontalLine: (value) {
@@ -1477,15 +1712,15 @@ class _WebStatisticState extends State<WebStatistic> {
             final bool isMultiple =
                 (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
             if (!isMultiple || value - topLine > eps) return const FlLine(strokeWidth: 0);
-            return FlLine(color: Colors.grey, strokeWidth: 1);
+            return FlLine(color: Colors.grey, strokeWidth: 1); // color line
           },
         ),
         borderData: FlBorderData(
           show: true,
           border: Border(
             left: BorderSide(color: Colors.black, width: 1.2.w),
-            right: const BorderSide(color: Colors.transparent, width: 0),
-            top: const BorderSide(color: Colors.transparent, width: 0),
+            right: const BorderSide(color: Colors.transparent, width: 0),// no right border line
+            top: const BorderSide(color: Colors.transparent, width: 0), // no top border line
             bottom: BorderSide(color: Colors.black, width: 1.2.w),
           ),
         ),
@@ -1498,18 +1733,22 @@ class _WebStatisticState extends State<WebStatistic> {
               reservedSize: leftReserved,
               interval: yInterval,
               getTitlesWidget: (double value, TitleMeta meta) {
-                // integer ticks
                 const double eps = 1e-6;
                 final bool isMultiple =
                     (value % yInterval).abs() < eps || (yInterval - (value % yInterval)).abs() < eps;
                 if (!isMultiple || value - topLine > eps) return const SizedBox.shrink();
-                return Padding(
+                return Padding( // y axis value
                   padding: EdgeInsets.only(right: 6.w),
                   child: Text(value.toInt().toString(), style: TextStyle(fontSize: 11.sp)),
                 );
               },
             ),
           ),
+
+//---------------------------------------
+// x axis design
+//---------------------------------------
+
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -1522,7 +1761,7 @@ class _WebStatisticState extends State<WebStatistic> {
                 return Padding(
                   padding: EdgeInsets.only(top: 6.h),
                   child: Transform.rotate(
-                    angle: -0.6,
+                    angle: -0.6, // rotate the word
                     child: Text(data[i].label, style: TextStyle(fontSize: 11.sp)),
                   ),
                 );
@@ -1530,6 +1769,9 @@ class _WebStatisticState extends State<WebStatistic> {
             ),
           ),
         ),
+//---------------------------------------
+// for touched bar
+//---------------------------------------
         barTouchData: BarTouchData(
           enabled: true,
           touchTooltipData: BarTouchTooltipData(
@@ -1539,7 +1781,7 @@ class _WebStatisticState extends State<WebStatistic> {
             tooltipPadding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 6.h),
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final label = data[group.x].label;
-              return BarTooltipItem(
+              return BarTooltipItem( // touch bar show value
                 '$label\n${rod.toY.toStringAsFixed(1)}',
                 TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500, color: Colors.black),
               );

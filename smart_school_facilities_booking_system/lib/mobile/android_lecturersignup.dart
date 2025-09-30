@@ -2,28 +2,25 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
-
-import 'package:cloud_firestore/cloud_firestore.dart';               // Firestore database
-import 'package:firebase_auth/firebase_auth.dart';                   // Firebase Authentication (sign up / login)
-import 'package:flutter/material.dart';                              // Flutter UI
-import 'package:flutter/services.dart';                              // For FilteringTextInputFormatter (digits only)
-import 'package:flutter_screenutil/flutter_screenutil.dart';         // For .w .h .sp responsive sizes
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:smart_school_facilities_booking_system/mobile/android_signup.dart';
 
-// These are your other screens/files
-import 'android_login.dart';                                         // Your Android Login page
+import 'android_login.dart';
 import 'android_list_of_facilities.dart';
 import 'android_signup.dart';
 import 'android_tnc.dart';
 import 'android_privacy_policy.dart';
 
-// --------------
-// Main Page UI
-// --------------
 
-// A simple page that shows a header and the sign up form
+
 class LecturerSignup extends StatelessWidget {
-  // build() = function that draws the UI (screen)
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     // Scaffold = basic page structure with background and body
@@ -44,17 +41,16 @@ class LecturerSignup extends StatelessWidget {
   }
 }
 
-// ---------------------
-// Pretty Gradient Header
-// ---------------------
+//---------------------------------------
+// show gradient header
+//---------------------------------------
 
 class GradientHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // Get screen width to make header full width
+
     double screenWidth = MediaQuery.of(context).size.width;
 
-    // Container = a box that can have size, color, padding
     return Container(
       width: screenWidth,
       padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 30.h),
@@ -89,11 +85,15 @@ class GradientHeader extends StatelessWidget {
             ),
           ),
           SizedBox(height: 20.h),
-          // Row with "Log In" and "Sign Up" buttons
+//---------------------------------------
+// log in and signup navigation button
+//---------------------------------------
+
+
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Outline button = go to Login page
+
               OutlinedButton(
                 onPressed: () {
                   // Navigator.push = go to another page
@@ -110,10 +110,10 @@ class GradientHeader extends StatelessWidget {
                 child: Text('Log In', style: TextStyle(fontSize: 14.sp)),
               ),
               SizedBox(width: 20.w),
-              // Current page button (no action needed)
+
               ElevatedButton(
                 onPressed: () {
-                  // We are already on Sign Up page, so do nothing
+
                 },
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(horizontal: 35.w, vertical: 12.h),
@@ -128,41 +128,26 @@ class GradientHeader extends StatelessWidget {
   }
 }
 
-// ------------------------------
-// Sign Up Form (Stateful Widget)
-// ------------------------------
-
 class SignupInformation extends StatefulWidget {
   @override
   _SignupInformationState createState() => _SignupInformationState();
 }
 
 class _SignupInformationState extends State<SignupInformation> {
-  // -------------------------
-  // Controllers for TextField
-  // -------------------------
+
   final TextEditingController _usernameController = TextEditingController(); // username input
   final TextEditingController _emailController = TextEditingController();    // email input
   final TextEditingController _contactController = TextEditingController();  // contact input
   final TextEditingController _passwordController = TextEditingController(); // password input
-  final TextEditingController _confirmController = TextEditingController();  // confirm password input (NEW)
+  final TextEditingController _confirmController = TextEditingController();  // confirm password input
 
-  // -------------------------
-  // Firebase Auth instance
-  // -------------------------
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // -------------------------
-  // Simple UI states
-  // -------------------------
-  bool _obscurePassword = true;          // show/hide password
-  bool _obscureConfirmPassword = true;   // show/hide confirm password (NEW)
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   bool _isTermsAccepted = false;
   bool _isPrivacyAccepted = false;
 
-  // -------------------------
-  // Error message strings
-  // -------------------------
   String? _usernameError;
   String? _emailError;
   String? _contactError;
@@ -171,12 +156,9 @@ class _SignupInformationState extends State<SignupInformation> {
   String? _roleError;
   String? _termsError;
 
-  // -------------------------
-  // After verification email sent
-  // -------------------------
   bool _isVerificationSent = false;
 
-  // Lecturer ID
+
   final TextEditingController _lecturerIdController = TextEditingController();
   String? _lecturerIdError;
 
@@ -184,17 +166,14 @@ class _SignupInformationState extends State<SignupInformation> {
   Uint8List? _pendingImageBytes;
   String? _pendingBase64;
 
-// Image sizes (same idea as Report Issue)
   static const int _maxBase64Len = 900000;
   static const int _targetMaxWidth = 600;
 
-
-
-  // ----------------------------------------
-  // Helper: Show an error under a field name
-  // ----------------------------------------
+//---------------------------------------
+// show error field
+//---------------------------------------
   void _showError(String field, String message) {
-    // setState = update UI values
+
     setState(() {
       if (field == "username") {
         _usernameError = message;
@@ -214,9 +193,9 @@ class _SignupInformationState extends State<SignupInformation> {
     });
   }
 
-  // ----------------------------------------------------
-  // Simple password rule: min 8 + 1 uppercase + 1 symbol
-  // ----------------------------------------------------
+//---------------------------------------
+// strong apss word
+//---------------------------------------
   bool _isPasswordStrong(String password) {
     // RegExp = check pattern
     final regex = RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
@@ -226,6 +205,10 @@ class _SignupInformationState extends State<SignupInformation> {
       return false;
     }
   }
+  //---------------------------------------
+// check if username already exist
+//---------------------------------------
+
   Future<bool> _usernameExists(String username) async {
     final String u = username.trim();
     if (u.isEmpty) {
@@ -245,14 +228,14 @@ class _SignupInformationState extends State<SignupInformation> {
         return false;
       }
     } catch (e) {
-      // If the check fails, don't block sign up with a false positive
       return false;
     }
   }
 
-  // ------------------------------------
-  // MAIN: Validate form and create user
-  // ------------------------------------
+//---------------------------------------
+// validate sign up
+//---------------------------------------
+
   Future<void> _validateAndSignUp() async {
     setState(() {
       _usernameError = null;
@@ -267,33 +250,44 @@ class _SignupInformationState extends State<SignupInformation> {
 
     bool isValid = true;
 
-    // ---- basic field checks ----
+//---------------------------------------
+// check user name
+//---------------------------------------
+
     if (_usernameController.text.isEmpty) {
       _showError("username", "Username cannot be empty");
       isValid = false;
     }
-
+//---------------------------------------
+// check email
+//---------------------------------------
     if (_emailController.text.contains("@")) {
-      // ok
+
     } else {
       _showError("email", "Invalid email address");
       isValid = false;
     }
+//---------------------------------------
+// check contact
+//---------------------------------------
 
     if (_contactController.text.length == 10) {
-      // ok
     } else {
       _showError("contact", "Contact must be exactly 10 digits");
       isValid = false;
     }
-
+//---------------------------------------
+// cehck strong passwrod
+//---------------------------------------
     if (_isPasswordStrong(_passwordController.text)) {
       // ok
     } else {
       _showError("password", "Password must be at least 8 characters, include 1 uppercase letter and 1 special character");
       isValid = false;
     }
-
+//---------------------------------------
+// check confirm password
+//---------------------------------------
     if (_confirmController.text.isEmpty) {
       _showError("confirm", "Confirm password cannot be empty");
       isValid = false;
@@ -305,21 +299,29 @@ class _SignupInformationState extends State<SignupInformation> {
         isValid = false;
       }
     }
+//---------------------------------------
+// check tnc and pp check box
+//---------------------------------------
 
     if (_isTermsAccepted && _isPrivacyAccepted) {
-      // ok
     } else {
       _showError("terms", "Please accept all agreements");
       isValid = false;
     }
 
-    // ---- NEW: lecturer-specific checks BEFORE Auth creation ----
+//---------------------------------------
+// check id
+//---------------------------------------
+
     if (_lecturerIdController.text.trim().isEmpty) {
       _lecturerIdError = "Lecturer ID cannot be empty";
       isValid = false;
     } else {
       _lecturerIdError = null;
     }
+//---------------------------------------
+// check proof image
+//---------------------------------------
 
     if (_pendingBase64 == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -328,13 +330,14 @@ class _SignupInformationState extends State<SignupInformation> {
       isValid = false;
     }
 
-    // If anything failed so far, stop here
     if (isValid == false) {
       setState(() {});
       return;
     }
 
-    // ---- NEW: username uniqueness check ----
+//---------------------------------------
+// show error if user name exist
+//---------------------------------------
     final bool taken = await _usernameExists(_usernameController.text);
     if (taken == true) {
       _showError("username", "Username already taken");
@@ -345,7 +348,9 @@ class _SignupInformationState extends State<SignupInformation> {
       return;
     }
 
-    // ---- Create Firebase Auth user (unchanged) ----
+//---------------------------------------
+// create new user
+//---------------------------------------
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
@@ -367,6 +372,11 @@ class _SignupInformationState extends State<SignupInformation> {
           await _writeUserToFirestoreAndGo(user);
         }
       }
+
+//---------------------------------------
+// if have error
+//---------------------------------------
+
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
         _showError("email", "Email already registered");
@@ -380,45 +390,41 @@ class _SignupInformationState extends State<SignupInformation> {
   }
 
 
-  // ------------------------------------------------------------
-  // Called when user presses "I already verified, continue" button
-  // ------------------------------------------------------------
+//---------------------------------------
+// check email proccess
+//---------------------------------------
+
   Future<void> _checkEmailVerified() async {
     User? user = _auth.currentUser;
 
     if (user != null) {
-      // Reload the user to get the latest emailVerified state
       await user.reload();
       user = _auth.currentUser;
 
       if (user != null) {
         if (user.emailVerified == true) {
-          // Email is verified now, write Firestore and go
           await _writeUserToFirestoreAndGo(user);
         } else {
-          // Not verified yet
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Email not verified yet. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
           );
         }
       } else {
-        // No user in auth
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
         );
       }
     } else {
-      // No user in auth
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
 
-  // ----------------------------------------------------
-  // Write the user document to Firestore (first time),
-  // set isVerified: true, and navigate to Facilities.
-  // ----------------------------------------------------
+//---------------------------------------
+// write user to database
+//---------------------------------------
+
   Future<void> _writeUserToFirestoreAndGo(User user) async {
     String proofB64 = '';
     if (_pendingBase64 != null) {
@@ -454,16 +460,17 @@ class _SignupInformationState extends State<SignupInformation> {
 
       if (!mounted) return;
 
-      // Notify, then SIGN OUT the lecturer
+//---------------------------------------
+// after email verified sign out immediately and go log in page for lecturer
+//---------------------------------------
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Email verified! Account created.', style: TextStyle(fontSize: 14.sp))),
       );
-
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
 
-      // Go to Login and clear back stack
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => AndroidLoginPage()),
             (route) => false,
@@ -506,9 +513,10 @@ class _SignupInformationState extends State<SignupInformation> {
     }
   }
 
-  // --------------------------
-  // Simple "Fail" popup dialog
-  // --------------------------
+//---------------------------------------
+// pop  up show sign up fail
+//---------------------------------------
+
   void _showFailDialog() {
     showDialog(
       context: context,
@@ -518,7 +526,6 @@ class _SignupInformationState extends State<SignupInformation> {
         actions: [
           TextButton(
             onPressed: () {
-              // Close dialog
               Navigator.pop(context);
             },
             child: Text("OK", style: TextStyle(fontSize: 14.sp)),
@@ -527,7 +534,10 @@ class _SignupInformationState extends State<SignupInformation> {
       ),
     );
   }
-  // Open Terms & Conditions page (no login required)
+//---------------------------------------
+// open tnc page
+//---------------------------------------
+
   void _openTncPage() {
     Navigator.push(
       context,
@@ -535,13 +545,19 @@ class _SignupInformationState extends State<SignupInformation> {
     );
   }
 
-// Open Privacy Policy page (no login required)
+//---------------------------------------
+// open pp page
+//---------------------------------------
+
   void _openPrivacyPage() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => AndroidPrivacyPolicy()),
     );
   }
+//---------------------------------------
+// open sing up page for student
+//---------------------------------------
 
   void _openSignupStudentPage() {
     Navigator.push(
@@ -549,6 +565,10 @@ class _SignupInformationState extends State<SignupInformation> {
       MaterialPageRoute(builder: (_) => AndroidSignUpPage()),
     );
   }
+  //---------------------------------------
+// open file picker
+//---------------------------------------
+
   Future<void> _pickResizePreviewImage() async {
     try {
       final FilePickerResult? res = await FilePicker.platform.pickFiles(
@@ -604,6 +624,9 @@ class _SignupInformationState extends State<SignupInformation> {
           }
         }
       }
+//---------------------------------------
+// when iamge ok set state
+//---------------------------------------
 
       setState(() {
         _pendingImageBytes = finalBytes;
@@ -616,6 +639,9 @@ class _SignupInformationState extends State<SignupInformation> {
       );
     }
   }
+//---------------------------------------
+// clear image
+//---------------------------------------
 
   void _clearPendingImage() {
     setState(() {
@@ -623,7 +649,9 @@ class _SignupInformationState extends State<SignupInformation> {
       _pendingBase64 = null;
     });
   }
-
+//---------------------------------------
+// if image too large show pop up
+//---------------------------------------
   Future<void> _showTooLargeDialog() async {
     await showDialog<void>(
       context: context,
@@ -658,16 +686,16 @@ class _SignupInformationState extends State<SignupInformation> {
     super.dispose();
   }
 
-  // -----------------------------------------
-  // BUILD: Draw the Sign Up form to the screen
-  // -----------------------------------------
+//---------------------------------------
+// build the form
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         SizedBox(height: 20.h),
 
-        // Card-like container for the form
+
         Container(
           width: 0.9.sw,
           padding: EdgeInsets.all(20.w),
@@ -683,21 +711,28 @@ class _SignupInformationState extends State<SignupInformation> {
             ],
           ),
 
-          // The actual form fields
+//---------------------------------------
+// username text field
+//---------------------------------------
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Username
               Text("Username", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
+
                 controller: _usernameController,
-                decoration: InputDecoration(border: OutlineInputBorder()),
+
+                decoration: InputDecoration(
+                    border: OutlineInputBorder()
+                ),
               ),
               if (_usernameError != null)
                 Text(_usernameError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Email
+//---------------------------------------
+// email text field
+//---------------------------------------
               Text("Email", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _emailController,
@@ -708,7 +743,9 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_emailError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Contact Number (digits only)
+//---------------------------------------
+// contact number field
+//---------------------------------------
               Text("Contact Number", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _contactController,
@@ -720,7 +757,9 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_contactError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Password
+//---------------------------------------
+// password field
+//---------------------------------------
               Text("Password", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _passwordController,
@@ -748,9 +787,9 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_passwordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h), // spacing before Confirm Password (NEW)
 
-              // -------------------------
-              // (NEW) Confirm Password
-              // -------------------------
+//---------------------------------------
+// confrim password field
+//---------------------------------------
               Text("Confirm Password", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _confirmController,
@@ -760,7 +799,7 @@ class _SignupInformationState extends State<SignupInformation> {
                   suffixIcon: IconButton(
                     icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
                     onPressed: () {
-                      // Toggle confirm obscure using if/else
+
                       if (_obscureConfirmPassword == true) {
                         setState(() {
                           _obscureConfirmPassword = false;
@@ -777,9 +816,9 @@ class _SignupInformationState extends State<SignupInformation> {
               if (_confirmPasswordError != null)
                 Text(_confirmPasswordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
-
-
-// ---------- Lecturer ID ----------
+//---------------------------------------
+// lecturer id field
+//---------------------------------------
               Text("Lecturer ID", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _lecturerIdController,
@@ -790,13 +829,15 @@ class _SignupInformationState extends State<SignupInformation> {
 
               SizedBox(height: 20.h),
 
-// ---------- Proof Image ----------
+//---------------------------------------
+// proof image field
+//---------------------------------------
               Text("Proof", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               SizedBox(height: 8.h),
               Row(
                 children: [
                   IconButton(
-                    onPressed: null, // disabled (use the box below)
+                    onPressed: null,
                     icon: const Icon(Icons.image),
                     tooltip: "Add Image (tap the box below)",
                   ),
@@ -809,6 +850,9 @@ class _SignupInformationState extends State<SignupInformation> {
                     ),
                 ],
               ),
+//---------------------------------------
+// pick image button
+//---------------------------------------
               SizedBox(height: 8.h),
               Center(
                 child: GestureDetector(
@@ -842,6 +886,9 @@ class _SignupInformationState extends State<SignupInformation> {
                   ),
                 ),
               ),
+//---------------------------------------
+// sign up student button to navigate
+//---------------------------------------
               SizedBox(height:20.h),
               Align(
                 alignment: Alignment.center,
@@ -853,13 +900,11 @@ class _SignupInformationState extends State<SignupInformation> {
                     style: TextStyle(decoration: TextDecoration.underline, fontSize: 14.sp),
                   ),
                 ),
-
               ),
-
-
               SizedBox(height:20.h),
-
-              // Agreements
+//---------------------------------------
+// check box field
+//---------------------------------------
               CheckboxListTile(
                 value: _isTermsAccepted,
                 onChanged: (value) {
@@ -873,7 +918,10 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
-                // Terms and Conditions checkbox title
+//---------------------------------------
+// link to tnc page
+//---------------------------------------
+
                 title: GestureDetector(
                   onTap: _openTncPage, // open T&C page
                   child: Text(
@@ -896,7 +944,9 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
-                // Privacy Policy checkbox title
+//---------------------------------------
+// link to pp page
+//---------------------------------------
                 title: GestureDetector(
                   onTap: _openPrivacyPage, // open Privacy Policy page
                   child: Text(
@@ -911,7 +961,9 @@ class _SignupInformationState extends State<SignupInformation> {
 
               SizedBox(height: 20.h),
 
-              // If verification email not sent yet → show "Sign Up" button
+//---------------------------------------
+// if verificaiton not send show sign up
+//---------------------------------------
               if (_isVerificationSent == false)
                 Center(
                   child: SizedBox(
@@ -928,7 +980,9 @@ class _SignupInformationState extends State<SignupInformation> {
                   ),
                 )
               else
-              // If verification email sent → show the verification actions
+//---------------------------------------
+// if already sent show verify email button
+//---------------------------------------
                 Center(
                   child: Column(
                     children: [
@@ -942,15 +996,15 @@ class _SignupInformationState extends State<SignupInformation> {
                       ),
                       SizedBox(height: 20.h),
                       SizedBox(
-                        width: 0.9.sw, // wider so it fits on one line
+                        width: 0.9.sw,
                         height: 55.h,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8620E5)),
                           onPressed: _checkEmailVerified,
                           child: Text(
-                            "I have verified. Continue",
-                            maxLines: 1,                // force single line
-                            overflow: TextOverflow.clip, // don’t wrap
+                            "I have verified",
+                            maxLines: 1,
+                            overflow: TextOverflow.clip,
                             style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -959,7 +1013,9 @@ class _SignupInformationState extends State<SignupInformation> {
                           ),
                         ),
                       ),
-
+//---------------------------------------
+// below show resend email if dint recieve
+//---------------------------------------
                       SizedBox(height: 10.h),
                       TextButton(
                         onPressed: resendVerificationEmail, // resend verify email
@@ -976,20 +1032,4 @@ class _SignupInformationState extends State<SignupInformation> {
   }
 }
 
-// -----------------
-// Dummy Terms Page
-// -----------------
 
-class TermsPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    // Simple page with text only
-    return Scaffold(
-      appBar: AppBar(title: Text("Terms & Conditions")),
-      body: Padding(
-        padding: EdgeInsets.all(16),
-        child: Text("Here are the terms and conditions..."),
-      ),
-    );
-  }
-}

@@ -1,4 +1,3 @@
-// web_booking_details.dart
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -19,8 +18,10 @@ class WebBookingDetails extends StatelessWidget {
   final Map<String, dynamic> booking;
   final bool use24HourFormat;
 
+//---------------------------------------
+// pop up to ask reason of accepted ot rejected
+//---------------------------------------
 
-  // Ask for a short reason. If `requiredInput` is true, empty is not allowed.
   Future<String?> _askReasonDialog(
       BuildContext context, {
         required String title,
@@ -43,7 +44,6 @@ class WebBookingDetails extends StatelessWidget {
                 textInputAction: TextInputAction.newline,
                 minLines: 3,          // fixed min height
                 maxLines: 6,          // becomes scrollable when longer
-                // wraps to next line when hitting the right edge
                 decoration: const InputDecoration(
                   hintText: 'Write a short details',
                   // keep hint top-left
@@ -62,7 +62,7 @@ class WebBookingDetails extends StatelessWidget {
             ElevatedButton(
               onPressed: () {
                 final raw = ctrl.text.trim();
-                final val = raw.isEmpty ? '-' : raw; // empty -> "-"
+                final val = raw.isEmpty ? '-' : raw;
                 Navigator.of(ctx).pop(val);
               },
               child: const Text('Confirm'),
@@ -73,16 +73,21 @@ class WebBookingDetails extends StatelessWidget {
     );
   }
 
+//---------------------------------------
+// save the new status reason
+//---------------------------------------
 
-// Save the reason to Bookings/{bookingId}.statusReason
   Future<void> _saveStatusReason(String bookingId, String? reason) async {
     final r = (reason ?? '').trim();
     if (r.isEmpty) return;
     await FirebaseFirestore.instance
-        .collection('Bookings') // <-- change if your collection name differs
+        .collection('Bookings')
         .doc(bookingId)
         .update({'statusReason': r});
   }
+//---------------------------------------
+// hard delete the amendment
+//---------------------------------------
 
   Future<void> _hardDeleteAmendments(String bookingId) async {
     final doc = FirebaseFirestore.instance.collection('Bookings').doc(bookingId);
@@ -105,36 +110,42 @@ class WebBookingDetails extends StatelessWidget {
       await batch.commit();
     }
 
-    // support both 'amendments' and 'Amendments'
     await wipe('amendments');
     await wipe('Amendments');
   }
 
+//---------------------------------------
+// Main build for the booking details pop up
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    // IDs only (names are resolved live from other collections)
-    final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-    final String bookedByUid = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-    final String managerUid  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+//---------------------------------------
+// start reading all the field in bookings
+//---------------------------------------
 
-    // Other booking fields (still read from booking)
-    final String seat = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+    final String facilityId = _readFirstStr(booking, ['facilityId']);
+    final String bookedByUid = _readFirstStr(booking, ['userId']);
+    final String managerUid  = _readFirstStr(booking, ['managerId']);
+    final String seat = _readFirstStr(booking, ['seatIndex']);
     final DateTime? bookDate = _readBookingDate(booking);
-    final DateTime? tStart = _readTime(booking, ['start','startTime','timeStart']);
-    final DateTime? tEnd   = _readTime(booking, ['end','endTime','timeEnd']);
+    final DateTime? tStart = _readTime(booking, ['start']);
+    final DateTime? tEnd   = _readTime(booking, ['end']);
     final String dateStr   = bookDate != null ? _fmtDDMonYYYY(bookDate) : '';
     final String timeFancy = (tStart != null && tEnd != null)
         ? '${_fmt24WithAmPm(tStart)} - ${_fmt24WithAmPm(tEnd)}'
         : (tStart != null) ? _fmt24WithAmPm(tStart) : '';
-
+//---------------------------------------
+// check if amendment is done before
+//---------------------------------------
     final bool completedAmendment = booking['completeAmendment'] == true;
 
-    // Approval + status (for UI logic)
-    final String approvalLc = _readFirstStr(booking, ['approval','approve','approvalStatus']).trim().toLowerCase();
-    final String statusLc   = _readFirstStr(booking, ['status','bookingStatus','state']).trim().toLowerCase();
-    // --- amendment flags / preview (if any) ---
-    final bool hasAmend = booking['hasPendingAmendment'] == true;
+    final String approvalLc = _readFirstStr(booking, ['approval']).trim().toLowerCase();
+    final String statusLc   = _readFirstStr(booking, ['status']).trim().toLowerCase();
+//---------------------------------------
+// check if have pending amend , if have get all the important data
+//---------------------------------------
+    final bool hasAmend = (booking['hasPendingAmendment'] == true) && (approvalLc == 'accepted');
     final Map<String, dynamic>? amend = (hasAmend && booking['amendmentPreview'] is Map)
         ? Map<String, dynamic>.from(booking['amendmentPreview'])
         : null;
@@ -144,36 +155,46 @@ class WebBookingDetails extends StatelessWidget {
     final String amendStart = (amend?['start'] ?? '').toString();
     final String amendEnd   = (amend?['end'] ?? '').toString();
     final String amendTime  = amendStart.isNotEmpty
-
         ? (amendEnd.isNotEmpty ? '$amendStart - $amendEnd' : amendStart)
         : '';
 
-    // --- ACTION VISIBILITY ---
-// Cancel button: only for accepted/approved + upcoming + NO pending amendment
+//---------------------------------------
+// show cancel button only for require status and approval
+//---------------------------------------
     bool showDelete = statusLc == 'upcoming'
-        && (approvalLc == 'accepted' || approvalLc == 'approved')
+        && (approvalLc == 'accepted')
         && !hasAmend;
 
-// Edit button: only for accepted/approved + upcoming + NO pending amendment + NOT completed before
+//---------------------------------------
+// show edit button only for require approval and make sure no amendment and not yet complete amendment
+//---------------------------------------
     bool showEdit = statusLc == 'upcoming'
-        && (approvalLc == 'accepted' || approvalLc == 'approved')
+        && (approvalLc == 'accepted')
         && !hasAmend
         && !completedAmendment;
 
-// When viewing an amendment, show its (new) reason/approvalReason — not the old one.
+//---------------------------------------
+// if have amendment
+//---------------------------------------
     final String reason = (hasAmend && amend != null)
-        ? _readFirstStr(amend!, ['approvalReason','reason','amendReason','notes'])
-        : _readFirstStr(booking, ['approvalReason','reason','bookingReason','purpose','notes']);
+        ? _readFirstStr(amend!, ['reason'])
+        : _readFirstStr(booking, ['approvalReason']);
 
-    final bool showApproveReject = hasAmend || !(approvalLc == 'accepted' || approvalLc == 'approved' || approvalLc == 'rejected');
+//---------------------------------------
+// decision to show approve and reject
+//---------------------------------------
+    final bool isApprovalFinal = (approvalLc == 'accepted' || approvalLc == 'rejected');
+    final bool showApproveReject =
+        (statusLc == 'upcoming') && (hasAmend || !isApprovalFinal);
 
+//---------------------------------------
+// get the booking id
+//---------------------------------------
+    final String bookingId = _readFirstStr(booking, ['bookingId']);
 
-
-    // Booking id (id-only booking logic kept intact)
-    final String bookingId = _readFirstStr(booking, ['bookingId','booking_id','id','docId','bookingID','__id']);
-
-
-
+//---------------------------------------
+// return the main design
+//---------------------------------------
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: 940.w),
       child: Padding(
@@ -181,24 +202,33 @@ class WebBookingDetails extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ===== Top header row: image (left) | summary (right) =====
+//---------------------------------------
+// showing top part of the pop up, image and right details
+//---------------------------------------
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+//---------------------------------------
+// get the facility image
+//---------------------------------------
                 _FacilityImageSmart(facilityId: facilityId),
                 SizedBox(width: 16.w),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Facility name (LIVE)
+//---------------------------------------
+// get the facility name and display
+//---------------------------------------
                       _FacilityNameLive(
                         facilityId: facilityId,
                         style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827)),
                       ),
                       SizedBox(height: 12.h),
 
-                      // Vertical summary list: slot, date, time
+//---------------------------------------
+// display the seat, date and time
+//---------------------------------------
                       _summaryColumn(
                         children: [
                           _summaryLine(icon: Icons.event_seat, labelLower: 'slot', value: seat),
@@ -216,7 +246,9 @@ class WebBookingDetails extends StatelessWidget {
                 ),
               ],
             ),
-
+//---------------------------------------
+// if have amendment show the same thing but with amend data below
+//---------------------------------------
             if (hasAmend && amend != null) ...[
               Align(
                 alignment: Alignment.centerLeft,
@@ -236,7 +268,10 @@ class WebBookingDetails extends StatelessWidget {
 
             SizedBox(height: 16.h),
 
-            // ===== Reason of booking =====
+//---------------------------------------
+// get the reason for booking and display
+//---------------------------------------
+
             Align(
               alignment: Alignment.centerLeft,
               child: Text('Reason of booking', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
@@ -250,13 +285,15 @@ class WebBookingDetails extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10.r),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              // keep fallback ONLY here
+              // fall back if it is empty
               child: Text(reason.isEmpty ? '—' : reason, style: TextStyle(fontSize: 13.sp, color: const Color(0xFF111827))),
             ),
 
             SizedBox(height: 16.h),
 
-            // ===== Booked by (LIVE from UserInformation/{uid}) =====
+//---------------------------------------
+// the part where it shows book by who
+//---------------------------------------
             Align(
               alignment: Alignment.centerLeft,
               child: Text('Booked by', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
@@ -271,7 +308,10 @@ class WebBookingDetails extends StatelessWidget {
 
             SizedBox(height: 14.h),
 
-            // ===== Facility Manager (LIVE from UserInformation/{uid}) =====
+//---------------------------------------
+// facility manager that manage the facility
+//---------------------------------------
+
             Align(
               alignment: Alignment.centerLeft,
               child: Text('Facility Manager', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
@@ -288,7 +328,13 @@ class WebBookingDetails extends StatelessWidget {
             const Divider(height: 1),
             SizedBox(height: 12.h),
 
-            // ===== Bottom actions (UNCHANGED BOOKING LOGIC) =====
+//---------------------------------------
+// the part taht shows all approval or reject button etc
+//---------------------------------------
+//---------------------------------------
+// approve button
+//---------------------------------------
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -318,6 +364,9 @@ class WebBookingDetails extends StatelessWidget {
                     ],
                   )
                 else
+//---------------------------------------
+// if it is not to choose button it will show status
+//---------------------------------------
                   (approvalLc == 'rejected' ? _approvalRejectedBadge() : _statusBadge(statusLc)),
 
                 Wrap(
@@ -325,6 +374,10 @@ class WebBookingDetails extends StatelessWidget {
                   runSpacing: 8.h,
                   alignment: WrapAlignment.end,
                   children: [
+//---------------------------------------
+// show edit
+//---------------------------------------
+
                     if (showEdit)
                       _outlineButton(
                         label: 'Edit',
@@ -349,28 +402,23 @@ class WebBookingDetails extends StatelessWidget {
                           if (tEnd != null) {
                             endStr = _fmt24WithAmPm(tEnd);
                           }
-
-                          // ----- 1) close the DETAILS popup -----
+//---------------------------------------
+// when edit press, close the detail pop up
+//---------------------------------------
                           Navigator.of(context).pop();
 
                           String owner = '-';                                // default so it never crashes
                           if (booking['userId'] != null &&
                               booking['userId'].toString().trim().isNotEmpty) {
                             owner = booking['userId'].toString().trim();     // most common key
-                          } else if (booking['uid'] != null &&
-                              booking['uid'].toString().trim().isNotEmpty) {
-                            owner = booking['uid'].toString().trim();        // alternate key
-                          } else if (booking['ownerId'] != null &&
-                              booking['ownerId'].toString().trim().isNotEmpty) {
-                            owner = booking['ownerId'].toString().trim();    // another possible key
-                          } else if (bookedByUid.trim().isNotEmpty) {
-                            owner = bookedByUid.trim();                      // fallback to actor who created
                           }
 
-                          // ----- 2) open the EDIT popup (this looks like the popup "changes" to Edit) -----
+//---------------------------------------
+// makesure everything needed is send to edit pop up
+//---------------------------------------
                           await openWebEditBookingDialog(
                             context: context,
-                            booking: booking,                // raw map so we can reopen details later
+                            booking: booking,
                             bookingId: bookingId,
                             facilityId: facilityId,
                             bookedByUid: bookedByUid,
@@ -385,9 +433,10 @@ class WebBookingDetails extends StatelessWidget {
                             use24HourFormat: use24HourFormat,
                           );
                         },
-
-
                       ),
+//---------------------------------------
+// if only cancel button need to be show
+//---------------------------------------
                     if (showDelete)
                       _pillButton(
                         label: 'Cancel',
@@ -412,37 +461,44 @@ class WebBookingDetails extends StatelessWidget {
     );
   }
 
-  // ---------- ACTION HANDLERS (id-only) ----------
+//---------------------------------------
+// when on approve for the booking
+//---------------------------------------
+
   Future<void> _onApprove(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to approve.');
       return;
     }
+//---------------------------------------
+// pop up write approve reason
+//---------------------------------------
 
     final reason = await _askReasonDialog(context, title: 'Approve booking');
     if (reason == null) return;
 
     final ok = await _busy(context, () async {
-      // 1) update booking + store reason
+//---------------------------------------
+// when approve just use this function to set pending to accepted then save reason then made notification
+//---------------------------------------
       await BookingService.approveBookingByIdTx(bookingId: bookingId);
       await _saveStatusReason(bookingId, reason);
 
-      // 2) send approval mail (type: approval_status)
-      final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-      final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-      final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+      final String facilityId = _readFirstStr(booking, ['facilityId']);
+      final String userId     = _readFirstStr(booking, ['userId']);
+      final String managerId  = _readFirstStr(booking, ['managerId']);
       final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
-      final String seatRawA = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+      final String seatRawA = _readFirstStr(booking, ['seatIndex']);
       final int seatIndexA  = int.tryParse(seatRawA) ?? -1;
 
-      String startA = _readFirstStr(booking, ['start','startTime','timeStart']);
-      String endA   = _readFirstStr(booking, ['end','endTime','timeEnd']);
-      final DateTime? tStartA = _readTime(booking, ['start','startTime','timeStart']);
-      final DateTime? tEndA   = _readTime(booking, ['end','endTime','timeEnd']);
+      String startA = _readFirstStr(booking, ['start']);
+      String endA   = _readFirstStr(booking, ['end']);
+      final DateTime? tStartA = _readTime(booking, ['start']);
+      final DateTime? tEndA   = _readTime(booking, ['end']);
       if (startA.isEmpty && tStartA != null) startA = _fmtHHmm(tStartA);
       if (endA.isEmpty   && tEndA   != null) endA   = _fmtHHmm(tEndA);
 
-      String bookingDateA = _readFirstStr(booking, ['bookingDate','date','bookDate','day']);
+      String bookingDateA = _readFirstStr(booking, ['bookingDate']);
       final DateTime? bookDateA = _readBookingDate(booking);
       if (bookingDateA.trim().isEmpty && bookDateA != null) bookingDateA = _toYMD(bookDateA);
 
@@ -454,7 +510,6 @@ class WebBookingDetails extends StatelessWidget {
         managerId: managerId,
         approval: 'accepted',
         approvalReason: reason,
-        // NEW ↓↓↓
         seatIndex: seatIndexA,
         bookingDate: bookingDateA,
         start: startA,
@@ -468,6 +523,10 @@ class WebBookingDetails extends StatelessWidget {
     if (context.mounted) Navigator.of(context).pop();
   }
 
+//---------------------------------------
+// if reject
+//---------------------------------------
+
   Future<void> _onReject(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to reject.');
@@ -478,26 +537,32 @@ class WebBookingDetails extends StatelessWidget {
     if (reason == null) return;
 
     final ok = await _busy(context, () async {
-      // 1) update booking + store reason
+      //---------------------------------------
+// update the firebase  and reason
+//---------------------------------------
+
       await BookingService.rejectBookingByIdSimple(bookingId: bookingId);
       await _saveStatusReason(bookingId, reason);
 
-      // 2) send approval mail (type: approval_status)
-      final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-      final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-      final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+//---------------------------------------
+// send meal that is on reject
+//---------------------------------------
+
+      final String facilityId = _readFirstStr(booking, ['facilityId']);
+      final String userId     = _readFirstStr(booking, ['userId']);
+      final String managerId  = _readFirstStr(booking, ['managerId']);
       final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
-      final String seatRawR = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+      final String seatRawR = _readFirstStr(booking, ['seatIndex']);
       final int seatIndexR  = int.tryParse(seatRawR) ?? -1;
 
-      String startR = _readFirstStr(booking, ['start','startTime','timeStart']);
-      String endR   = _readFirstStr(booking, ['end','endTime','timeEnd']);
-      final DateTime? tStartR = _readTime(booking, ['start','startTime','timeStart']);
-      final DateTime? tEndR   = _readTime(booking, ['end','endTime','timeEnd']);
+      String startR = _readFirstStr(booking, ['start']);
+      String endR   = _readFirstStr(booking, ['end']);
+      final DateTime? tStartR = _readTime(booking, ['start']);
+      final DateTime? tEndR   = _readTime(booking, ['end']);
       if (startR.isEmpty && tStartR != null) startR = _fmtHHmm(tStartR);
       if (endR.isEmpty   && tEndR   != null) endR   = _fmtHHmm(tEndR);
 
-      String bookingDateR = _readFirstStr(booking, ['bookingDate','date','bookDate','day']);
+      String bookingDateR = _readFirstStr(booking, ['bookingDate']);
       final DateTime? bookDateR = _readBookingDate(booking);
       if (bookingDateR.trim().isEmpty && bookDateR != null) bookingDateR = _toYMD(bookDateR);
 
@@ -510,7 +575,6 @@ class WebBookingDetails extends StatelessWidget {
         managerId: managerId,
         approval: 'rejected',
         approvalReason: reason,
-        // NEW ↓↓↓
         seatIndex: seatIndexR,
         bookingDate: bookingDateR,
         start: startR,
@@ -523,17 +587,25 @@ class WebBookingDetails extends StatelessWidget {
     _toast(context, 'Booking rejected.');
     if (context.mounted) Navigator.of(context).pop();
   }
+//---------------------------------------
+// when it accepted while is amendment
+//---------------------------------------
 
   Future<void> _onApproveAmendment(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to approve amendment.');
       return;
     }
-
+//---------------------------------------
+// pop up ask why is it approved
+//---------------------------------------
     final reason = await _askReasonDialog(context, title: 'Approve amendment');
     if (reason == null) return;
 
-    // helper for safe YMD
+    //---------------------------------------
+// change it to YMD time
+//---------------------------------------
+
     String _toYMDLocal(dynamic v) {
       if (v == null) return '';
       if (v is Timestamp) {
@@ -555,6 +627,9 @@ class WebBookingDetails extends StatelessWidget {
       } catch (_) {}
       return s; // last resort
     }
+//---------------------------------------
+// make sure slotkey is int only
+//---------------------------------------
 
     String _slotKeyFromStart(dynamic raw) {
       final s = (raw ?? '').toString();
@@ -569,18 +644,24 @@ class WebBookingDetails extends StatelessWidget {
       final snap   = await docRef.get();
       final data   = snap.data() as Map<String, dynamic>? ?? {};
 
-      // live booking (old/current values)
-      final String oldFacilityId = (data['facilityId'] ?? data['facilityID'] ?? data['facilityDocId'] ?? data['facility_id'] ?? '').toString().trim();
-      final String oldDateYMD    = _toYMDLocal(data['bookingDate'] ?? data['date'] ?? data['day']);
-      final String oldSlotKey    = _slotKeyFromStart(data['slotKey'] ?? data['start'] ?? '');
-      final int oldSeatIndex     = int.tryParse('${data['seatIndex'] ?? data['seat'] ?? data['seatNumber'] ?? ''}') ?? -1;
+//---------------------------------------
+// get the old value first
+//---------------------------------------
+
+      final String oldFacilityId = (data['facilityId'] ).toString().trim();
+      final String oldDateYMD    = _toYMDLocal(data['bookingDate'] );
+      final String oldSlotKey    = _slotKeyFromStart(data['slotKey'] );
+      final int oldSeatIndex     = int.tryParse('${data['seatIndex'] }') ?? -1;
 
       // amendment preview (new values)
       final Map<String, dynamic> ap = (data['amendmentPreview'] is Map)
           ? Map<String, dynamic>.from(data['amendmentPreview'])
           : const {};
 
-      // if no amendment payload, just clear flags and bail
+//---------------------------------------
+// check for amendment value
+//---------------------------------------
+
       if (ap.isEmpty) {
         await docRef.update({
           'hasPendingAmendment': false,
@@ -589,8 +670,11 @@ class WebBookingDetails extends StatelessWidget {
         });
         return;
       }
+//---------------------------------------
+// set all amendment date to current booking data
+//---------------------------------------
 
-      final String newFacilityId = (ap['facilityId'] ?? ap['facilityID'] ?? ap['facilityDocId'] ?? ap['facility_id'] ?? oldFacilityId).toString().trim();
+      final String newFacilityId = (ap['facilityId'] ?? oldFacilityId).toString().trim();
       final String newDateYMD    = _toYMDLocal(ap['bookingDate'] ?? oldDateYMD);
       final String newSlotKey    = (ap['slotKey'] != null && ap['slotKey'].toString().trim().isNotEmpty)
           ? ap['slotKey'].toString().trim()
@@ -613,35 +697,41 @@ class WebBookingDetails extends StatelessWidget {
         newEndStr: newEndStr,
       );
 
-      // 2) Clear amendment flags on the booking AND mark completed
+//---------------------------------------
+// update the amendment field
+//---------------------------------------
+
       await docRef.update({
         'hasPendingAmendment': false,
         'amendmentPreview': FieldValue.delete(),
-        'completeAmendment': true,                // <-- NEW: lock future amendments
+        'completeAmendment': true,
         'lastActivityAt': FieldValue.serverTimestamp(),
       });
 
 
-      // 3) Notify exactly like pending approval (accepted)
+//---------------------------------------
+// make notification
+//---------------------------------------
+
       final String facilityId = newFacilityId.isNotEmpty ? newFacilityId
           : (oldFacilityId);
-      final String userId     = _readFirstStr(data, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-      final String managerId  = _readFirstStr(data, ['managerId','managerUID','managerUid']);
+      final String userId     = _readFirstStr(data, ['userId']);
+      final String managerId  = _readFirstStr(data, ['managerId']);
       final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
       String _hmFromSlotKey(String key) =>
           (key.length >= 4) ? '${key.substring(0,2)}:${key.substring(2,4)}' : key;
 
-// Prefer explicit strings from amendment; else derive from slotKey; else fall back to old booking times
+
       String startAm = (newStartStr != null && newStartStr.trim().isNotEmpty)
           ? newStartStr.trim()
           : _hmFromSlotKey(newSlotKey);
 
       String endAm = (newEndStr != null && newEndStr.trim().isNotEmpty)
           ? newEndStr.trim()
-          : _readFirstStr(data, ['end','endTime','timeEnd']);  // fallback
+          : _readFirstStr(data, ['end']);  // fallback
 
       if (endAm.isEmpty) {
-        final DateTime? tEnd0 = _readTime(data, ['end','endTime','timeEnd']);
+        final DateTime? tEnd0 = _readTime(data, ['end']);
         if (tEnd0 != null) endAm = _fmtHHmm(tEnd0);
       }
 
@@ -653,18 +743,22 @@ class WebBookingDetails extends StatelessWidget {
         managerId: managerId,
         approval: 'accepted',
         approvalReason: 'Amendment approved. ${reason.trim()}',
-        // NEW ↓↓↓
         seatIndex: newSeatIndex,
-        bookingDate: newDateYMD,      // already "YYYY-MM-DD"
+        bookingDate: newDateYMD,
         start: startAm,
         end: endAm,
       );
 
 
-      // 4) Persist status reason (for audit trail)
+//---------------------------------------
+// save the new reason
+//---------------------------------------
+
       await _saveStatusReason(bookingId, 'Amendment approved: ${reason.trim()}');
 
-      // 5) HARD delete amendments subcollection (any casing)
+//---------------------------------------
+// delete the amendment booking sub collection
+//---------------------------------------
       await _hardDeleteAmendments(bookingId);
     });
 
@@ -673,6 +767,9 @@ class WebBookingDetails extends StatelessWidget {
     if (context.mounted) Navigator.of(context).pop();
   }
 
+//---------------------------------------
+// when amendment is rejected
+//---------------------------------------
 
   Future<void> _onRejectAmendment(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
@@ -686,32 +783,38 @@ class WebBookingDetails extends StatelessWidget {
     final ok = await _busy(context, () async {
       final docRef = FirebaseFirestore.instance.collection('Bookings').doc(bookingId);
 
+ //---------------------------------------
+// update the amendment
+//---------------------------------------
+
       await FirebaseFirestore.instance.runTransaction((tx) async {
         tx.update(docRef, {
           'hasPendingAmendment': false,
           'amendmentPreview': FieldValue.delete(),
-          'completeAmendment': true,              // <-- NEW: lock future amendments
+          'completeAmendment': true,
           'lastActivityAt': FieldValue.serverTimestamp(),
         });
       });
 
+//---------------------------------------
+// notification for rejected amendment
+//---------------------------------------
 
-      // notify (reuse existing mail; note decision in reason)
-      final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-      final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-      final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+      final String facilityId = _readFirstStr(booking, ['facilityId']);
+      final String userId     = _readFirstStr(booking, ['userId']);
+      final String managerId  = _readFirstStr(booking, ['managerId']);
       final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
-      final String seatRawAR = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+      final String seatRawAR = _readFirstStr(booking, ['seatIndex']);
       final int seatIndexAR  = int.tryParse(seatRawAR) ?? -1;
 
-      String startAR = _readFirstStr(booking, ['start','startTime','timeStart']);
-      String endAR   = _readFirstStr(booking, ['end','endTime','timeEnd']);
-      final DateTime? tStartAR = _readTime(booking, ['start','startTime','timeStart']);
-      final DateTime? tEndAR   = _readTime(booking, ['end','endTime','timeEnd']);
+      String startAR = _readFirstStr(booking, ['start']);
+      String endAR   = _readFirstStr(booking, ['end']);
+      final DateTime? tStartAR = _readTime(booking, ['start']);
+      final DateTime? tEndAR   = _readTime(booking, ['end']);
       if (startAR.isEmpty && tStartAR != null) startAR = _fmtHHmm(tStartAR);
       if (endAR.isEmpty   && tEndAR   != null) endAR   = _fmtHHmm(tEndAR);
 
-      String bookingDateAR = _readFirstStr(booking, ['bookingDate','date','bookDate','day']);
+      String bookingDateAR = _readFirstStr(booking, ['bookingDate']);
       final DateTime? bookDateAR = _readBookingDate(booking);
       if (bookingDateAR.trim().isEmpty && bookDateAR != null) bookingDateAR = _toYMD(bookDateAR);
 
@@ -740,6 +843,10 @@ class WebBookingDetails extends StatelessWidget {
     _toast(context, 'Amendment rejected.');
     if (context.mounted) Navigator.of(context).pop();
   }
+
+  //---------------------------------------
+// for cancel booking pop up
+//---------------------------------------
 
   Future<bool> _confirmDeleteBooking(BuildContext context) async {
     final bool? res = await showDialog<bool>(
@@ -775,44 +882,55 @@ class WebBookingDetails extends StatelessWidget {
     return res ?? false;
   }
 
+//---------------------------------------
+// delete / cancel the booking
+//---------------------------------------
 
   Future<void> _onDeleteAccepted(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to cancel.');
       return;
     }
+    //---------------------------------------
+// get all the info
+//---------------------------------------
 
-    // pull IDs straight from the booking map
-    final String facilityId = _readFirstStr(booking, ['facilityId','facilityID','facilityDocId','facility_id']);
-    final String userId     = _readFirstStr(booking, ['uid','userId','bookedByUid','bookedById','bookedBy']);
-    final String managerId  = _readFirstStr(booking, ['managerId','managerUID','managerUid']);
+    final String facilityId = _readFirstStr(booking, ['facilityId']);
+    final String userId     = _readFirstStr(booking, ['userId']);
+    final String managerId  = _readFirstStr(booking, ['managerId',]);
     final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     // slot/seat (try to parse to int, default to -1 if not numeric)
-    final String seatRaw = _readFirstStr(booking, ['seatIndex','slotNumber','seatNumber','slot','seat']);
+    final String seatRaw = _readFirstStr(booking, ['seatIndex']);
     final int seatIndex  = int.tryParse(seatRaw) ?? -1;
 
     // start/end time: prefer raw strings; if missing, format from DateTime
-    String startStr = _readFirstStr(booking, ['start','startTime','timeStart']);
-    String endStr   = _readFirstStr(booking, ['end','endTime','timeEnd']);
-    final DateTime? tStart = _readTime(booking, ['start','startTime','timeStart']);
-    final DateTime? tEnd   = _readTime(booking, ['end','endTime','timeEnd']);
+    String startStr = _readFirstStr(booking, ['start']);
+    String endStr   = _readFirstStr(booking, ['end']);
+    final DateTime? tStart = _readTime(booking, ['start']);
+    final DateTime? tEnd   = _readTime(booking, ['end']);
     if (startStr.isEmpty && tStart != null) startStr = _fmtHHmm(tStart);
     if (endStr.isEmpty && tEnd != null)     endStr   = _fmtHHmm(tEnd);
 
     // booking date as YYYY-MM-DD
     final DateTime? d = _readBookingDate(booking);
-    String bookingDate = _readFirstStr(booking, ['bookingDate','date','bookDate','day']);
+    String bookingDate = _readFirstStr(booking, ['bookingDate']);
     if ((bookingDate.trim().isEmpty) && d != null) {
       bookingDate =
       '${d.year.toString().padLeft(4,'0')}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
     }
 
     final ok = await _busy(context, () async {
-      // 1) delete it
+//---------------------------------------
+// run delete that remove the slot from slot key
+//---------------------------------------
+
       await BookingService.deleteAcceptedBookingByIdTx(bookingId: bookingId);
 
-      // 2) notify user, manager, and actor
+//---------------------------------------
+// send deleted booking notification
+//---------------------------------------
+
       await NotificationService.sendBookingDeletedMails(
         bookingId: bookingId,
         userId: userId,
@@ -832,7 +950,10 @@ class WebBookingDetails extends StatelessWidget {
   }
 
 
-// 1) Make _busy return success/failure
+//---------------------------------------
+// while ongoing show loading button
+//---------------------------------------
+
   Future<bool> _busy(BuildContext context, Future<void> Function() task) async {
     showDialog(
       context: context,
@@ -850,9 +971,10 @@ class WebBookingDetails extends StatelessWidget {
     }
   }
 
+//---------------------------------------
+// format the error snackbar
+//---------------------------------------
 
-
-// 3) Friendlier error mapping (covers Firestore conflicts too)
   String _niceError(Object e) {
     final s = e.toString();
 
@@ -886,13 +1008,18 @@ class WebBookingDetails extends StatelessWidget {
     return 'Slot is taken';
   }
 
-
+//---------------------------------------
+// snack bar return for every decision pressed
+//---------------------------------------
 
   void _toast(BuildContext context, String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ---------- tiny styled buttons ----------
+//---------------------------------------
+// pill button design
+//---------------------------------------
+
   Widget _pillButton({
     required String label,
     required IconData icon,
@@ -914,6 +1041,10 @@ class WebBookingDetails extends StatelessWidget {
     );
   }
 
+//---------------------------------------
+// outline button design
+//---------------------------------------
+
   Widget _outlineButton({
     required String label,
     required IconData icon,
@@ -934,7 +1065,9 @@ class WebBookingDetails extends StatelessWidget {
     );
   }
 
-  // ===== Vertical summary (slot/date/time) =====
+//---------------------------------------
+// show icon in vertical
+//---------------------------------------
   Widget _summaryColumn({required List<Widget> children}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -946,6 +1079,10 @@ class WebBookingDetails extends StatelessWidget {
       ],
     );
   }
+
+//---------------------------------------
+// show the box for each icon, label and value
+//---------------------------------------
 
   Widget _summaryLine({
     required IconData icon,
@@ -964,8 +1101,14 @@ class WebBookingDetails extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: const Color(0xFF6B7280)),
           SizedBox(width: 10.w),
+//---------------------------------------
+// label
+//---------------------------------------
           Text('${labelLower.toLowerCase()}: ',
               style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
+//---------------------------------------
+// value
+//---------------------------------------
           Expanded(
             child: Text(
               value,
@@ -978,7 +1121,13 @@ class WebBookingDetails extends StatelessWidget {
     );
   }
 
-  // ---------- status / approval badges ----------
+//---------------------------------------
+// badge at the left side design
+//---------------------------------------
+//---------------------------------------
+// rejected badge
+//---------------------------------------
+
   Widget _approvalRejectedBadge() {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
@@ -990,6 +1139,10 @@ class WebBookingDetails extends StatelessWidget {
           style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w700, color: Colors.white)),
     );
   }
+
+//---------------------------------------
+// other status badge
+//---------------------------------------
 
   Widget _statusBadge(String statusLc) {
     String label;
@@ -1024,34 +1177,45 @@ class WebBookingDetails extends StatelessWidget {
           '${d.month.toString().padLeft(2, '0')}-'
           '${d.day.toString().padLeft(2, '0')}';
 
+//---------------------------------------
+// read booking date and format to real date
+//---------------------------------------
+
   static DateTime? _readBookingDate(Map<String, dynamic> m) {
-    for (final k in ['bookingDate','date','bookDate','day']) {
-      if (m.containsKey(k)) {
-        final v = m[k];
+      if (m.containsKey('bookingDate')) {
+        final v = m['bookingDate'];
         if (v is Timestamp) return v.toDate();
         if (v is DateTime) return v;
         if (v is String) {
-          final d1 = _tryParseYMD(v);
-          if (d1 != null) return d1;
-          final d2 = _tryParseDMY(v);
-          if (d2 != null) return d2;
+          final d = _tryParseYMD(v);
+          if (d != null) return d;
         }
       }
-    }
     return null;
   }
 
+//---------------------------------------
+// read the booking time
+//---------------------------------------
   static DateTime? _readTime(Map<String, dynamic> m, List<String> keys) {
-    for (final k in keys) {
-      if (m.containsKey(k)) {
-        final v = m[k];
-        if (v is Timestamp) return v.toDate();
-        if (v is DateTime) return v;
+    // go through every key one by one
+    for (int i = 0; i < keys.length; i++) {
+      final String k = keys[i];           // current key name
+      if (m.containsKey(k)) {             // check this key only
+        final dynamic v = m[k];           // read the value
+
+        if (v is Timestamp) {
+          return v.toDate();
+        }
+        if (v is DateTime) {
+          return v;
+        }
         if (v is String) {
-          final t1 = _tryParseHMS(v);
-          if (t1 != null) return t1;
-          final t2 = _tryParseHM(v);
-          if (t2 != null) return t2;
+          final String s = v.trim();
+          if (s.isNotEmpty) {
+            final DateTime? t = _tryParseHM(s);
+            if (t != null) return t;
+          }
         }
       }
     }
@@ -1068,6 +1232,9 @@ class WebBookingDetails extends StatelessWidget {
     }
     return '';
   }
+//---------------------------------------
+// format date to string and display
+//---------------------------------------
 
   static String _fmtDDMonYYYY(DateTime d) {
     const months = [
@@ -1078,13 +1245,20 @@ class WebBookingDetails extends StatelessWidget {
     return '$day ${months[d.month - 1]} ${d.year}';
   }
 
-  // "HH.mm am/pm" (e.g., "14.00 pm")
+//---------------------------------------
+// format time to Am Pm
+//---------------------------------------
+
   static String _fmt24WithAmPm(DateTime d) {
     final hh = d.hour.toString().padLeft(2, '0');
     final mm = d.minute.toString().padLeft(2, '0');
     final ampm = (d.hour >= 12) ? 'pm' : 'am';
     return '$hh.$mm $ampm';
   }
+
+//---------------------------------------
+// parse to real date
+//---------------------------------------
 
   static DateTime? _tryParseYMD(String s) {
     try {
@@ -1112,6 +1286,9 @@ class WebBookingDetails extends StatelessWidget {
     } catch (_) {}
     return null;
   }
+//---------------------------------------
+// part Hour and minute to real time
+//---------------------------------------
 
   static DateTime? _tryParseHM(String s) {
     try {
@@ -1125,9 +1302,9 @@ class WebBookingDetails extends StatelessWidget {
   }
 }
 
-/* ===========================
-   Live-resolved facility name
-   =========================== */
+//---------------------------------------
+// get the facility name by Id
+//---------------------------------------
 class _FacilityNameLive extends StatelessWidget {
   final String facilityId;
   final TextStyle style;
@@ -1150,7 +1327,7 @@ class _FacilityNameLive extends StatelessWidget {
       stream: ref.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data();
-        final name = (data?['name'] ?? data?['facilityName']) as String?;
+        final name = (data?['name']) as String?;
         final display = (name != null && name.trim().isNotEmpty) ? name.trim() : '';
         return Text(display, style: style, overflow: overflow);
       },
@@ -1158,9 +1335,9 @@ class _FacilityNameLive extends StatelessWidget {
   }
 }
 
-/* ===========================
-   Facility image (by facilityId) — stable & simple
-   =========================== */
+//---------------------------------------
+// show facility image
+//---------------------------------------
 class _FacilityImageSmart extends StatelessWidget {
   const _FacilityImageSmart({
     Key? key,
@@ -1180,21 +1357,10 @@ class _FacilityImageSmart extends StatelessWidget {
     final data = snap.data();
     if (data == null) return null;
 
-    final imagePath = (data['imagePath'] as String?)?.trim() ?? '';
-    if (imagePath.isNotEmpty) {
-      return _ImageSrc.asset(imagePath);
-    }
-
     final imageName = (data['imageName'] as String?)?.trim() ?? '';
     if (imageName.isNotEmpty) {
       return _ImageSrc.asset('asset/image/$imageName');
     }
-
-    final url = (data['imageUrl'] as String?)?.trim() ?? '';
-    if (url.startsWith('http')) {
-      return _ImageSrc.network(url);
-    }
-
     return null;
   }
 
@@ -1221,6 +1387,9 @@ class _FacilityImageSmart extends StatelessWidget {
     );
   }
 
+  //---------------------------------------
+// show image correctly
+//---------------------------------------
   Widget _buildImage(_ImageSrc? src) {
     if (src == null) return _placeholder();
 
@@ -1231,15 +1400,6 @@ class _FacilityImageSmart extends StatelessWidget {
         errorBuilder: (_, __, ___) => _placeholder(),
       );
     }
-
-    if (src.isNetwork) {
-      return Image.network(
-        src.url!,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _placeholder(),
-      );
-    }
-
     return _placeholder();
   }
 
@@ -1247,26 +1407,18 @@ class _FacilityImageSmart extends StatelessWidget {
       const Center(child: Icon(Icons.image, size: 44, color: Color(0xFF9CA3AF)));
 }
 
-/* ===========================
-   Simple image source holder
-   =========================== */
 class _ImageSrc {
   final String? assetPath;
-  final String? url;
-
-  const _ImageSrc._({this.assetPath, this.url});
-
+  const _ImageSrc._({this.assetPath});
   factory _ImageSrc.asset(String path) => _ImageSrc._(assetPath: path);
-  factory _ImageSrc.network(String url) => _ImageSrc._(url: url);
-
   bool get isAsset => assetPath != null && assetPath!.isNotEmpty;
-  bool get isNetwork => url != null && url!.isNotEmpty;
 }
 
-/* ===========================
-   Person card (User/Manager) — LIVE from UserInformation/{uid}
-   =========================== */
-enum _PhotoMode { auto, base64, asset, network }
+//---------------------------------------
+// decode the image for user
+//---------------------------------------
+
+enum _PhotoMode { auto, base64, asset}
 
 class _PersonCard extends StatelessWidget {
   const _PersonCard({
@@ -1279,7 +1431,6 @@ class _PersonCard extends StatelessWidget {
     this.title,
     this.photoBytes,
     this.assetName,
-    this.url,
   }) : super(key: key);
 
   // Factory: load from UserInformation with uid
@@ -1305,19 +1456,16 @@ class _PersonCard extends StatelessWidget {
       builder: (context, snap) {
         final data = snap.data?.data();
 
-        final String name  = _pickFirst(data?['name'], data?['userName'], data?['username']);
-        final String email = _pickFirst(data?['email'], data?['userEmail']);
-        final String phone = _pickFirst(data?['contact'], data?['phone'], data?['mobile']);
+        final String name  = _pickFirst(data?['username']);
+        final String email = _pickFirst(data?['email']);
+        final String phone = _pickFirst(data?['contact']);
         final String role  = _pickFirst(data?['role']);
 
-        // Photo fields
-        final String b64       = _pickFirst(data?['profileImageBase64'], data?['imageBase64'], data?['profileImage64']);
+        final String b64       = _pickFirst(data?['profileImageBase64']);
         final String nameAsset = _pickFirst(data?['profileImageName']);
-        final String url       = _pickFirst(data?['profileImageUrl']);
 
         Uint8List? bytes;
         String? assetName;
-        String? urlStr;
 
         switch (photoMode) {
           case _PhotoMode.base64:
@@ -1326,13 +1474,9 @@ class _PersonCard extends StatelessWidget {
           case _PhotoMode.asset:
             assetName = nameAsset.isNotEmpty ? nameAsset : null;
             break;
-          case _PhotoMode.network:
-            urlStr = url.startsWith('http') ? url : null;
-            break;
           case _PhotoMode.auto:
             bytes = _tryDecodeBase64(b64);
             assetName = (bytes == null && nameAsset.isNotEmpty) ? nameAsset : null;
-            urlStr = (bytes == null && assetName == null && url.startsWith('http')) ? url : null;
             break;
         }
 
@@ -1345,7 +1489,7 @@ class _PersonCard extends StatelessWidget {
           fillColor: fillColor,
           photoBytes: bytes,
           assetName: assetName,
-          url: urlStr,
+
         );
       },
     );
@@ -1358,13 +1502,15 @@ class _PersonCard extends StatelessWidget {
   final String? status;
   final Color fillColor;
 
-  final Uint8List? photoBytes; // for user (base64)
-  final String? assetName;     // for asset name
-  final String? url;           // optional network
+  final Uint8List? photoBytes;
+  final String? assetName;
 
   bool get _hasBytes => photoBytes != null && photoBytes!.isNotEmpty;
   bool get _hasAsset => assetName != null && assetName!.isNotEmpty;
-  bool get _hasUrl   => url != null && url!.isNotEmpty;
+
+//---------------------------------------
+// start building the person card with name etc
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -1404,6 +1550,7 @@ class _PersonCard extends StatelessWidget {
                 if (status != null) ...[
                   SizedBox(height: 4.h),
                   _kv('Status', status!),
+
                 ],
               ],
             ),
@@ -1420,9 +1567,6 @@ class _PersonCard extends StatelessWidget {
     if (_hasAsset) {
       return Image.asset('asset/image/$assetName', fit: BoxFit.cover, errorBuilder: (_, __, ___) => _avatarFallback(name));
     }
-    if (_hasUrl) {
-      return Image.network(url!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _avatarFallback(name));
-    }
     return _avatarFallback(name);
   }
 
@@ -1435,6 +1579,9 @@ class _PersonCard extends StatelessWidget {
       return null;
     }
   }
+//---------------------------------------
+// pick data in database value
+//---------------------------------------
 
   static String _pickFirst(dynamic a, [dynamic b, dynamic c]) {
     for (final v in [a, b, c]) {
@@ -1443,6 +1590,9 @@ class _PersonCard extends StatelessWidget {
     return '';
   }
 
+//---------------------------------------
+// make same gap width between value
+//---------------------------------------
   Widget _kv(String k, String v) {
     return Row(
       children: [

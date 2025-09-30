@@ -1,40 +1,29 @@
-// ------------------------------
-// ANDROID SIGN UP PAGE (SIMPLE)
-// ------------------------------
-
-// Import = bring in packages we need for this file
 import 'package:cloud_firestore/cloud_firestore.dart';               // Firestore database
 import 'package:firebase_auth/firebase_auth.dart';                   // Firebase Authentication (sign up / login)
 import 'package:flutter/material.dart';                              // Flutter UI
 import 'package:flutter/services.dart';                              // For FilteringTextInputFormatter (digits only)
 import 'package:flutter_screenutil/flutter_screenutil.dart';         // For .w .h .sp responsive sizes
 
-// These are your other screens/files
 import 'android_login.dart';                                         // Your Android Login page
 import 'android_list_of_facilities.dart';
 import 'android_lecturersignup.dart';
 import 'android_tnc.dart';
 import 'android_privacy_policy.dart';
 
-// --------------
-// Main Page UI
-// --------------
-
-// A simple page that shows a header and the sign up form
 class AndroidSignUpPage extends StatelessWidget {
-  // build() = function that draws the UI (screen)
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
-    // Scaffold = basic page structure with background and body
     return Scaffold(
-      // SingleChildScrollView = make page scrollable if content is long
       body: SingleChildScrollView(
         child: Column(
           children: [
-            GradientHeader(), // our gradient top header
+            GradientHeader(), //gradient top header
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
-              child: SignupInformation(), // the sign up form area
+              child: SignupInformation(),
             ),
           ],
         ),
@@ -43,9 +32,9 @@ class AndroidSignUpPage extends StatelessWidget {
   }
 }
 
-// ---------------------
-// Pretty Gradient Header
-// ---------------------
+//---------------------------------------
+// gradient header
+//---------------------------------------
 
 class GradientHeader extends StatelessWidget {
   @override
@@ -88,14 +77,14 @@ class GradientHeader extends StatelessWidget {
             ),
           ),
           SizedBox(height: 20.h),
-          // Row with "Log In" and "Sign Up" buttons
+//---------------------------------------
+// show log in and sign up navigation button
+//---------------------------------------
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Outline button = go to Login page
               OutlinedButton(
                 onPressed: () {
-                  // Navigator.push = go to another page
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => AndroidLoginPage()),
@@ -109,10 +98,8 @@ class GradientHeader extends StatelessWidget {
                 child: Text('Log In', style: TextStyle(fontSize: 14.sp)),
               ),
               SizedBox(width: 20.w),
-              // Current page button (no action needed)
               ElevatedButton(
                 onPressed: () {
-                  // We are already on Sign Up page, so do nothing
                 },
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(horizontal: 35.w, vertical: 12.h),
@@ -127,9 +114,9 @@ class GradientHeader extends StatelessWidget {
   }
 }
 
-// ------------------------------
-// Sign Up Form (Stateful Widget)
-// ------------------------------
+//---------------------------------------
+// sign up information
+//---------------------------------------
 
 class SignupInformation extends StatefulWidget {
   @override
@@ -137,60 +124,35 @@ class SignupInformation extends StatefulWidget {
 }
 
 class _SignupInformationState extends State<SignupInformation> {
-  // -------------------------
-  // Controllers for TextField
-  // -------------------------
+
   final TextEditingController _usernameController = TextEditingController(); // username input
   final TextEditingController _emailController = TextEditingController();    // email input
   final TextEditingController _contactController = TextEditingController();  // contact input
   final TextEditingController _passwordController = TextEditingController(); // password input
-  final TextEditingController _confirmController = TextEditingController();  // confirm password input (NEW)
+  final TextEditingController _confirmController = TextEditingController();  // confirm password input
 
-  // -------------------------
-  // Firebase Auth instance
-  // -------------------------
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // -------------------------
-  // Simple UI states
-  // -------------------------
   bool _obscurePassword = true;          // show/hide password
-  bool _obscureConfirmPassword = true;   // show/hide confirm password (NEW)
+  bool _obscureConfirmPassword = true;   // show/hide confirm password
   bool _isTermsAccepted = false;
   bool _isPrivacyAccepted = false;
 
-  // -------------------------
-  // Error message strings
-  // -------------------------
   String? _usernameError;
   String? _emailError;
   String? _contactError;
   String? _passwordError;
-  String? _confirmPasswordError; // (NEW)
+  String? _confirmPasswordError;
   String? _roleError;
   String? _termsError;
 
-  // -------------------------
-  // After verification email sent
-  // -------------------------
   bool _isVerificationSent = false;
 
-  // -------------------------
-  // Open Terms Page (dummy)
-  // -------------------------
-  void _openTermsPage() {
-    // Navigator.push = go to another page
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => TermsPage()),
-    );
-  }
+  //---------------------------------------
+// show error message
+//---------------------------------------
 
-  // ----------------------------------------
-  // Helper: Show an error under a field name
-  // ----------------------------------------
   void _showError(String field, String message) {
-    // setState = update UI values
     setState(() {
       if (field == "username") {
         _usernameError = message;
@@ -210,9 +172,9 @@ class _SignupInformationState extends State<SignupInformation> {
     });
   }
 
-  // ----------------------------------------------------
-  // Simple password rule: min 8 + 1 uppercase + 1 symbol
-  // ----------------------------------------------------
+//---------------------------------------
+// strong password
+//---------------------------------------
   bool _isPasswordStrong(String password) {
     // RegExp = check pattern
     final regex = RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
@@ -223,11 +185,13 @@ class _SignupInformationState extends State<SignupInformation> {
     }
   }
 
-  // ------------------------------------
-  // MAIN: Validate form and create user
-  // ------------------------------------
+//---------------------------------------
+// sign up process
+//---------------------------------------
   Future<void> _validateAndSignUp() async {
-    // Reset old errors (include confirm error)
+//---------------------------------------
+// clear previous error
+//---------------------------------------
     setState(() {
       _usernameError = null;
       _emailError = null;
@@ -238,16 +202,21 @@ class _SignupInformationState extends State<SignupInformation> {
       _termsError = null;
     });
 
-    // Assume valid first, then check each rule
     bool isValid = true;
 
-    // Check username not empty
+//---------------------------------------
+// check username
+//---------------------------------------
+
     if (_usernameController.text.isEmpty) {
       _showError("username", "Username cannot be empty");
       isValid = false;
     }
 
-    // Check email has @
+//---------------------------------------
+// check email
+//---------------------------------------
+
     if (_emailController.text.contains("@")) {
       // ok
     } else {
@@ -255,50 +224,57 @@ class _SignupInformationState extends State<SignupInformation> {
       isValid = false;
     }
 
-    // Check contact exactly 10 digits
+//---------------------------------------
+// check contact
+//---------------------------------------
     if (_contactController.text.length == 10) {
-      // ok
     } else {
       _showError("contact", "Contact must be exactly 10 digits");
       isValid = false;
     }
-
-    // Check password strength
+//---------------------------------------
+// check strong password
+//---------------------------------------
     if (_isPasswordStrong(_passwordController.text)) {
-      // ok
     } else {
       _showError("password", "Password must be at least 8 characters, include 1 uppercase letter and 1 special character");
       isValid = false;
     }
 
-    // (NEW) Confirm password cannot be empty
+//---------------------------------------
+// check confrim password
+//---------------------------------------
     if (_confirmController.text.isEmpty) {
       _showError("confirm", "Confirm password cannot be empty");
       isValid = false;
     } else {
-      // (NEW) Confirm password must match password
       if (_confirmController.text == _passwordController.text) {
-        // ok
       } else {
         _showError("confirm", "Passwords do not match");
         isValid = false;
       }
     }
 
-
-    // Check terms + privacy ticked
+//---------------------------------------
+// check tnc
+//---------------------------------------
     if (_isTermsAccepted && _isPrivacyAccepted) {
-      // ok
     } else {
       _showError("terms", "Please accept all agreements");
       isValid = false;
     }
 
-    // If anything is invalid, stop here
+//---------------------------------------
+// if not valid refresh UI to show error
+//---------------------------------------
+
     if (isValid == false) {
-      setState(() {}); // refresh UI to show errors
+      setState(() {});
       return;
     }
+    //---------------------------------------
+// check if username exist
+//---------------------------------------
     final bool taken = await _usernameExists(_usernameController.text);
     if (taken == true) {
       _showError("username", "Username already taken");
@@ -308,7 +284,10 @@ class _SignupInformationState extends State<SignupInformation> {
       setState(() {});
       return;
     }
-    // Try to create Firebase Auth user
+//---------------------------------------
+// create new user
+//---------------------------------------
+
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
@@ -316,28 +295,41 @@ class _SignupInformationState extends State<SignupInformation> {
       );
 
       User? user = userCredential.user;
-
       if (user != null) {
-        // If email is not yet verified, send verification email
+//---------------------------------------
+// if email still not yet varified
+//---------------------------------------
+
         if (user.emailVerified == false) {
           await user.sendEmailVerification();
 
-          // Show a small message to user (Snackbar)
+//---------------------------------------
+// when verification send show pop up
+//---------------------------------------
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Verification email sent. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
           );
 
-          // Show the "I already verified" button on screen
+//---------------------------------------
+// show verified button
+//---------------------------------------
           setState(() {
             _isVerificationSent = true;
           });
         } else {
-          // Edge case: if already verified (rare), go write Firestore and go to facilities
+//---------------------------------------
+// write data to firebase
+//---------------------------------------
+
           await _writeUserToFirestoreAndGo(user);
         }
       }
+//---------------------------------------
+// show error if email already in used
+//---------------------------------------
+
     } on FirebaseAuthException catch (e) {
-      // Handle some common errors
+
       if (e.code == 'email-already-in-use') {
         _showError("email", "Email already registered");
         setState(() {});
@@ -349,6 +341,10 @@ class _SignupInformationState extends State<SignupInformation> {
       _showFailDialog();
     }
   }
+
+  //---------------------------------------
+// check if user name exist
+//---------------------------------------
 
   Future<bool> _usernameExists(String username) async {
     final String u = username.trim();
@@ -369,98 +365,107 @@ class _SignupInformationState extends State<SignupInformation> {
         return false;
       }
     } catch (e) {
-      // If the check fails, don't block sign up with a false positive
       return false;
     }
   }
 
-  // ------------------------------------------------------------
-  // Called when user presses "I already verified, continue" button
-  // ------------------------------------------------------------
+//---------------------------------------
+// check email verification already press or not
+//---------------------------------------
+
   Future<void> _checkEmailVerified() async {
     User? user = _auth.currentUser;
 
     if (user != null) {
-      // Reload the user to get the latest emailVerified state
       await user.reload();
       user = _auth.currentUser;
 
       if (user != null) {
         if (user.emailVerified == true) {
-          // Email is verified now, write Firestore and go
+//---------------------------------------
+// write user to firebase
+//---------------------------------------
           await _writeUserToFirestoreAndGo(user);
         } else {
-          // Not verified yet
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Email not verified yet. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
           );
         }
       } else {
-        // No user in auth
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
         );
       }
     } else {
-      // No user in auth
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No user found. Please sign up again.', style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
 
-  // ----------------------------------------------------
-  // Write the user document to Firestore (first time),
-  // set isVerified: true, and navigate to Facilities.
-  // ----------------------------------------------------
+//---------------------------------------
+// create new user
+//---------------------------------------
+
   Future<void> _writeUserToFirestoreAndGo(User user) async {
     try {
-      // Prepare the user document data
+
       Map<String, dynamic> data = {
         "username": _usernameController.text.trim(),
         "email": _emailController.text.trim(),
         "contact": _contactController.text.trim(),
-        "role": 'Student',                  // "Student" or "Lecturer"
-        "isVerified": true,                     // set TRUE now (verified already)
-        "notifAll": true,                       // your extra flags
+        "role": 'Student',
+        "isVerified": true,
+        "notifAll": true,
         "notifApprovalBook": true,
         "notifNewBook": true,
         "notifReminder": true,
         "notifUpdatedBook": true,
-        "profileImageName": null,               // string null for now
+        "profileImageName": null,
         "deleted": false,
         "active": true,
+        "approval": true,
         "inboxLastSeen": FieldValue.serverTimestamp(),
         "createdAt": FieldValue.serverTimestamp(),
       };
 
-      // Write with .set() to create/overwrite doc under "UserInformation/{uid}"
+//---------------------------------------
+// set the new data into firebase
+//---------------------------------------
+
       await FirebaseFirestore.instance
           .collection("UserInformation")
           .doc(user.uid)
           .set(data);
 
-      // Tell user verification success
+//---------------------------------------
+// show verified success
+//---------------------------------------
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Email verified! Account created.', style: TextStyle(fontSize: 14.sp))),
       );
 
-      // Go straight to Facilities page
+//---------------------------------------
+// got to facility page
+//---------------------------------------
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => AndroidListOfFacilities()),
       );
     } catch (e) {
-      // If Firestore write fails, show message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save account. Please try again.', style: TextStyle(fontSize: 14.sp))),
       );
     }
   }
 
-  // --------------------------------------------
-  // Resend verification email if user requests
-  // --------------------------------------------
+//---------------------------------------
+// resend verification email
+//---------------------------------------
+
   Future<void> resendVerificationEmail() async {
     try {
       User? user = _auth.currentUser;
@@ -488,9 +493,10 @@ class _SignupInformationState extends State<SignupInformation> {
     }
   }
 
-  // --------------------------
-  // Simple "Fail" popup dialog
-  // --------------------------
+//---------------------------------------
+// show pop up if sign up fail
+//---------------------------------------
+
   void _showFailDialog() {
     showDialog(
       context: context,
@@ -509,7 +515,10 @@ class _SignupInformationState extends State<SignupInformation> {
       ),
     );
   }
-  // Open Terms & Conditions page (no login required)
+//---------------------------------------
+// open tnc page
+//---------------------------------------
+
   void _openTncPage() {
     Navigator.push(
       context,
@@ -517,13 +526,18 @@ class _SignupInformationState extends State<SignupInformation> {
     );
   }
 
-// Open Privacy Policy page (no login required)
+//---------------------------------------
+// open pp page
+//---------------------------------------
   void _openPrivacyPage() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => AndroidPrivacyPolicy()),
     );
   }
+//---------------------------------------
+// go to sign up lecturer page
+//---------------------------------------
 
   void _openSignupLecturerPage() {
     Navigator.push(
@@ -533,16 +547,16 @@ class _SignupInformationState extends State<SignupInformation> {
   }
 
 
-  // -----------------------------------------
-  // BUILD: Draw the Sign Up form to the screen
-  // -----------------------------------------
+//---------------------------------------
+// build for sign up form
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         SizedBox(height: 20.h),
 
-        // Card-like container for the form
         Container(
           width: 0.9.sw,
           padding: EdgeInsets.all(20.w),
@@ -558,7 +572,10 @@ class _SignupInformationState extends State<SignupInformation> {
             ],
           ),
 
-          // The actual form fields
+//---------------------------------------
+// user name text box
+//---------------------------------------
+
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -572,7 +589,10 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_usernameError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Email
+//---------------------------------------
+// email text box
+//---------------------------------------
+
               Text("Email", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _emailController,
@@ -583,7 +603,10 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_emailError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Contact Number (digits only)
+//---------------------------------------
+// contact number text box
+//---------------------------------------
+
               Text("Contact Number", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _contactController,
@@ -595,7 +618,10 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_contactError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h),
 
-              // Password
+//---------------------------------------
+// password text box
+//---------------------------------------
+
               Text("Password", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _passwordController,
@@ -605,7 +631,7 @@ class _SignupInformationState extends State<SignupInformation> {
                   suffixIcon: IconButton(
                     icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
                     onPressed: () {
-                      // Toggle obscureText using if/else
+                      // Toggle obscureText
                       if (_obscurePassword == true) {
                         setState(() {
                           _obscurePassword = false;
@@ -623,9 +649,10 @@ class _SignupInformationState extends State<SignupInformation> {
                 Text(_passwordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
               SizedBox(height: 20.h), // spacing before Confirm Password (NEW)
 
-              // -------------------------
-              // (NEW) Confirm Password
-              // -------------------------
+//---------------------------------------
+// confirm password text box
+//---------------------------------------
+
               Text("Confirm Password", style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
               TextField(
                 controller: _confirmController,
@@ -651,9 +678,10 @@ class _SignupInformationState extends State<SignupInformation> {
               ),
               if (_confirmPasswordError != null)
                 Text(_confirmPasswordError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
-              SizedBox(height: 20.h), // spacing after Confirm Password (NEW)
-
-              // Role Selection
+              SizedBox(height: 20.h),
+//---------------------------------------
+// sign up as lecturer button
+//---------------------------------------
               Align(
                 alignment: Alignment.center,
                 child:
@@ -664,13 +692,12 @@ class _SignupInformationState extends State<SignupInformation> {
                     style: TextStyle(decoration: TextDecoration.underline, fontSize: 14.sp),
                   ),
                 ),
-
                 ),
 
-
               SizedBox(height:20.h),
-
-              // Agreements
+//---------------------------------------
+// tnc check box
+//---------------------------------------
               CheckboxListTile(
                 value: _isTermsAccepted,
                 onChanged: (value) {
@@ -684,9 +711,8 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
-                // Terms and Conditions checkbox title
                 title: GestureDetector(
-                  onTap: _openTncPage, // open T&C page
+                  onTap: _openTncPage,
                   child: Text(
                     "Terms and Conditions",
                     style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue, fontSize: 14.sp),
@@ -707,22 +733,25 @@ class _SignupInformationState extends State<SignupInformation> {
                     });
                   }
                 },
-                // Privacy Policy checkbox title
+//---------------------------------------
+// pp text box
+//---------------------------------------
                 title: GestureDetector(
-                  onTap: _openPrivacyPage, // open Privacy Policy page
+                  onTap: _openPrivacyPage,
                   child: Text(
                     "Privacy Policy",
                     style: TextStyle(decoration: TextDecoration.underline, color: Colors.blue, fontSize: 14.sp),
                   ),
                 ),
-
               ),
               if (_termsError != null)
                 Text(_termsError!, style: TextStyle(color: Colors.red, fontSize: 12.sp)),
 
               SizedBox(height: 20.h),
 
-              // If verification email not sent yet → show "Sign Up" button
+//---------------------------------------
+// email verification still not sent , show sign up button
+//---------------------------------------
               if (_isVerificationSent == false)
                 Center(
                   child: SizedBox(
@@ -730,7 +759,7 @@ class _SignupInformationState extends State<SignupInformation> {
                     height: 55.h,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF8620E5)),
-                      onPressed: _validateAndSignUp, // create auth user and send verify email
+                      onPressed: _validateAndSignUp,
                       child: Text(
                         "Sign Up",
                         style: TextStyle(color: Colors.white, fontSize: 14.sp),
@@ -739,7 +768,9 @@ class _SignupInformationState extends State<SignupInformation> {
                   ),
                 )
               else
-              // If verification email sent → show the verification actions
+//---------------------------------------
+// if not, show verification button
+//---------------------------------------
                 Center(
                   child: Column(
                     children: [
@@ -753,15 +784,15 @@ class _SignupInformationState extends State<SignupInformation> {
                       ),
                       SizedBox(height: 20.h),
                       SizedBox(
-                        width: 0.9.sw, // wider so it fits on one line
+                        width: 0.9.sw,
                         height: 55.h,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8620E5)),
                           onPressed: _checkEmailVerified,
                           child: Text(
-                            "I have verified. Continue",
-                            maxLines: 1,                // force single line
-                            overflow: TextOverflow.clip, // don’t wrap
+                            "I have verified",
+                            maxLines: 1,
+                            overflow: TextOverflow.clip,
                             style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -770,7 +801,9 @@ class _SignupInformationState extends State<SignupInformation> {
                           ),
                         ),
                       ),
-
+//---------------------------------------
+// then below show resent verification email button
+//---------------------------------------
                       SizedBox(height: 10.h),
                       TextButton(
                         onPressed: resendVerificationEmail, // resend verify email
@@ -783,24 +816,6 @@ class _SignupInformationState extends State<SignupInformation> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// -----------------
-// Dummy Terms Page
-// -----------------
-
-class TermsPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    // Simple page with text only
-    return Scaffold(
-      appBar: AppBar(title: Text("Terms & Conditions")),
-      body: Padding(
-        padding: EdgeInsets.all(16),
-        child: Text("Here are the terms and conditions..."),
-      ),
     );
   }
 }

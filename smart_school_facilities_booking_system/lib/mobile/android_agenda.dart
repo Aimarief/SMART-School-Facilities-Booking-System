@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';                               // date formattin
 import 'package:firebase_auth/firebase_auth.dart';             // current user id
 import 'package:cloud_firestore/cloud_firestore.dart';         // Firestore
 
-// bottom bar
 import 'android_bottom_menu.dart';
 import 'android_list_of_facilities.dart';
 import 'android_view_booking.dart';
@@ -17,33 +16,35 @@ class AndroidAgenda extends StatefulWidget {
 }
 
 class _AndroidAgendaState extends State<AndroidAgenda> {
-  // ---------------- bottom bar state ----------------
-  int _currentIndex = 0; // this page index in bottom menu
+  //---------------------------------------
+// current index page
+//---------------------------------------
+  int _currentIndex = 0;
 
-  // ---------------- agenda state ----------------
-  DateTime _selectedDate = DateTime.now();  // which date user is viewing
-  String _viewMode = 'daily';               // 'daily' or 'weekly' (default daily)
+  DateTime _selectedDate = DateTime.now();
+  String _viewMode = 'daily';
 
-  // ---------------- working hours (minutes since midnight) ----------------
-  int _workStartMin = 8 * 60;  // default 08:00 => 480
-  int _workEndMin   = 18 * 60; // default 18:00 => 1080
-  bool _loadingWorkHours = true; // show small loading until we read SystemInformation
+  int _workStartMin = 8 * 60;
+  int _workEndMin   = 18 * 60;
+  bool _loadingWorkHours = true;
 
-  // ---------------- user id ----------------
-  String? _userId; // will fill in initState
+  String? _userId;
 
-  // ---------------- simple cache for facility names ----------------
-  final Map<String, String> _facNameCache = {}; // facilityId -> name
+  final Map<String, String> _facNameCache = {};
 
-  // -------------- lifecycle: init --------------
+//---------------------------------------
+// init state will run this first
+//---------------------------------------
   @override
   void initState() {
-    super.initState();                        // call parent init
-    _readUserId();                            // get current user id
-    _loadWorkingHours();                      // read SystemInformation/Setting start/end
+    super.initState();
+    _readUserId();
+    _loadWorkingHours();
   }
 
-  // -------------- bottom tabs handler --------------
+//---------------------------------------
+// navigation
+//---------------------------------------
   void _onTabSelected(int i) {
     // change bottom nav or navigate to other pages
     if (i == 0) {
@@ -59,13 +60,17 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
   }
 
-  // -------------- read current user id --------------
+//---------------------------------------
+// read current user
+//---------------------------------------
   void _readUserId() {
-    // use ?. so if currentUser is null, uid is also null
     _userId = FirebaseAuth.instance.currentUser?.uid;
   }
 
-  // -------------- load working hours from SystemInformation/Setting --------------
+//---------------------------------------
+// load working hour from system inforamtion
+//---------------------------------------
+
   Future<void> _loadWorkingHours() async {
     try {
       final DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance
@@ -73,22 +78,24 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
           .doc('Setting')
           .get();
 
-      // if doc.data() is null, make it empty map using ??
       final Map<String, dynamic> data = doc.data() ?? {};
 
-      // read start/end strings from multiple possible keys (helper below)
-      final String startStr = _readFirstStr(data, <String>['start','workingHourStart','startTime','startWorkingHour']);
-      final String endStr   = _readFirstStr(data, <String>['end','workingHourEnd','endTime','endWorkingHour']);
+      //---------------------------------------
+// read start and end time
+//---------------------------------------
+      final String startStr = _readFirstStr(data, <String>['start']);
+      final String endStr   = _readFirstStr(data, <String>['end']);
 
-      // try parse; if invalid, keep defaults using plain if/else
+      //---------------------------------------
+// parse them to minute
+//---------------------------------------
+
       final int s = _parse24ToMinutes(startStr);
       if (s >= 0) { _workStartMin = s; } else { _workStartMin = 8 * 60; }
 
       final int e = _parse24ToMinutes(endStr);
       if (e > 0) { _workEndMin = e; } else { _workEndMin = 18 * 60; }
-    } catch (e) {
-      // keep defaults on error
-    }
+    } catch (e) {}
 
     // ensure at least 1 hour window
     if (_workEndMin <= _workStartMin) {
@@ -98,101 +105,77 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     setState(() { _loadingWorkHours = false; });
   }
 
-  // -------------- helpers: text + dates --------------
-  // reads the first non-null value from a set of keys and returns .toString()
   String _readFirstStr(Map<String, dynamic> m, List<String> keys) {
     for (int i = 0; i < keys.length; i = i + 1) {
       final String k = keys[i];
-      // m[k] may be null → use ?.toString(), then ?? to fallback null to null
       final String? val = m[k]?.toString();
       if (val != null) {
-        return val; // found a non-null string
+        return val;
       }
     }
-    return ''; // not found
+    return '';
   }
 
-  // parses "13:30", "1330", "13.30", "8", "08" → minutes since midnight; -1 if invalid
+  //---------------------------------------
+// parse to minute
+//---------------------------------------
+
   int _parse24ToMinutes(String s) {
+    // 1) Remove spaces at the start and end.
     String t = s.trim();
-    if (t.isEmpty) { return -1; }
-    t = t.replaceAll(' ', '');
-    t = t.replaceAll('.', ':');
 
-    if (t.contains(':')) {
-      final List<String> parts = t.split(':');
-      int hh = -1;
-      int mm = 0;
+    String hhStr = t.substring(0, 2); // characters at index 0 and 1
+    String mmStr = t.substring(3, 5); // characters at index 3 and 4
 
-      final int? p0 = int.tryParse(parts[0]);
-      if (p0 != null) { hh = p0; } else { hh = -1; }
+    int hh = int.tryParse(hhStr) ?? -1;
+    int mm = int.tryParse(mmStr) ?? -1;
 
-      if (parts.length >= 2) {
-        final int? p1 = int.tryParse(parts[1]);
-        if (p1 != null) { mm = p1; } else { mm = 0; }
-      }
-
-      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
-        return hh * 60 + mm;
-      } else {
-        return -1;
-      }
-    } else {
-      if (t.length <= 2) {
-        int hh = -1;
-        final int? p = int.tryParse(t);
-        if (p != null) { hh = p; } else { hh = -1; }
-        if (hh >= 0 && hh <= 23) { return hh * 60; } else { return -1; }
-      } else if (t.length == 3) {
-        final String hStr = t.substring(0, 1);
-        final String mStr = t.substring(1, 3);
-        int hh = -1;
-        int mm = -1;
-        final int? p0 = int.tryParse(hStr);
-        if (p0 != null) { hh = p0; } else { hh = -1; }
-        final int? p1 = int.tryParse(mStr);
-        if (p1 != null) { mm = p1; } else { mm = -1; }
-        if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) { return hh * 60 + mm; } else { return -1; }
-      } else if (t.length == 4) {
-        final String hStr = t.substring(0, 2);
-        final String mStr = t.substring(2, 4);
-        int hh = -1;
-        int mm = -1;
-        final int? p0 = int.tryParse(hStr);
-        if (p0 != null) { hh = p0; } else { hh = -1; }
-        final int? p1 = int.tryParse(mStr);
-        if (p1 != null) { mm = p1; } else { mm = -1; }
-        if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) { return hh * 60 + mm; } else { return -1; }
-      } else {
-        return -1;
-      }
+    if (hh < 0 || hh > 23) {
+      return -1;
     }
+    if (mm < 0 || mm > 59) {
+      return -1;
+    }
+
+    return hh * 60 + mm;
   }
 
-  // make a date key like "2025-05-23"
+
+//---------------------------------------
+// change format to year month day
+//---------------------------------------
+
   String _dateKey(DateTime d) {
     final String y = d.year.toString().padLeft(4, '0');
     final String m = d.month.toString().padLeft(2, '0');
     final String day = d.day.toString().padLeft(2, '0');
     return '$y-$m-$day';
   }
-
-  // formats "23 May 2025"
-  String _formatDateNoDay(DateTime d) {
+//---------------------------------------
+// format to day month like May 2025
+//---------------------------------------
+  String _formatDate(DateTime d) {
     return DateFormat('d MMMM yyyy').format(d);
   }
 
-  // formats "23 May"
+//---------------------------------------
+// format to day and month
+//---------------------------------------
+
   String _formatShortDate(DateTime d) {
     return DateFormat('d MMM').format(d);
   }
 
-  // returns day name like "Wednesday"
+//---------------------------------------
+// get day name
+//---------------------------------------
   String _dayName(DateTime d) {
     return DateFormat('EEEE').format(d);
   }
 
-  // formats minutes → "h.mm am/pm"
+//---------------------------------------
+// format to am pm
+//---------------------------------------
   String _formatHourLabel(int minutes) {
     final int hh24 = minutes ~/ 60;
     final int mm = minutes % 60;
@@ -203,14 +186,20 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     return '$hh12.$mmStr $ampm';
   }
 
-  // week start (Sunday) and 7 dates list
+//---------------------------------------
+// get week start from sunday
+//---------------------------------------
+
   DateTime _weekStartSunday(DateTime d) {
     final int wd = d.weekday; // Mon=1 ... Sun=7
     final int daysToSunday = wd % 7; // Sun=0, Mon=1, ... Sat=6
     return DateTime(d.year, d.month, d.day).subtract(Duration(days: daysToSunday));
   }
 
-  // build 7 days for the current week
+//---------------------------------------
+// get 7 days after the sunday
+//---------------------------------------
+
   List<DateTime> _weekDates(DateTime anchor) {
     final DateTime start = _weekStartSunday(anchor);
     final List<DateTime> out = <DateTime>[];
@@ -220,13 +209,19 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     return out;
   }
 
-  // safe bottom padding so content doesn't hide behind bottom bar
+//---------------------------------------
+// get padding so all the bar dun overlap
+//---------------------------------------
+
   double _bottomSafePadding(BuildContext context) {
     final double sysBottom = MediaQuery.of(context).padding.bottom;
     return 16.h + 60.h + sysBottom;
   }
 
-  // -------------- open date picker --------------
+//---------------------------------------
+// open date picker
+//---------------------------------------
+
   Future<void> _pickDate() async {
     final DateTime now = DateTime.now();
     final DateTime? picked = await showDatePicker(
@@ -235,18 +230,23 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 2),
       builder: (context, child) {
-        // return child directly; you can theme later if needed
         return child!;
       },
     );
     if (picked != null) {
+      //---------------------------------------
+// set state if date is picked
+//---------------------------------------
+
       setState(() { _selectedDate = picked; });
     }
   }
 
-  // -------------- bookings streams --------------
+//---------------------------------------
+// get all booking belongs to the user
+//---------------------------------------
+
   Stream<QuerySnapshot<Map<String, dynamic>>> _bookingsStreamDaily() {
-    // use ?? so if _userId is null, we use a placeholder not in DB
     final String uid = _userId ?? '__no_user__';
     final String dayKey = _dateKey(_selectedDate);
     return FirebaseFirestore.instance
@@ -256,7 +256,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         .where('deleted', isEqualTo: false)
         .snapshots();
   }
-
+//---------------------------------------
+// get all booking within the seven days
+//---------------------------------------
   Stream<QuerySnapshot<Map<String, dynamic>>> _bookingsStreamWeekly() {
     final String uid = _userId ?? '__no_user__';
     final List<DateTime> days = _weekDates(_selectedDate);
@@ -268,17 +270,17 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     return FirebaseFirestore.instance
         .collection('Bookings')
         .where('userId', isEqualTo: uid)
-        .where('bookingDate', whereIn: keys)   // 7 values (<=10), OK
+        .where('bookingDate', whereIn: keys)
         .where('deleted', isEqualTo: false)
         .snapshots();
   }
 
-  // -------------- read booking fields safely --------------
+//---------------------------------------
+// get all the approval
+//---------------------------------------
+
   String _readApproval(Map<String, dynamic> m) {
-    // try multiple keys; use ?.toString() + ?? '-' then normalize later
     String val = m['approval']?.toString() ?? '';
-    if (val.isEmpty) { val = m['approvalStatus']?.toString() ?? ''; }
-    if (val.isEmpty) { val = m['statusApproval']?.toString() ?? ''; }
     return val;
   }
 
@@ -306,18 +308,20 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     return int.tryParse(m['seatIndex']?.toString() ?? '') ?? -1;
   }
 
-  // -------------- facility name fetch with simple cache --------------
+  //---------------------------------------
+// save the facility name to cache
+//---------------------------------------
+
   Future<String> _getFacilityName(String facilityId) async {
-    // if no id, return '-'
     if (facilityId.isEmpty) { return '-'; }
 
     // check cache first
     if (_facNameCache.containsKey(facilityId)) {
       final String? cached = _facNameCache[facilityId];
-      if (cached != null) { return cached; }
+      if (cached != null) {
+        return cached; }
     }
 
-    // read once from Facilities collection
     try {
       final DocumentSnapshot<Map<String, dynamic>> d = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -327,8 +331,6 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         final Map<String, dynamic>? data = d.data();
         if (data != null) {
           String nm = data['name']?.toString() ?? '';
-          if (nm.isEmpty) { nm = data['facilityName']?.toString() ?? ''; }
-          if (nm.isEmpty) { nm = '-'; }
           _facNameCache[facilityId] = nm; // save to cache
           return nm;
         } else {
@@ -342,7 +344,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
   }
 
-  // -------------- Accepted status (Upcoming/Ongoing/Ended) for accepted bookings --------------
+//---------------------------------------
+// check status
+//---------------------------------------
+
   String _acceptedStatusFor(DateTime day, int startMin, int endMin) {
     final DateTime now = DateTime.now();
     if (DateUtils.isSameDay(day, now)) {
@@ -357,7 +362,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         }
       }
     } else {
-      // future day → Upcoming; past day → Ended
+//---------------------------------------
+// if future or pass place ended
+//---------------------------------------
       final DateTime today = DateTime(now.year, now.month, now.day);
       if (day.isAfter(today)) {
         return 'Upcoming';
@@ -367,19 +374,20 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
   }
 
-  // -------------- Booking card (for a specific day) --------------
-  Widget _bookingCardForDay(Map<String, dynamic> m, DateTime day) {
-    // read fields
-    final String approval = _readApproval(m);
-    final String facilityId = _readFacilityId(m);
-    final int seatIndex = _readSeatIndex(m);
+//---------------------------------------
+// booking design for today
+//---------------------------------------
 
-    final String startStr = _readStartStr(m);
-    final String endStr   = _readEndStr(m);
+  Widget _bookingCardForDay(Map<String, dynamic> m, DateTime day) {
+    final String approval = m['approval'];
+    final String facilityId = m['facilityId'];
+    final int seatIndex = m['seatIndex'];
+
+    final String startStr = m['start'];
+    final String endStr   = m['end'];
     final int stMin = _parse24ToMinutes(startStr);
     final int enMin = _parse24ToMinutes(endStr);
 
-    // badge text and color
     String badge = '';
     Color badgeColor = Colors.grey;
 
@@ -387,6 +395,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       badge = 'Pending';
       badgeColor = Colors.amber;
     } else {
+      //---------------------------------------
+// if approval is accepted , get the status
+//---------------------------------------
       if (approval.toLowerCase() == 'accepted') {
         final String st = _acceptedStatusFor(day, stMin, enMin);
         badge = st;
@@ -400,7 +411,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
           }
         }
       } else {
-        // rejected or unknown → no badge text (we already filtered rejected above in lists)
+//---------------------------------------
+// no display for rejected
+//---------------------------------------
         badge = '';
       }
     }
@@ -425,9 +438,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // builds the visible booking card (moved out to keep builder short)
+//---------------------------------------
+// build each card for booking design
+//---------------------------------------
   Widget _buildBookingCardBody(String nm, int seatIndex, int stMin, int enMin, String badgeText, Color badgeColor) {
-    // slot label
     String slotText = 'Slot: -';
     if (seatIndex >= 0) {
       slotText = 'Slot: $seatIndex';
@@ -452,12 +466,13 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // left: name + slot + time
+//---------------------------------------
+// facility name
+//---------------------------------------
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // facility name (wrap/ellipsis to avoid overflow on web zoom)
                 Text(
                   nm,
                   style: TextStyle(
@@ -469,6 +484,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 SizedBox(height: 4.h),
+//---------------------------------------
+// slot number
+//---------------------------------------
                 Text(
                   slotText,
                   style: TextStyle(
@@ -477,6 +495,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
                   ),
                 ),
                 SizedBox(height: 2.h),
+//---------------------------------------
+// time
+//---------------------------------------
                 Text(
                   _formatHourLabel(stMin) + ' - ' + _formatHourLabel(enMin),
                   style: TextStyle(
@@ -488,7 +509,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
             ),
           ),
 
-          // right: badge
+//---------------------------------------
+// badge
+//---------------------------------------
           Container(
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
             decoration: BoxDecoration(
@@ -510,7 +533,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // -------------- DAILY: hour row + list --------------
+//---------------------------------------
+// show each row of hour
+//---------------------------------------
+
   Widget _hourRow(int hourMin, List<Map<String, dynamic>> bookingsInHour, DateTime day) {
     return Container(
       width: 1.0.sw,
@@ -518,7 +544,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // left time label
+//---------------------------------------
+// show hour
+//---------------------------------------
           SizedBox(
             width: 72.w,
             child: Text(
@@ -531,7 +559,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
             ),
           ),
           SizedBox(width: 8.w),
-          // right cards
+//---------------------------------------
+// booking card
+//---------------------------------------
           Expanded(
             child: Column(
               children: _buildBookingCardsForDay(bookingsInHour, day),
@@ -542,12 +572,18 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // builds all cards in this hour; if none, shows a thin divider
+  //---------------------------------------
+//list all the booking for today
+//---------------------------------------
   List<Widget> _buildBookingCardsForDay(List<Map<String, dynamic>> list, DateTime day) {
     final List<Widget> out = <Widget>[];
     for (int i = 0; i < list.length; i = i + 1) {
       out.add(_bookingCardForDay(list[i], day));
     }
+    //---------------------------------------
+// if empty show something like devider
+//---------------------------------------
+
     if (list.isEmpty) {
       out.add(Container(
         width: 1.0.sw,
@@ -559,7 +595,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     return out;
   }
 
-  // the whole Daily agenda body
+  //---------------------------------------
+// whole daily agenda body
+//---------------------------------------
   Widget _dailyAgendaBody(AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap) {
     if (_loadingWorkHours) {
       return Center(
@@ -571,7 +609,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       );
     }
 
-    // build hour marks from start to end by 60 minutes
+    //---------------------------------------
+// build hour from start to end
+//---------------------------------------
+
     final List<int> hourMarks = <int>[];
     int h = _workStartMin;
     while (h <= _workEndMin) {
@@ -579,29 +620,39 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       h = h + 60;
     }
 
-    // collect items (skip rejected)
+//---------------------------------------
+// add booking into the list
+//---------------------------------------
+
     final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
     if (snap.hasData) {
       final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snap.data!.docs;
       for (int i = 0; i < docs.length; i = i + 1) {
         final Map<String, dynamic> m = docs[i].data();
-        final String approval = _readApproval(m);
+        final String approval = m['approval'];
+//---------------------------------------
+// ingnore rejected booking
+//---------------------------------------
         if (approval.toLowerCase() == 'rejected') {
-          // skip
         } else {
           items.add(m);
         }
       }
     }
+//---------------------------------------
+// sort the time
+//---------------------------------------
 
-    // sort by start time ascending (earliest first)
     items.sort((a, b) {
-      final int sa = _parse24ToMinutes(_readStartStr(a));
-      final int sb = _parse24ToMinutes(_readStartStr(b));
+      final int sa = _parse24ToMinutes(a['start']);
+      final int sb = _parse24ToMinutes(b['start']);
       if (sa < sb) { return -1; } else { if (sa > sb) { return 1; } else { return 0; } }
     });
 
-    // make buckets: hour → list of bookings overlapping that hour
+//---------------------------------------
+// for overlapping hour
+//---------------------------------------
+
     final Map<int, List<Map<String, dynamic>>> buckets = <int, List<Map<String, dynamic>>>{};
     for (int i = 0; i < hourMarks.length; i = i + 1) {
       buckets[hourMarks[i]] = <Map<String, dynamic>>[];
@@ -609,19 +660,20 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
 
     for (int i = 0; i < items.length; i = i + 1) {
       final Map<String, dynamic> m = items[i];
-      final int st = _parse24ToMinutes(_readStartStr(m));
-      final int en = _parse24ToMinutes(_readEndStr(m));
+      final int st = _parse24ToMinutes(m['start']);
+      final int en = _parse24ToMinutes(m['end']);
       for (int j = 0; j < hourMarks.length; j = j + 1) {
         final int hm = hourMarks[j];
         final int hStart = hm;
         final int hEnd = hm + 60;
+//---------------------------------------
+// check if there is time overlap
+//---------------------------------------
         if (st < hEnd && en > hStart) {
-          // add to this bucket
           (buckets[hm] ??= <Map<String, dynamic>>[]).add(m);
         }
       }
     }
-
     // render by hour
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, _bottomSafePadding(context)),
@@ -634,25 +686,35 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // -------------- WEEKLY: build sections Sunday→Saturday --------------
+//---------------------------------------
+// weekly agenda design
+//---------------------------------------
+
   Widget _weeklyAgendaBody(AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap) {
     final List<DateTime> days = _weekDates(_selectedDate);
 
-    // Prepare day->list mapping
+    //---------------------------------------
+// get the 7 days
+//---------------------------------------
     final Map<String, List<Map<String, dynamic>>> byDay = <String, List<Map<String, dynamic>>>{};
     for (int i = 0; i < days.length; i = i + 1) {
       byDay[_dateKey(days[i])] = <Map<String, dynamic>>[];
     }
 
-    // fill lists (skip rejected)
+//---------------------------------------
+// get the booking and skip rejected data
+//---------------------------------------
     if (snap.hasData) {
       final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snap.data!.docs;
       for (int i = 0; i < docs.length; i = i + 1) {
         final Map<String, dynamic> m = docs[i].data();
-        final String approval = _readApproval(m);
+        final String approval = m['approval'];
         if (approval.toLowerCase() == 'rejected') {
           // skip
         } else {
+//---------------------------------------
+// add the booking within the day into the list
+//---------------------------------------
           final String k = m['bookingDate']?.toString() ?? '';
           if (byDay.containsKey(k)) {
             (byDay[k] ??= <Map<String, dynamic>>[]).add(m);
@@ -661,20 +723,24 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       }
     }
 
-    // sort each day's list by start time ascending
+//---------------------------------------
+// sort the start time booking day
+//---------------------------------------
     for (int i = 0; i < days.length; i = i + 1) {
       final String k = _dateKey(days[i]);
       final List<Map<String, dynamic>>? lst = byDay[k];
       if (lst != null) {
         lst.sort((a, b) {
-          final int sa = _parse24ToMinutes(_readStartStr(a));
-          final int sb = _parse24ToMinutes(_readStartStr(b));
+          final int sa = _parse24ToMinutes(a['start']);
+          final int sb = _parse24ToMinutes(b['start']);
           if (sa < sb) { return -1; } else { if (sa > sb) { return 1; } else { return 0; } }
         });
       }
     }
 
-    // render by day
+//---------------------------------------
+// list the day and booking
+//---------------------------------------
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, _bottomSafePadding(context)),
       itemCount: days.length,
@@ -691,7 +757,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // one weekly day section (Day name + date + cards)
+//---------------------------------------
+// 1 day for weekly design
+//---------------------------------------
+
   Widget _weeklyDaySection(DateTime day, List<Map<String, dynamic>> items) {
     final bool isSelectedDay = DateUtils.isSameDay(day, _selectedDate);
 
@@ -708,7 +777,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // Day name (maybe purple)
+//---------------------------------------
+// display day name
+//---------------------------------------
           Text(
             _dayName(day),
             style: TextStyle(
@@ -718,7 +789,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
             ),
           ),
           SizedBox(height: 2.h),
-          // Date like "23 May"
+//---------------------------------------
+// date below
+//---------------------------------------
           Text(
             _formatShortDate(day),
             style: TextStyle(
@@ -729,10 +802,15 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
           ),
           SizedBox(height: 8.h),
 
-          // divider
+//---------------------------------------
+// a devider
+//---------------------------------------
           Container(width: 1.0.sw, height: 1.h, color: const Color(0xFFEFEFEF)),
 
-          // bookings for this day
+//---------------------------------------
+// list booking on that day
+//---------------------------------------
+
           Column(
             children: _buildBookingCardsForDay(items, day),
           ),
@@ -741,9 +819,14 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // -------------- UI: top date row with calendar picker --------------
+//---------------------------------------
+// design for date header
+//---------------------------------------
+
   Widget _dateHeader() {
-    // show "Wednesday · 23 May 2025", with "Wednesday" purple
+//---------------------------------------
+// show day date
+//---------------------------------------
     final String dayWord = _dayName(_selectedDate);
     return Padding(
       padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 8.h),
@@ -754,6 +837,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 6.w,
               children: <Widget>[
+ //---------------------------------------
+// show today
+//---------------------------------------
+
                 Text(
                   dayWord,
                   style: TextStyle(
@@ -766,8 +853,11 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
                   '·',
                   style: TextStyle(fontSize: 18.sp, color: Colors.black),
                 ),
+//---------------------------------------
+// show selected date
+//---------------------------------------
                 Text(
-                  _formatDateNoDay(_selectedDate),
+                  _formatDate(_selectedDate),
                   style: TextStyle(
                     fontSize: 18.sp,
                     fontWeight: FontWeight.w700,
@@ -777,6 +867,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
               ],
             ),
           ),
+ //---------------------------------------
+// calander that allows to pick a date
+//---------------------------------------
           InkWell(
             onTap: _pickDate, // open date picker
             child: Container(
@@ -795,35 +888,63 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // -------------- UI: daily / weekly toggle row --------------
+//---------------------------------------
+// weekly and daily toggle button
+//---------------------------------------
+
   Widget _modeToggle() {
     final bool isDaily = _viewMode == 'daily';
     final bool isWeekly = _viewMode == 'weekly';
 
     Color dailyBg = Colors.white;
-    if (isDaily == true) { dailyBg = const Color(0xFFEEE5FF); } else { dailyBg = Colors.white; }
+    if (isDaily == true) { dailyBg = const Color(0xFFEEE5FF); }
+    else { dailyBg = Colors.white; }
+
     Color weeklyBg = Colors.white;
-    if (isWeekly == true) { weeklyBg = const Color(0xFFEEE5FF); } else { weeklyBg = Colors.white; }
+    if (isWeekly == true) { weeklyBg = const Color(0xFFEEE5FF); }
+    else { weeklyBg = Colors.white; }
+
+    //---------------------------------------
+// border colour
+//---------------------------------------
 
     Color dailyBorder = const Color(0xFFE5E5E5);
-    if (isDaily == true) { dailyBorder = const Color(0xFF7B61FF); } else { dailyBorder = const Color(0xFFE5E5E5); }
+    if (isDaily == true) { dailyBorder = const Color(0xFF7B61FF); }
+    else { dailyBorder = const Color(0xFFE5E5E5); }
     Color weeklyBorder = const Color(0xFFE5E5E5);
-    if (isWeekly == true) { weeklyBorder = const Color(0xFF7B61FF); } else { weeklyBorder = const Color(0xFFE5E5E5); }
+    if (isWeekly == true) { weeklyBorder = const Color(0xFF7B61FF); }
+    else { weeklyBorder = const Color(0xFFE5E5E5); }
+
+    //---------------------------------------
+// text colour
+//---------------------------------------
 
     Color dailyText = const Color(0xFF444444);
-    if (isDaily == true) { dailyText = const Color(0xFF7B61FF); } else { dailyText = const Color(0xFF444444); }
+    if (isDaily == true) { dailyText = const Color(0xFF7B61FF); }
+    else { dailyText = const Color(0xFF444444); }
     Color weeklyText = const Color(0xFF444444);
-    if (isWeekly == true) { weeklyText = const Color(0xFF7B61FF); } else { weeklyText = const Color(0xFF444444); }
+    if (isWeekly == true) { weeklyText = const Color(0xFF7B61FF); }
+    else { weeklyText = const Color(0xFF444444); }
+
+    //---------------------------------------
+// icon colour
+//---------------------------------------
 
     Color dailyIcon = const Color(0xFF666666);
-    if (isDaily == true) { dailyIcon = const Color(0xFF7B61FF); } else { dailyIcon = const Color(0xFF666666); }
+    if (isDaily == true) { dailyIcon = const Color(0xFF7B61FF); }
+    else { dailyIcon = const Color(0xFF666666); }
     Color weeklyIcon = const Color(0xFF666666);
-    if (isWeekly == true) { weeklyIcon = const Color(0xFF7B61FF); } else { weeklyIcon = const Color(0xFF666666); }
+    if (isWeekly == true) { weeklyIcon = const Color(0xFF7B61FF); }
+    else { weeklyIcon = const Color(0xFF666666); }
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 4.h),
       child: Row(
-        children: <Widget>[
+//---------------------------------------
+// daily button
+//---------------------------------------
+
+      children: <Widget>[
           Expanded(
             child: InkWell(
               onTap: () { setState(() { _viewMode = 'daily'; }); },
@@ -847,7 +968,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
             ),
           ),
           SizedBox(width: 10.w),
-          Expanded(
+//---------------------------------------
+// weekly button
+//---------------------------------------
+        Expanded(
             child: InkWell(
               onTap: () { setState(() { _viewMode = 'weekly'; }); },
               child: Container(
@@ -874,14 +998,18 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     );
   }
 
-  // -------------- build --------------
+//---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    // height for AppBar & bottom bar (scaled)
     final double barHeight = 56.h;
-
-    // choose content by mode
+    //---------------------------------------
+// view mode content
+//---------------------------------------
     Widget content;
+
     if (_viewMode == 'daily') {
       content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _bookingsStreamDaily(),
@@ -898,6 +1026,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         },
       );
     } else {
+//---------------------------------------
+// weekly content
+//---------------------------------------
+
       content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _bookingsStreamWeekly(),
         builder: (context, snap) {
@@ -914,7 +1046,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       );
     }
 
-    // scaffold with curved AppBar and bottom bar
+//---------------------------------------
+// return the design
+//---------------------------------------
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: PreferredSize(
@@ -942,7 +1077,8 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
           children: <Widget>[
             _dateHeader(),   // "Wednesday · 23 May 2025" (Wednesday in purple)
             _modeToggle(),   // Daily / Weekly
-            Expanded(child: content),
+            Expanded(
+                child: content),
           ],
         ),
       ),

@@ -1,17 +1,3 @@
-// lib/web/web_lecturer_list.dart
-// -----------------------------------------------------------------------------
-// WEB LECTURER LIST (no suggestions dropdown)
-// - Top bar + single centered card layout.
-// - Search by username OR email (filters the list below).
-// - Lists lecturers from UserInformation where role=Lecturer AND deleted=false,
-//   newest first (client-side sort by createdAt desc).
-// - Row: Email (top), Username (below), View button (+ red dot if approval=false).
-// - View dialog shows: Email, Username, Contact, Role, User ID (doc id), Proof.
-//   * Proof image clickable → fullscreen viewer.
-//   * approval=false → Approve (active=true, approval=true) / Reject (approval=true)
-//   * approval=true  → Delete (deleted=true)
-// -----------------------------------------------------------------------------
-
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -34,10 +20,16 @@ class _LecturerListState extends State<LecturerList> {
 
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchKeyword = '';
+//---------------------------------------
+// get the user information in database
+//---------------------------------------
 
   CollectionReference<Map<String, dynamic>> _usersCol() =>
       _firestore.collection('UserInformation');
 
+//---------------------------------------
+// show still pending
+//---------------------------------------
   Widget _pendingDot() {
     return Container(
       width: 10.w,
@@ -54,6 +46,10 @@ class _LecturerListState extends State<LecturerList> {
     _searchCtrl.dispose();
     super.dispose();
   }
+
+//---------------------------------------
+// main build
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +75,10 @@ class _LecturerListState extends State<LecturerList> {
     );
   }
 
+//---------------------------------------
+// build the main outer box
+//---------------------------------------
+
   Widget _buildMainCard() {
     return Card(
       color: const Color(0xFFEDDFFF),
@@ -89,7 +89,9 @@ class _LecturerListState extends State<LecturerList> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header row: search field + search button
+//---------------------------------------
+// show searchbar
+//---------------------------------------
             Row(
               children: [
                 Expanded(child: _buildSearchField()),
@@ -110,13 +112,14 @@ class _LecturerListState extends State<LecturerList> {
             ),
             SizedBox(height: 12.h),
 
-            // List area
+//---------------------------------------
+// part where display each lecturer
+//---------------------------------------
+
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _usersCol()
                   .where('role', isEqualTo: 'Lecturer')
                   .where('deleted', isEqualTo: false)
-              // no orderBy here to avoid composite index requirements;
-              // we'll sort on the client below.
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -144,7 +147,10 @@ class _LecturerListState extends State<LecturerList> {
 
                 final docs = snapshot.data?.docs ?? [];
 
-                // Normalize fields
+//---------------------------------------
+// prepare all the lecturer data first
+//---------------------------------------
+
                 final items = <Map<String, dynamic>>[];
                 for (final d in docs) {
                   final raw = d.data();
@@ -212,11 +218,16 @@ class _LecturerListState extends State<LecturerList> {
                   items.add(m);
                 }
 
-                // Sort newest first (client-side)
+//---------------------------------------
+// sort by created date
+//---------------------------------------
+
                 items.sort((a, b) =>
                     (b['createdAtMs'] as int).compareTo(a['createdAtMs'] as int));
+//---------------------------------------
+// filter the name by keyword
+//---------------------------------------
 
-                // Filter by username OR email keyword (client-side)
                 final k = _searchKeyword;
                 final filtered = k.isEmpty
                     ? items
@@ -241,7 +252,7 @@ class _LecturerListState extends State<LecturerList> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) => SizedBox(height: 8.h),
+                      separatorBuilder: (context, index) => SizedBox(height: 8.h),
                       itemBuilder: (context, index) {
                         final it = filtered[index];
                         final email = (it['email'] ?? '') as String;
@@ -259,7 +270,10 @@ class _LecturerListState extends State<LecturerList> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              // Left: email + username
+//---------------------------------------
+// display email and username
+//---------------------------------------
+
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,7 +302,10 @@ class _LecturerListState extends State<LecturerList> {
                               ),
                               SizedBox(width: 12.w),
 
-                              // Right: View (with red dot if approval=false)
+//---------------------------------------
+// view pop up for lecturer information
+//---------------------------------------
+
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
@@ -301,6 +318,10 @@ class _LecturerListState extends State<LecturerList> {
                                           style: TextStyle(fontSize: 13.sp)),
                                     ),
                                   ),
+
+//---------------------------------------
+// if not yet approve
+//---------------------------------------
                                   if (!approval)
                                     Positioned(
                                       right: -3.w,
@@ -345,7 +366,10 @@ class _LecturerListState extends State<LecturerList> {
     );
   }
 
-  // ------------------------------ VIEW DIALOG -------------------------------
+//---------------------------------------
+// pop up design
+//---------------------------------------
+
   Future<void> _openViewDialog(Map<String, dynamic> it) async {
     final String docId = it['id'] ?? '';
 
@@ -356,6 +380,10 @@ class _LecturerListState extends State<LecturerList> {
     final String proofB64 = it['proofImageBase64'] ?? '';
     final bool approval = it['approval'] == true;
     final bool active = it['active'] == true;
+
+ //---------------------------------------
+// decode the image first
+//---------------------------------------
 
     Uint8List? proofImage;
     if (proofB64.isNotEmpty) {
@@ -392,14 +420,16 @@ class _LecturerListState extends State<LecturerList> {
                   _kv('User ID', docId), // document id
                   SizedBox(height: 12.h),
 
-                // --- Proof (fixed-size preview with BoxFit) ---
-                Text('Proof', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
+//---------------------------------------
+// show proof image
+//---------------------------------------
+
+                  Text('Proof', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600)),
                 SizedBox(height: 6.h),
 
-// Fixed preview size — adjust once here and it won’t jump around.
                 SizedBox(
-                  width: 360.w,      // <- set your fixed width
-                  height: 310.h,     // <- set your fixed height
+                  width: 360.w,
+                  height: 310.h,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(6.r),
                     child: ColoredBox(
@@ -411,7 +441,7 @@ class _LecturerListState extends State<LecturerList> {
                           proofImage!,
                           width: double.infinity,
                           height: double.infinity,
-                          fit: BoxFit.contain, // <- change to BoxFit.cover if you prefer fill/crop
+                          fit: BoxFit.contain,
                           alignment: Alignment.center,
                         ),
                       )
@@ -429,6 +459,10 @@ class _LecturerListState extends State<LecturerList> {
               ),
             ),
           ),
+//---------------------------------------
+// if not approve show button approval
+//---------------------------------------
+
           actions: _buildDialogActions(
             approval: approval,
             active: active,
@@ -438,7 +472,9 @@ class _LecturerListState extends State<LecturerList> {
       },
     );
   }
-
+//---------------------------------------
+// seperate them in the view pop up like name:   lecturer name, use width to seperate them
+//---------------------------------------
   Widget _kv(String key, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -456,6 +492,11 @@ class _LecturerListState extends State<LecturerList> {
     );
   }
 
+  //---------------------------------------
+// the button design and action
+//---------------------------------------
+
+
   List<Widget> _buildDialogActions({
     required bool approval,
     required bool active,
@@ -470,6 +511,10 @@ class _LecturerListState extends State<LecturerList> {
 
     final right = <Widget>[];
 
+//---------------------------------------
+// when still not approve will show reject and approve
+//---------------------------------------
+
     if (!approval) {
       right.add(
         TextButton(
@@ -480,6 +525,9 @@ class _LecturerListState extends State<LecturerList> {
           child: Text('Reject', style: TextStyle(fontSize: 14.sp)),
         ),
       );
+//---------------------------------------
+// when approve is press
+//---------------------------------------
       right.add(
         ElevatedButton(
           onPressed: () async {
@@ -489,6 +537,9 @@ class _LecturerListState extends State<LecturerList> {
           child: Text('Approve', style: TextStyle(fontSize: 14.sp)),
         ),
       );
+//---------------------------------------
+// when approve or reject can choose delete
+//---------------------------------------
     } else {
       right.add(
         ElevatedButton(
@@ -506,7 +557,9 @@ class _LecturerListState extends State<LecturerList> {
         ),
       );
     }
-
+//---------------------------------------
+// return the design
+//---------------------------------------
     return [
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -517,6 +570,9 @@ class _LecturerListState extends State<LecturerList> {
       ),
     ];
   }
+//---------------------------------------
+// show the big image when tap
+//---------------------------------------
 
   Future<void> _openImageViewer(Uint8List bytes) async {
     await showDialog(
@@ -538,7 +594,9 @@ class _LecturerListState extends State<LecturerList> {
       },
     );
   }
-
+//---------------------------------------
+// approve proccess
+//---------------------------------------
   Future<void> _approveLecturer(String docId) async {
     try {
       await _usersCol().doc(docId).update(<String, dynamic>{
@@ -558,11 +616,13 @@ class _LecturerListState extends State<LecturerList> {
       );
     }
   }
-
+//---------------------------------------
+// reject proccess
+//---------------------------------------
   Future<void> _rejectLecturer(String docId) async {
     try {
       await _usersCol().doc(docId).update(<String, dynamic>{
-        'approval': true, // mark reviewed; active remains as-is
+        'approval': true,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -577,7 +637,9 @@ class _LecturerListState extends State<LecturerList> {
       );
     }
   }
-
+//---------------------------------------
+// soft delete proccess
+//---------------------------------------
   Future<void> _softDeleteLecturer(String docId) async {
     try {
       await _usersCol().doc(docId).update(<String, dynamic>{
@@ -596,7 +658,9 @@ class _LecturerListState extends State<LecturerList> {
       );
     }
   }
-
+//---------------------------------------
+// delete pop up confirmation
+//---------------------------------------
   Future<bool?> _confirmDelete() async {
     return showDialog<bool>(
       context: context,

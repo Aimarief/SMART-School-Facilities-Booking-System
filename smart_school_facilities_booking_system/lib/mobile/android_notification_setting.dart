@@ -3,7 +3,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart'; // for scaling size
 import 'package:cloud_firestore/cloud_firestore.dart';       // for Firestore
 import 'package:firebase_auth/firebase_auth.dart';           // for current user
 
-
 import 'android_bottom_menu.dart';
 import 'android_agenda.dart';
 import 'android_list_of_facilities.dart';
@@ -19,6 +18,9 @@ class NotificationSetting extends StatefulWidget {
 }
 
 class _NotificationSettingState extends State<NotificationSetting> {
+//---------------------------------------
+// current page
+//---------------------------------------
 
   int _currentIndex = 3;
 
@@ -36,8 +38,6 @@ class _NotificationSettingState extends State<NotificationSetting> {
     }
   }
 
-
-  // ------------------ States for switches ------------------
   bool _notifAll = true;             // control all
   bool _notifApprovalBook = true;    // approval notification
   bool _notifNewBook = true;         // new booking notification
@@ -46,7 +46,9 @@ class _NotificationSettingState extends State<NotificationSetting> {
 
   bool _loading = true; // show while fetching Firestore
 
-  // ------------------ Read from Firestore ------------------
+//---------------------------------------
+// read user information collection
+//---------------------------------------
   Future<void> _loadSettings() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -59,7 +61,9 @@ class _NotificationSettingState extends State<NotificationSetting> {
     if (doc.exists) {
       final data = doc.data()!;
       setState(() {
-        // read values, default true if missing
+//---------------------------------------
+// read all the value and set states
+//---------------------------------------
         _notifAll = data['notifAll'] ?? true;
         _notifApprovalBook = data['notifApprovalBook'] ?? true;
         _notifNewBook = data['notifNewBook'] ?? true;
@@ -67,20 +71,13 @@ class _NotificationSettingState extends State<NotificationSetting> {
         _notifUpdatedBook = data['notifUpdatedBook'] ?? true;
         _loading = false;
       });
-    } else {
-      // if doc not exist yet, set default values
-      setState(() {
-        _notifAll = true;
-        _notifApprovalBook = true;
-        _notifNewBook = true;
-        _notifReminder = true;
-        _notifUpdatedBook = true;
-        _loading = false;
-      });
     }
   }
 
-  // ------------------ Save to Firestore ------------------
+//---------------------------------------
+// save setting to fire store
+//---------------------------------------
+
   Future<void> _saveSettings() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -97,14 +94,18 @@ class _NotificationSettingState extends State<NotificationSetting> {
     }, SetOptions(merge: true)); // merge so other fields not deleted
   }
 
-  // ------------------ Lifecycle ------------------
+//---------------------------------------
+// do initsate first everytime enter
+//---------------------------------------
   @override
   void initState() {
     super.initState();
-    _loadSettings(); // load settings when page opens
+    _loadSettings(); // load settings
   }
 
-  // ------------------ Build UI ------------------
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double barHeight = 0.07.sh;
@@ -138,12 +139,14 @@ class _NotificationSettingState extends State<NotificationSetting> {
         ),
       ),
       body: Padding(
-        padding: EdgeInsets.all(16.w), // responsive padding
+        padding: EdgeInsets.all(16.w),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // -------- All Notifications --------
+//---------------------------------------
+// show all notificaition design
+//---------------------------------------
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -153,7 +156,6 @@ class _NotificationSettingState extends State<NotificationSetting> {
                   onChanged: (val) {
                     setState(() {
                       _notifAll = val;
-
                       // if master switch is off, turn all off
                       if (val == false) {
                         _notifApprovalBook = false;
@@ -169,7 +171,9 @@ class _NotificationSettingState extends State<NotificationSetting> {
             ),
             SizedBox(height: 10.h),
 
-            // -------- New Booking --------
+//---------------------------------------
+// new booking notification
+//---------------------------------------
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -190,7 +194,9 @@ class _NotificationSettingState extends State<NotificationSetting> {
             ),
             SizedBox(height: 10.h),
 
-            // -------- Update --------
+//---------------------------------------
+// update booking notification
+//---------------------------------------
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -199,7 +205,7 @@ class _NotificationSettingState extends State<NotificationSetting> {
                 Switch(
                   value: _notifUpdatedBook,
                   onChanged: _notifAll == false
-                      ? null
+                      ? null // disable if all is off
                       : (val) {
                     setState(() {
                       _notifUpdatedBook = val;
@@ -211,7 +217,10 @@ class _NotificationSettingState extends State<NotificationSetting> {
             ),
             SizedBox(height: 10.h),
 
-            // -------- Approval --------
+//---------------------------------------
+// approval notification
+//---------------------------------------
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -220,7 +229,7 @@ class _NotificationSettingState extends State<NotificationSetting> {
                 Switch(
                   value: _notifApprovalBook,
                   onChanged: _notifAll == false
-                      ? null
+                      ? null // disable if all is off
                       : (val) {
                     setState(() {
                       _notifApprovalBook = val;
@@ -232,7 +241,9 @@ class _NotificationSettingState extends State<NotificationSetting> {
             ),
             SizedBox(height: 10.h),
 
-            // -------- Reminder --------
+//---------------------------------------
+// reminder notification
+//---------------------------------------
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -240,7 +251,7 @@ class _NotificationSettingState extends State<NotificationSetting> {
                 Switch(
                   value: _notifReminder,
                   onChanged: _notifAll == false
-                      ? null
+                      ? null // disable if all is off
                       : (val) {
                     setState(() {
                       _notifReminder = val;
@@ -253,7 +264,10 @@ class _NotificationSettingState extends State<NotificationSetting> {
           ],
         ),
       ),
-      // Bottom bar
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
+
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,

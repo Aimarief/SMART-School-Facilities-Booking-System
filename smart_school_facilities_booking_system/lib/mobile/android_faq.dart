@@ -1,19 +1,7 @@
-// lib/mobile/android_faq.dart
-// -----------------------------------------------------------------------------
-// ANDROID FAQ PAGE (Student/Manager/Admin view)
-// - AppBar and BottomMenuBar look the SAME as other Android pages (purple top bar,
-//   rounded bottom corners). Title shows "FAQ".
-// - Body: search field to filter FAQ titles, then a list of titles.
-// - Tapping a title opens a dialog with Title + Description and a Close button.
-// - Very simple code style (no complex patterns), comments on functions and actions.
-// - ScreenUtil for all sizes (.w .h .sp .sw .sh) so it scales well (Samsung A32).
-// -----------------------------------------------------------------------------
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// bottom bar + pages (same as other Android pages)
 import 'android_bottom_menu.dart';
 import 'android_agenda.dart';
 import 'android_view_booking.dart';
@@ -28,19 +16,19 @@ class AndroidFAQ extends StatefulWidget {
 }
 
 class _AndroidFAQState extends State<AndroidFAQ> {
-  // ---------------- simple page state ----------------
-  int _currentIndex = 4; // keep Account tab highlighted since FAQ is opened from Account
 
-  // ---------------- search controller + keyword ----------------
+  int _currentIndex = 4;
+
   final TextEditingController _searchCtrl = TextEditingController();
   String _keyword = '';
 
-  // ---------------- bottom nav routing (same pattern) ---------------
+//---------------------------------------
+// bottom navigation
+//---------------------------------------
+
   void _onTabSelected(int i) {
     if (i == 4) {
-      // stay here or back to account? We'll route according to your main app behavior.
-      // For consistency we keep the same destinations as Account page.
-      // Here, we simply do nothing when Account is tapped, so the user can back using system back.
+
       setState(() { _currentIndex = 4; });
     } else if (i == 0) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
@@ -53,18 +41,23 @@ class _AndroidFAQState extends State<AndroidFAQ> {
     }
   }
 
-  // ---------------- Firestore helper (FAQ collection) ----------------
+//---------------------------------------
+// get FAQ in database
+//---------------------------------------
+
   CollectionReference<Map<String, dynamic>> _faqCol() {
     return FirebaseFirestore.instance.collection('FAQ');
   }
 
-  // ---------------- build ----------------
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
-    final double barHeight = 60.h; // bottom bar height
+    final double barHeight = 60.h;
 
     return Scaffold(
-      // -------- AppBar same look as your Account page --------
+
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -85,13 +78,16 @@ class _AndroidFAQState extends State<AndroidFAQ> {
         ),
       ),
 
-      // -------- Body: search + list --------
+
       body: SingleChildScrollView(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // search box
+//---------------------------------------
+// search box
+//---------------------------------------
+
             TextField(
               controller: _searchCtrl,
               onChanged: (t) {
@@ -111,7 +107,9 @@ class _AndroidFAQState extends State<AndroidFAQ> {
 
             SizedBox(height: 12.h),
 
-            // list of titles (stream + in-memory filter)
+//---------------------------------------
+// sort by updated date  for every faq
+//---------------------------------------
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _faqCol().orderBy('updatedAt', descending: true).snapshots(),
               builder: (context, snapshot) {
@@ -127,8 +125,8 @@ class _AndroidFAQState extends State<AndroidFAQ> {
                 }
 
                 final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
                 final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
                 int i = 0;
                 while (i < docs.length) {
                   final d = docs[i];
@@ -140,6 +138,9 @@ class _AndroidFAQState extends State<AndroidFAQ> {
                   } else {
                     title = '';
                   }
+//---------------------------------------
+// filter if search is empty all or it contain key word then add to filtered list
+//---------------------------------------
 
                   bool matches;
                   if (_keyword.isEmpty) {
@@ -160,6 +161,10 @@ class _AndroidFAQState extends State<AndroidFAQ> {
                   i = i + 1;
                 }
 
+//---------------------------------------
+// if no FAQ
+//---------------------------------------
+
                 if (filtered.isEmpty) {
                   return Padding(
                     padding: EdgeInsets.only(top: 12.h),
@@ -173,7 +178,7 @@ class _AndroidFAQState extends State<AndroidFAQ> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 8.h),
+                  separatorBuilder: (context, index) => SizedBox(height: 8.h),
                   itemBuilder: (context, idx) {
                     final d = filtered[idx];
                     final Map<String, dynamic> m = d.data();
@@ -193,6 +198,9 @@ class _AndroidFAQState extends State<AndroidFAQ> {
                       borderRadius: BorderRadius.circular(8.r),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(8.r),
+//---------------------------------------
+// when press will pop up show details
+//---------------------------------------
                         onTap: () {
                           _openViewDialog(title: title, description: description); // open popup
                         },
@@ -222,7 +230,10 @@ class _AndroidFAQState extends State<AndroidFAQ> {
         ),
       ),
 
-      // -------- Bottom bar (same as other pages) --------
+//---------------------------------------
+// bottom bar
+//---------------------------------------
+
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -231,7 +242,10 @@ class _AndroidFAQState extends State<AndroidFAQ> {
     );
   }
 
-  // ---------------- dialog to show title + description ----------------
+//---------------------------------------
+// show pop up
+//---------------------------------------
+
   Future<void> _openViewDialog({required String title, required String description}) async {
     await showDialog<void>(
       context: context,
@@ -248,6 +262,9 @@ class _AndroidFAQState extends State<AndroidFAQ> {
               ),
             ),
           ),
+//---------------------------------------
+// close button
+//---------------------------------------
           actions: [
             Row(
               children: [
@@ -265,7 +282,6 @@ class _AndroidFAQState extends State<AndroidFAQ> {
     );
   }
 
-  // ---------------- dispose controller ----------------
   @override
   void dispose() {
     _searchCtrl.dispose();

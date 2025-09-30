@@ -1,28 +1,26 @@
-import 'dart:io';                       // read file on Android/iOS if needed
-import 'dart:math' as math;             // for max/min
-import 'dart:convert';                  // for base64Encode/base64Decode
-import 'dart:typed_data';               // for Uint8List (raw bytes)
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // for FilteringTextInputFormatter
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';        // to pick image file
-import 'package:image/image.dart' as img;             // to resize/compress
+import 'package:file_picker/file_picker.dart';
+import 'package:image/image.dart' as img;
 import 'android_notification_setting.dart';
-// bottom bar
+
 import 'android_bottom_menu.dart';
 import 'android_faq.dart';
 
-// pages for bottom bar navigation
 import 'android_agenda.dart';
 import 'android_view_booking.dart';
 import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
 import 'android_report_issue.dart';
 
-// login page for logout navigation
 import 'android_login.dart';
 
 class AndroidAccount extends StatefulWidget {
@@ -33,38 +31,36 @@ class AndroidAccount extends StatefulWidget {
 }
 
 class _AndroidAccountState extends State<AndroidAccount> {
-  // ---- simple page state ----
-  int _currentIndex = 4;              // bottom icon (4 = Account)
-  bool _isEditing = false;            // are we editing?
+//---------------------------------------
+// current index
+//---------------------------------------
+  int _currentIndex = 4;
+  bool _isEditing = false;
 
-  // ---- text controllers ----
+
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _contactCtrl  = TextEditingController();
 
-  // ---- field errors ----
   String? _usernameError;
   String? _contactError;
 
-  // ---- profile display values (when not editing) ----
   String _username = "";
   String _email    = "";
   String _contact  = "";
   String _role     = "";
 
-  // ---- Base64 image flow ----
   Uint8List? _savedImageBytes;   // image already saved in Firestore
   Uint8List? _pendingImageBytes; // image picked this session (preview only)
   String? _pendingBase64;        // base64 for saving on Confirm
 
-  // set-once guard
   bool _loadedOnce = false;
 
-  // ---- limits + resize target ----
   static const int _maxBase64Len = 900000; // keep < ~0.86MB text (Firestore doc limit 1MB)
   static const int _targetMaxWidth = 400;  // resize target width (keep aspect ratio)
 
-
-  /// Bottom bar navigation: simple if/else routing.
+//---------------------------------------
+// bottom bar navigation
+//---------------------------------------
   void _onTabSelected(int i) {
     if (i == 4) {
       setState(() { _currentIndex = 4; });
@@ -79,27 +75,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     }
   }
 
-  /// Send Firebase Auth password reset email to the current user's email.
-  Future<void> _sendResetEmail(String email) async {
-    try {
-      if (email.isNotEmpty) {
-        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Password reset email sent to $email", style: TextStyle(fontSize: 12.sp))),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("No email found for this user", style: TextStyle(fontSize: 12.sp))),
-        );
-      }
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to send reset email", style: TextStyle(fontSize: 12.sp))),
-      );
-    }
-  }
-
-  /// Small helper: show a label and a value (non-edit mode).
+//---------------------------------------
+// view mode
+//---------------------------------------
   Widget _labelAndValue(String label, String value) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 6.h),
@@ -114,7 +92,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     );
   }
 
-  /// Reusable editable text field with optional error and input formatters.
+//---------------------------------------
+// while in ediing mode, text field
+//---------------------------------------
   Widget _editableField({
     required String label,
     required TextEditingController controller,
@@ -142,7 +122,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     );
   }
 
-  /// Big rectangle action box button (used for actions below).
+//---------------------------------------
+// navigate button
+//---------------------------------------
   Widget _actionBox({
     required String title,
     required VoidCallback onTap,
@@ -168,9 +150,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
       ),
     );
   }
-// ----------------------------------------------------
-// Simple password rule: min 8 + 1 uppercase + 1 symbol
-// ----------------------------------------------------
+//---------------------------------------
+// strong password
+//---------------------------------------
   bool _isPasswordStrong(String password) {
     // RegExp = pattern checker for strength
     final RegExp regex = RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
@@ -180,63 +162,57 @@ class _AndroidAccountState extends State<AndroidAccount> {
       return false;
     }
   }
-// ------------------------------------------------------------------
-// Open a dialog (popup) that asks for old password and new password.
-// It will:
-// 1) validate inputs (not empty, strong, match)
-// 2) reauthenticate with old password
-// 3) call updatePassword(newPassword)
-// ------------------------------------------------------------------
+//---------------------------------------
+// open change password pop up
+//---------------------------------------
   Future<void> _openChangePasswordDialog() async {
-    // --- controllers for the three fields ---
+
     final TextEditingController _oldCtrl = TextEditingController();      // old password input
     final TextEditingController _newCtrl = TextEditingController();      // new password input
     final TextEditingController _confirmCtrl = TextEditingController();  // confirm new password
 
-    // --- local UI states for the dialog (show/hide) ---
     bool _hideOld = true;       // obscure old password
     bool _hideNew = true;       // obscure new password
     bool _hideConfirm = true;   // obscure confirm password
 
-    // --- local error messages for each field ---
     String? _oldErr;
     String? _newErr;
     String? _confirmErr;
 
-    // showDialog = display the popup
+//---------------------------------------
+// show  pop up function
+//---------------------------------------
     await showDialog<void>(
       context: context,
-      barrierDismissible: false, // do not close by tapping outside
+      barrierDismissible: false,
       builder: (ctx) {
-        // StatefulBuilder = allow setState inside this dialog only
         return StatefulBuilder(
           builder: (ctx, setStateDialog) {
-            // --- helper: validate and attempt change ---
+//---------------------------------------
+// when change button press
+//---------------------------------------
             Future<void> _attemptChange() async {
-              // clear old errors first
               setStateDialog(() {
                 _oldErr = null;
                 _newErr = null;
                 _confirmErr = null;
               });
-
               // assume ok first
               bool ok = true;
 
-              // check old password not empty
+//---------------------------------------
+// check passowrd make sure cannot empty
+//---------------------------------------
               if (_oldCtrl.text.isEmpty) {
                 setStateDialog(() { _oldErr = "Old password cannot be empty"; });
                 ok = false;
               }
-
               // check new strong
               if (_isPasswordStrong(_newCtrl.text)) {
-                // ok
               } else {
                 setStateDialog(() { _newErr = "Min 8 chars, 1 uppercase, 1 special"; });
                 ok = false;
               }
-
               // check confirm
               if (_confirmCtrl.text.isEmpty) {
                 setStateDialog(() { _confirmErr = "Confirm password cannot be empty"; });
@@ -249,24 +225,23 @@ class _AndroidAccountState extends State<AndroidAccount> {
                   ok = false;
                 }
               }
-
               // stop if invalid
               if (ok == false) {
                 return;
               }
 
-              // get current user
+//---------------------------------------
+// if evrything check pass, then check old password is right or wrong
+//---------------------------------------
               final User? user = FirebaseAuth.instance.currentUser;
 
               if (user == null) {
-                // no user => show message
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text("No user logged in", style: TextStyle(fontSize: 12.sp))),
                 );
                 return;
               }
 
-              // ensure we have an email sign-in user
               if (user.email == null) {
                 // without email (e.g., Google sign-in), this flow is not applicable
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -276,7 +251,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
               }
 
               try {
-                // 1) reauthenticate using old password
+//---------------------------------------
+// get the old password form fireauth
+//---------------------------------------
                 final AuthCredential cred = EmailAuthProvider.credential(
                   email: user.email!,
                   password: _oldCtrl.text,
@@ -284,16 +261,21 @@ class _AndroidAccountState extends State<AndroidAccount> {
 
                 await user.reauthenticateWithCredential(cred); // important security step
 
-                // 2) update to the new password
                 await user.updatePassword(_newCtrl.text);
-
-                // close dialog
+//---------------------------------------
+// when success close pop up
+//---------------------------------------
                 Navigator.pop(context);
 
-                // success message
+//---------------------------------------
+// when success
+//---------------------------------------
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text("Password updated successfully", style: TextStyle(fontSize: 12.sp))),
                 );
+//---------------------------------------
+// when have error
+//---------------------------------------
               } on FirebaseAuthException catch (e) {
                 // map common errors to friendly messages
                 if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
@@ -321,7 +303,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
               }
             }
 
-            // The actual dialog UI
+//---------------------------------------
+// desgin of the pop up
+//---------------------------------------
             return AlertDialog(
               title: Text("Change Password", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
               content: SizedBox(
@@ -330,7 +314,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Old password
+//---------------------------------------
+// old password field
+//---------------------------------------
                       Text("Old Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _oldCtrl,
@@ -353,8 +339,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                         ),
                       ),
                       SizedBox(height: 12.h),
-
-                      // New password
+//---------------------------------------
+// new password field
+//---------------------------------------
                       Text("New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _newCtrl,
@@ -376,8 +363,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                         ),
                       ),
                       SizedBox(height: 12.h),
-
-                      // Confirm password
+//---------------------------------------
+// confirm password field
+//---------------------------------------
                       Text("Confirm New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _confirmCtrl,
@@ -403,12 +391,18 @@ class _AndroidAccountState extends State<AndroidAccount> {
                 ),
               ),
               actions: [
+//---------------------------------------
+// cancel button
+//---------------------------------------
                 TextButton(
                   onPressed: () { Navigator.pop(context); }, // close dialog
                   child: Text("Cancel", style: TextStyle(fontSize: 14.sp)),
                 ),
+//---------------------------------------
+// change button
+//---------------------------------------
                 ElevatedButton(
-                  onPressed: _attemptChange, // run validation + change
+                  onPressed: _attemptChange,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8620E5),
                     foregroundColor: Colors.white,
@@ -424,8 +418,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     );
   }
 
-
-  /// Validate username and contact. Only digits allowed for contact.
+//---------------------------------------
+// validate username and contact
+//---------------------------------------
   bool _validateInputs() {
     bool ok = true;
 
@@ -453,10 +448,14 @@ class _AndroidAccountState extends State<AndroidAccount> {
     return ok;
   }
 
-  /// Pick image -> resize -> compress -> ensure Base64 under limit -> set preview only.
+//---------------------------------------
+// image picker
+//---------------------------------------
   Future<void> _pickResizePreview() async {
     try {
-      // 1) Pick a single image (JPG/PNG). Get bytes directly when possible.
+//---------------------------------------
+// allow extension
+//---------------------------------------
       final FilePickerResult? res = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['jpg', 'jpeg', 'png'],
@@ -464,7 +463,6 @@ class _AndroidAccountState extends State<AndroidAccount> {
         withData: true,
       );
 
-      // User cancelled / nothing selected
       if (res == null) {
         return;
       }
@@ -474,10 +472,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
 
       final PlatformFile file = res.files.single;
 
-      // 2) Get raw bytes
       Uint8List? raw = file.bytes;
       if (raw == null) {
-        // Fallback for Android/iOS if bytes missing
+
         if (file.path != null) {
           final File f = File(file.path!);
           if (f.existsSync()) {
@@ -493,7 +490,6 @@ class _AndroidAccountState extends State<AndroidAccount> {
         return;
       }
 
-      // 3) Decode into image (supports PNG/JPG)
       final img.Image? decoded = img.decodeImage(raw);
       if (decoded == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -502,7 +498,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
         return;
       }
 
-      // 4) Resize if too wide (keep aspect)
+  //---------------------------------------
+// allow not too big size image
+//---------------------------------------
       img.Image toEncode;
       if (decoded.width > _targetMaxWidth) {
         toEncode = img.copyResize(
@@ -514,7 +512,7 @@ class _AndroidAccountState extends State<AndroidAccount> {
         toEncode = decoded;
       }
 
-      // 5) Compress to JPG. Lower quality gradually until Base64 length is small enough.
+
       int quality = 80;
       Uint8List? finalBytes;
       String? finalB64;
@@ -524,20 +522,22 @@ class _AndroidAccountState extends State<AndroidAccount> {
         finalB64 = base64Encode(finalBytes);
 
         if (finalB64.length <= _maxBase64Len) {
-          // size OK
           break;
         } else {
-          // try lower quality
           quality = quality - 10;
+//---------------------------------------
+// if resize still big then show error
+//---------------------------------------
           if (quality < 40) {
-            // still too big at very low quality -> ask user to pick smaller image
             await _showTooLargeDialog();
             return;
           }
         }
       }
 
-      // 6) Preview only (do NOT save in DB yet)
+//---------------------------------------
+// set the image
+//---------------------------------------
       setState(() {
         _pendingImageBytes = finalBytes;
         _pendingBase64 = finalB64;
@@ -553,7 +553,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     }
   }
 
-  /// Pop a dialog telling the user the selected image is too large even after compression.
+//---------------------------------------
+// when image too large
+//---------------------------------------
   Future<void> _showTooLargeDialog() async {
     await showDialog<void>(
       context: context,
@@ -574,10 +576,13 @@ class _AndroidAccountState extends State<AndroidAccount> {
     );
   }
 
-  /// Remove image:
-  /// - If a preview exists, just clear the local preview.
-  /// - Else, clear the saved Base64 in Firestore and local saved bytes.
+//---------------------------------------
+// remove image
+//---------------------------------------
   Future<void> _onRemoveImage(String uid) async {
+    //---------------------------------------
+// if image still pending then will normal remove
+//---------------------------------------
     if (_pendingImageBytes != null) {
       // Clear only the preview
       setState(() {
@@ -588,7 +593,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
         SnackBar(content: Text("Preview image cleared", style: TextStyle(fontSize: 12.sp))),
       );
     } else {
-      // Remove from Firestore
+      //---------------------------------------
+// if the image is from database , will update directly
+//---------------------------------------
       try {
         await FirebaseFirestore.instance
             .collection("UserInformation")
@@ -610,7 +617,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
     }
   }
 
-  /// Confirm logout via dialog; if yes, sign out and go to login page.
+//---------------------------------------
+// confirm log out pop up
+//---------------------------------------
   Future<void> _confirmLogout() async {
     final bool? yes = await showDialog<bool>(
       context: context,
@@ -651,12 +660,16 @@ class _AndroidAccountState extends State<AndroidAccount> {
     }
   }
 
-  // ---------------- UI ----------------
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double barHeight = 60.h;
 
-    // Ensure we have a logged-in user (uid).
+//---------------------------------------
+// make sure there is user
+//---------------------------------------
     final String? uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       return Scaffold(
@@ -664,7 +677,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
       );
     }
 
-    // Fetch current user doc (once per build).
+//---------------------------------------
+// get current user information from database
+//---------------------------------------
     final Future<DocumentSnapshot<Map<String, dynamic>>> userFuture =
     FirebaseFirestore.instance.collection("UserInformation").doc(uid).get();
 
@@ -686,25 +701,23 @@ class _AndroidAccountState extends State<AndroidAccount> {
       body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         future: userFuture,
         builder: (context, snapshot) {
-          // Loading spinner while waiting.
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(
               child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
             );
           }
 
-          // Error state
           if (snapshot.hasError) {
             return Center(child: Text("Failed to load profile", style: TextStyle(fontSize: 14.sp)));
           }
 
-          // Pull map from snapshot; if missing, show message.
           final Map<String, dynamic>? data = snapshot.data?.data();
           if (data == null) {
             return Center(child: Text("Profile not found", style: TextStyle(fontSize: 14.sp)));
           }
-
-          // Unpack fields safely, no ?? or ternary.
+//---------------------------------------
+// set all the importat data first
+//---------------------------------------
           String username = "";
           if (data["username"] != null) {
             username = data["username"].toString().trim();
@@ -731,7 +744,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
             }
           }
 
-          // Decode saved Base64
+//---------------------------------------
+// decode image from 64 byte
+//---------------------------------------
           if (_loadedOnce == false) {
             if (data["profileImageBase64"] != null) {
               final String b64 = data["profileImageBase64"].toString();
@@ -745,7 +760,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
             }
           }
 
-          // Fill controllers and local display fields once.
+//---------------------------------------
+// after the load is success , set all the info to controller
+//---------------------------------------
           if (_loadedOnce == false) {
             _usernameCtrl.text = username;
             _contactCtrl.text  = contact;
@@ -758,7 +775,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
             _loadedOnce = true;
           }
 
-          // Decide button label with simple if/else (no ternary).
+//---------------------------------------
+// set the button
+//---------------------------------------
           String mainButtonLabel = "";
           if (_isEditing == true) {
             mainButtonLabel = "Confirm";
@@ -771,21 +790,22 @@ class _AndroidAccountState extends State<AndroidAccount> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // ---- Circular profile photo ----
-                // Tap to pick ONLY when editing AND currently empty (no pending & no saved).
+//---------------------------------------
+// profile picture
+//---------------------------------------
                 GestureDetector(
                   onTap: () {
                     if (_isEditing == true) {
                       if (_pendingImageBytes == null && _savedImageBytes == null) {
                         _pickResizePreview();
                       } else {
-                        // require remove first
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text("To change photo, tap 'Remove Image' first.", style: TextStyle(fontSize: 12.sp))),
                         );
                       }
                     }
                   },
+
                   child: Container(
                     width: 150.w,
                     height: 150.w,
@@ -821,7 +841,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                   ),
                 ),
 
-                // Only show "Remove Image" while editing, and only if something exists (pending or saved).
+//---------------------------------------
+// while is editing the image below
+//---------------------------------------
                 if (_isEditing) ...[
                   SizedBox(height: 10.h),
                   if (_pendingImageBytes != null || _savedImageBytes != null)
@@ -829,7 +851,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                       width: math.min(0.9.sw, 520.w),
                       height: math.max(40.h, 0.055.sh),
                       child: ElevatedButton(
-                        onPressed: () { _onRemoveImage(uid); },
+                        onPressed: () {
+                          _onRemoveImage(uid);
+                          },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.grey[700],
                           foregroundColor: Colors.white,
@@ -842,7 +866,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
 
                 SizedBox(height: 16.h),
 
-                // ---- Profile fields ----
+//---------------------------------------
+// profile part
+//---------------------------------------
                 Align(
                   alignment: Alignment.centerLeft,
                   child: _isEditing
@@ -865,7 +891,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
 
                 SizedBox(height: 12.h),
 
-                // ---- Edit / Confirm button ----
+//---------------------------------------
+// edit and confirm button
+//---------------------------------------
                 Row(
                   children: [
                     const Spacer(),
@@ -873,7 +901,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                       height: math.max(36.h, 0.05.sh),
                       child: ElevatedButton(
                         onPressed: () async {
-                          // If not editing -> enter edit mode
+//---------------------------------------
+// if not editing mode
+//---------------------------------------
                           if (_isEditing == false) {
                             setState(() {
                               _isEditing = true;
@@ -881,7 +911,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                               _contactError = null;
                             });
                           } else {
-                            // Editing -> validate and save
+//---------------------------------------
+// if in editing mode when confirm button press
+//---------------------------------------
                             bool ok = _validateInputs();
                             if (ok == true) {
                               final Map<String, dynamic> updates = {
@@ -889,23 +921,31 @@ class _AndroidAccountState extends State<AndroidAccount> {
                                 "contact": _contactCtrl.text.trim(),
                               };
 
-                              // Save pending Base64 only when Confirm is pressed
+//---------------------------------------
+// save image
+//---------------------------------------
                               if (_pendingBase64 != null) {
                                 updates["profileImageBase64"] = _pendingBase64;
                               }
-
+//---------------------------------------
+// save ipdate item into database
+//---------------------------------------
                               await FirebaseFirestore.instance
                                   .collection("UserInformation")
                                   .doc(uid)
                                   .update(updates);
 
-                              // Update local display values
+//---------------------------------------
+// set the controller holding the name and contact
+//---------------------------------------
                               setState(() {
                                 _isEditing = false;
                                 _username = _usernameCtrl.text.trim();
                                 _contact  = _contactCtrl.text.trim();
 
-                                // Move pending into saved
+//---------------------------------------
+// move pending image to saveimage
+//---------------------------------------
                                 if (_pendingImageBytes != null) {
                                   _savedImageBytes = _pendingImageBytes;
                                 }
@@ -925,7 +965,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                           shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                         ),
                         child: Text(
-                          // no ternary; we computed label earlier
+//---------------------------------------
+// button already set above
+//---------------------------------------
                           mainButtonLabel,
                           style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600),
                         ),
@@ -934,15 +976,22 @@ class _AndroidAccountState extends State<AndroidAccount> {
                   ],
                 ),
 
+//---------------------------------------
+// devider
+//---------------------------------------
                 SizedBox(height: 12.h),
                 Container(width: 0.8.sw, height: 1.5.h, color: Colors.black),
-
                 SizedBox(height: 16.h),
 
-                // ---- Actions ----
+//---------------------------------------
+// change password button
+//---------------------------------------
                 _actionBox(title: "Change Password", onTap: () { _openChangePasswordDialog(); }),
 
                 SizedBox(height: 14.h),
+//---------------------------------------
+// notification setting
+//---------------------------------------
                 _actionBox(
                   title: "Notification Settings",
                   onTap: () {
@@ -953,13 +1002,22 @@ class _AndroidAccountState extends State<AndroidAccount> {
                   },
                 ),
                 SizedBox(height: 14.h),
+//---------------------------------------
+// report issue page
+//---------------------------------------
                 _actionBox(
                   title: "Report an Issue",
                   onTap: () {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidReportIssue()));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AndroidReportIssue()),
+                    );
                   },
                 ),
                 SizedBox(height: 14.h),
+//---------------------------------------
+// FAQ page
+//---------------------------------------
                 _actionBox(
                   title: "FAQ",
                   onTap: () {
@@ -969,9 +1027,10 @@ class _AndroidAccountState extends State<AndroidAccount> {
                     );
                   },
                 ),
-
-
                 SizedBox(height: 16.h),
+//---------------------------------------
+// log out with showing pop up
+//---------------------------------------
                 _actionBox(
                   title: "Log Out",
                   onTap: _confirmLogout,
@@ -985,7 +1044,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
         },
       ),
 
-      // Bottom bar
+//---------------------------------------
+// buttom navigate bar
+//---------------------------------------
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,

@@ -1,15 +1,9 @@
-// lib/web_categories.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'web_top_bar.dart';
 
-/// CategoriesPage
-/// - Collection: 'FacilitiesCategory' with fields: name(String), deleted(bool), createdAt(Timestamp)
-/// - Soft delete: set deleted = true (only if no active Facilities under this category)
-/// - Rename: updates category 'name' and propagates to 'Facilities' docs (field 'categoryName')
-/// - Design: purple box layout, scrollable, responsive with .w .h .sp
-/// - Only if/else used (no ?: or ??)
+
 class CategoriesPage extends StatefulWidget {
   const CategoriesPage({Key? key}) : super(key: key);
 
@@ -21,33 +15,29 @@ class _CategoriesPageState extends State<CategoriesPage> {
   // Top bar time format
   final bool _use24HourFormat = true;
 
-  // Left search
+  // Left search controller
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // Selection
+  // Selection for the category
   String? _selectedCatId;
   String _selectedCatName = '';
 
-  // Right panel mode (Option A: simple string) → 'view' | 'add' | 'edit'
+  //when enter default to view mode
   String _mode = 'view';
 
   // Form controllers
   final TextEditingController _newCtrl = TextEditingController();
   final TextEditingController _editCtrl = TextEditingController();
+  final TextEditingController _viewCtrl = TextEditingController();
+//---------------------------------------
+//Clean the space for string
+//---------------------------------------
+  String _clean(String s) => s.trim();
 
-  // ---------- Helpers (no ?:) ----------
-
-  /// Clean string by trimming spaces
-  String _clean(String s) {
-    return s.trim();
-  }
-
-  /// Centralized sizing/styling so View/Edit/Add look identical in size
-  /// Matches web_list_manager (labels 12.sp, field text 14.sp, 10.h padding)
   InputDecoration _commonInputDecoration() {
     return InputDecoration(
       isDense: true,
-      contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 15.h), // same height as manager page
+      contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 15.h),
       filled: true,
       fillColor: Colors.white,
       border: OutlineInputBorder(
@@ -66,7 +56,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     );
   }
 
-  /// Check if a category name exists (case-insensitive), optionally ignoring a specific doc id
+//---------------------------------------
+// Use to check wether category name exist
+//---------------------------------------
   Future<bool> _categoryNameExists(String name, {String? ignoreId}) async {
     final String q = name.toLowerCase();
     final snap = await FirebaseFirestore.instance
@@ -84,25 +76,18 @@ class _CategoriesPageState extends State<CategoriesPage> {
       }
 
       bool deleted = false;
-      if (data.containsKey('deleted') && data['deleted'] != null) {
-        if (data['deleted'] == true) {
+
+        if (data['deleted'] == true) { // check if it is deleted
           deleted = true;
         } else {
           deleted = false;
         }
-      } else {
-        deleted = false;
-      }
 
       String nm = '';
-      if (data.containsKey('name') && data['name'] != null) {
         nm = data['name'].toString().toLowerCase();
-      } else {
-        nm = '';
-      }
 
       bool sameId = false;
-      if (ignoreId == null) {
+      if (ignoreId == null) { // if same id and same name allows update too
         sameId = false;
       } else {
         if (d.id == ignoreId) {
@@ -116,7 +101,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
         if (!sameId) {
           if (nm == q) {
             exists = true;
-            i = snap.docs.length; // break
+            i = snap.docs.length;
           }
         }
       }
@@ -125,7 +110,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     return exists;
   }
 
-  /// Add a new category (right panel Add -> Confirm)
+//---------------------------------------
+// After adding a category
+//---------------------------------------
   Future<void> _addCategory() async {
     final String name = _clean(_newCtrl.text);
     if (name.isEmpty) {
@@ -155,6 +142,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
       setState(() {
         _selectedCatId = docRef.id;
         _selectedCatName = name;
+        _viewCtrl.text = name;
         _mode = 'view';
         _newCtrl.text = '';
       });
@@ -169,7 +157,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-  /// Save edit (right panel Edit -> Confirm)
+//---------------------------------------
+// when confirm button press, this will submit the things to firebase
+//---------------------------------------
   Future<void> _saveEdit() async {
     if (_selectedCatId == null) {
       return;
@@ -196,10 +186,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
           .doc(_selectedCatId)
           .update({'name': newName});
 
-      await _propagateCategoryNameChange(_selectedCatId!, newName);
 
       setState(() {
         _selectedCatName = newName;
+        _viewCtrl.text = newName;
         _mode = 'view';
       });
 
@@ -213,39 +203,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-  /// Update all facilities to reflect renamed category (batch in chunks)
-  Future<int> _propagateCategoryNameChange(String catId, String newName) async {
-    final db = FirebaseFirestore.instance;
 
-    final snap = await db
-        .collection('Facilities')
-        .where('categoryId', isEqualTo: catId)
-        .where('deleted', isEqualTo: false)
-        .get();
-
-    int i = 0;
-    while (i < snap.docs.length) {
-      int end;
-      if (i + 400 < snap.docs.length) {
-        end = i + 400;
-      } else {
-        end = snap.docs.length;
-      }
-
-      final batch = db.batch();
-      int j = i;
-      while (j < end) {
-        batch.update(snap.docs[j].reference, {'categoryName': newName});
-        j = j + 1;
-      }
-      await batch.commit();
-      i = end;
-    }
-    return snap.docs.length;
-  }
-
-  /// Confirm delete dialog (returns true if Yes)
-  /// Confirm delete dialog (same design as logout dialog)
+//---------------------------------------
+// show the confrim button pop up
+//---------------------------------------
   Future<bool> _confirmDelete() async {
     final bool? res = await showDialog<bool>(
       context: context,
@@ -286,8 +247,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-
-  /// Soft delete a category (only if no facilities are inside)
+//---------------------------------------
+// perform soft delete
+//---------------------------------------
   Future<void> _softDelete() async {
     if (_selectedCatId == null) {
       return;
@@ -328,7 +290,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-  // ---------- Build ----------
+//---------------------------------------
+// Main build
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -341,7 +305,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
         builder: (context, constraints) {
           return SingleChildScrollView(
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              constraints: BoxConstraints(minHeight: constraints.maxHeight), // let the box stretch even there is nothing, but will shrink when become small
               child: Padding(
                 padding: EdgeInsets.all(16.w),
                 child: Align(
@@ -350,7 +314,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth: 460.w + 24.w + 1200.w,
+                        maxWidth: 1684.w,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,7 +370,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     );
   }
 
-  /// LEFT list body (scrollable content placed inside _Box)
+//---------------------------------------
+// The left side of the list
+//---------------------------------------
   Widget _buildLeftList() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -430,19 +396,17 @@ class _CategoriesPageState extends State<CategoriesPage> {
           final data = d.data();
 
           bool del = false;
-          if (data.containsKey('deleted') && data['deleted'] != null) {
+          if (data.containsKey('deleted')) {
             if (data['deleted'] == true) {
               del = true;
             } else {
               del = false;
             }
-          } else {
-            del = false;
           }
 
           String nm = '';
-          if (data.containsKey('name') && data['name'] != null) {
-            nm = data['name'].toString();
+          if (data.containsKey('name')) {
+            nm = data['name'];
           } else {
             nm = '';
           }
@@ -451,8 +415,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
           if (q.isEmpty) {
             matches = true;
           } else {
-            final String cmp = nm.toLowerCase();
-            if (cmp.contains(q)) {
+            final String cname = nm.toLowerCase();
+            if (cname.contains(q)) {
               matches = true;
             } else {
               matches = false;
@@ -471,39 +435,42 @@ class _CategoriesPageState extends State<CategoriesPage> {
           return _EmptyCenter(text: 'No categories found');
         }
 
-        return ListView.separated(
-          itemCount: filtered.length,
-          physics: const AlwaysScrollableScrollPhysics(),
-          separatorBuilder: (_, __) => SizedBox(height: 8.h),
-          itemBuilder: (context, index) {
-            final d = filtered[index];
-            final m = d.data();
+        final List<Widget> children = [];
+        for (int i = 0; i < filtered.length; i++) {
+          final d = filtered[i];
+          final m = d.data();
+          final String nm = (m['name']);
 
-            String nm = '';
-            if (m.containsKey('name') && m['name'] != null) {
-              nm = m['name'].toString();
-            } else {
-              nm = '';
-            }
-
-            return _ListTileCard(
+          children.add(
+            _ListTileCard(
               label: nm,
               onTap: () {
-                // select item and go to view mode
                 setState(() {
                   _selectedCatId = d.id;
                   _selectedCatName = nm;
+                  _viewCtrl.text = nm;
                   _mode = 'view';
                 });
               },
-            );
-          },
+            ),
+          );
+
+          if (i < filtered.length - 1) {
+            children.add(SizedBox(height: 8.h)); // separator after each item except last
+          }
+        }
+
+        return ListView(
+          children: children,
         );
       },
     );
   }
 
-  /// RIGHT panel content selector (Add / View / Edit / Idle)
+//---------------------------------------
+// The right side of the list make decision which mode is it in
+//---------------------------------------
+
   Widget _buildRightPanelChild() {
     if (_mode == 'add') {
       return _panelAdd();
@@ -525,9 +492,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     }
   }
 
-  // ---------- Panels (same size fields across modes, matching manager/facilities design) ----------
-
-  /// Add panel
+//---------------------------------------
+// Add category form
+//---------------------------------------
   Widget _panelAdd() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,7 +534,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
     );
   }
 
-  /// View (read-only) panel
+//---------------------------------------
+// View only form
+//---------------------------------------
+
   Widget _panelView() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,28 +546,27 @@ class _CategoriesPageState extends State<CategoriesPage> {
         Text('Details', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
         SizedBox(height: 10.h),
 
-        Text('Name', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600)),
+        Text('Name', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500)), // small label
         SizedBox(height: 6.h),
-        // Read-only field — transparent fill like web_facilities
         TextFormField(
+          // Use ValueKey so the field refreshes when the value changes
           key: ValueKey<String>('view|name|$_selectedCatName'),
-          initialValue: _selectedCatName,
-          enabled: false,
-          style: TextStyle(fontSize: 17.sp),
+          initialValue: _selectedCatName,             // put the text once (no controller)
+          enabled: false,                             // disabled = greyed out, not editable
           decoration: const InputDecoration(
             isDense: true,
             border: OutlineInputBorder(),
           ),
         ),
-        SizedBox(height: 14.h),
+        SizedBox(height: 12.h),
 
-        // Buttons: Edit + Close (no Delete here)
+        // Buttons: Edit + Close
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton(
               onPressed: () {
-                // Close: clear selection like facilities "Close"
+                // Close: clear selection
                 setState(() {
                   _selectedCatId = null;
                   _selectedCatName = '';
@@ -623,7 +592,11 @@ class _CategoriesPageState extends State<CategoriesPage> {
     );
   }
 
-  /// Edit panel
+
+//---------------------------------------
+// Edit form
+//---------------------------------------
+
   Widget _panelEdit() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -682,11 +655,14 @@ class _CategoriesPageState extends State<CategoriesPage> {
     _searchCtrl.dispose();
     _newCtrl.dispose();
     _editCtrl.dispose();
+    _viewCtrl.dispose();
     super.dispose();
   }
 }
 
-// ================== Reusable widgets (design-matched) ==================
+//---------------------------------------
+// class to design left and right box
+//---------------------------------------
 
 class _Box extends StatelessWidget {
   const _Box({
@@ -710,7 +686,7 @@ class _Box extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<Widget> head = <Widget>[];
-    if (header != null) {
+    if (header != null) { //if there is header add the search header, if no will leave space because detials part dun have header
       head.add(header!);
       head.add(SizedBox(height: 8.h));
     }
@@ -744,6 +720,8 @@ class _Box extends StatelessWidget {
     );
   }
 }
+
+
 
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
@@ -795,7 +773,10 @@ class _SearchHeader extends StatelessWidget {
 }
 
 class _ListTileCard extends StatelessWidget {
-  const _ListTileCard({Key? key, required this.label, required this.onTap}) : super(key: key);
+  const _ListTileCard({Key? key,
+    required this.label,
+    required this.onTap
+  }) : super(key: key);
 
   final String label;
   final VoidCallback onTap;

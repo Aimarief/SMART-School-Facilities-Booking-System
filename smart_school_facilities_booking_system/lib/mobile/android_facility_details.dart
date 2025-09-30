@@ -12,9 +12,6 @@ import 'android_list_of_facilities.dart';
 import 'android_rating_review.dart';
 import 'android_booking_date.dart';
 
-// ------------------------------
-// Widget: AndroidFacilityDetails
-// ------------------------------
 class AndroidFacilityDetails extends StatefulWidget {
   // incoming arguments from the list page
   final String facilityId;
@@ -32,14 +29,16 @@ class AndroidFacilityDetails extends StatefulWidget {
   State<AndroidFacilityDetails> createState() => _AndroidFacilityDetailsState();
 }
 
-// ------------------------------------
-// State: AndroidFacilityDetails (UI/UX)
-// ------------------------------------
 class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
-  // keep Facilities tab selected
+//---------------------------------------
+// current page
+//---------------------------------------
   int _currentIndex = 2;
 
-  // go back to list page (or replace if no back stack)
+//---------------------------------------
+// navigate back
+//---------------------------------------
+
   void _goToList() {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
@@ -51,7 +50,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-  // handle bottom menu taps (keep logic identical)
+//---------------------------------------
+// naviagation list
+//---------------------------------------
+
   void _onTabSelected(int i) {
     if (i == 2) {
       _goToList();
@@ -66,7 +68,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-  // turn "HH:mm" into "HH:mm am/pm" (keep 24h digits, only add suffix)
+//---------------------------------------
+// change to am pm
+//---------------------------------------
+
   String _toAmPm(String hhmm) {
     final parts = hhmm.split(':');
     int hour = 0;
@@ -112,7 +117,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-  // check if user's capacity fits facility requirement (max<=0 means unlimited)
+//---------------------------------------
+// check if user fits the capacity
+//---------------------------------------
+
   bool _fitsCapacity(int userCap, int reqCap, int maxCap) {
     bool withinMax;
     if (maxCap <= 0) {
@@ -132,23 +140,25 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
     }
   }
 
-  // ----------------
-  // Build UI Content
-  // ----------------
+//---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
     // sizes for responsiveness
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
     final double sw = MediaQuery.of(context).size.width;
 
-    // live stream of the facility doc
+//---------------------------------------
+// get the facility from database
+//---------------------------------------
     final Stream<DocumentSnapshot<Map<String, dynamic>>> docStream = FirebaseFirestore.instance
         .collection('Facilities')
         .doc(widget.facilityId)
         .snapshots();
 
     return Scaffold(
-      // purple app bar with back + close
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
         child: AppBar(
@@ -175,11 +185,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
         ),
       ),
 
-      // body content
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: docStream,
         builder: (context, snap) {
-          // show loader
+
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -188,10 +197,15 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             return const Center(child: Text('Facility not found'));
           }
 
-          // read facility data
+//---------------------------------------
+// read teh facility data
+//---------------------------------------
+
           final Map<String, dynamic> data = snap.data!.data()!;
 
-          // facility name
+//---------------------------------------
+// get facility name
+//---------------------------------------
           String name = '';
           if (data.containsKey('name') && data['name'] is String) {
             name = data['name'];
@@ -199,7 +213,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             name = widget.facilityName;
           }
 
-          // facility image from assets
+//---------------------------------------
+// get facility image name from path and database
+//---------------------------------------
+
           String imageName = '';
           if (data.containsKey('imageName') && data['imageName'] is String) {
             imageName = (data['imageName'] as String).trim();
@@ -209,13 +226,19 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             facilityImagePath = 'asset/image/$imageName';
           }
 
-          // availability flag
+//---------------------------------------
+// check if the facility is active
+//---------------------------------------
+
           bool active = false;
           if (data.containsKey('active') && data['active'] is bool) {
             active = data['active'];
           }
 
-          // reason why facility is inactive (from database)
+//---------------------------------------
+// get the inactive reason
+//---------------------------------------
+
           String inactiveReason = '';
           if (data.containsKey('inactiveReason')) {
             final dynamic ir = data['inactiveReason'];
@@ -230,7 +253,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             }
           }
 
-          // available time
+//---------------------------------------
+// get the facility available time
+//---------------------------------------
+
           String start24 = '';
           String end24 = '';
           if (data.containsKey('availableTime') && data['availableTime'] is Map<String, dynamic>) {
@@ -242,47 +268,45 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
               end24 = at['end'];
             }
           }
+//---------------------------------------
+// convert to am pm
+//---------------------------------------
+
           final String timeRange = 'From ${_toAmPm(start24)} to ${_toAmPm(end24)}';
 
-          // location
+//---------------------------------------
+// get location
+//---------------------------------------
           String location = '';
           if (data.containsKey('location') && data['location'] is String) {
             location = data['location'];
           }
 
-          // description
+//---------------------------------------
+// get the details description
+//---------------------------------------
+
           String description = '';
           if (data.containsKey('details') && data['details'] is String) {
             description = data['details'];
           }
 
-          // booking duration text
+//---------------------------------------
+// get the buking duration
+//---------------------------------------
+
           String durationText = '';
           if (data.containsKey('bookingDurationHours')) {
             final dynamic dur = data['bookingDurationHours'];
-            if (dur is int) {
-              if (dur == 1) {
-                durationText = '1 hour';
-              } else {
+
                 durationText = '$dur hours';
-              }
-            } else if (dur is double) {
-              final int intPart = dur.toInt();
-              if (dur == intPart) {
-                if (intPart == 1) {
-                  durationText = '1 hour';
-                } else {
-                  durationText = '$intPart hours';
-                }
-              } else {
-                durationText = '$dur hours';
-              }
-            } else {
-              durationText = dur.toString();
-            }
+
           }
 
-          // responsive image height
+//---------------------------------------
+// set the imaage hight
+//---------------------------------------
+
           double imgH = sw * 0.75;
           if (imgH < 240.h) {
             imgH = 240.h;
@@ -290,59 +314,54 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
             imgH = 420.h;
           }
 
-          // manager id
+//---------------------------------------
+// get manager id
+//---------------------------------------
+
           String managerId = '';
           if (data.containsKey('managerId') && data['managerId'] is String) {
             managerId = data['managerId'];
           }
 
-          // capacities (defaults: req=1, max=0 meaning unlimited)
+//---------------------------------------
+// get req and max capacity
+//---------------------------------------
+
           int reqCap = 1;
           int maxCap = 0;
 
-          if (data.containsKey('requiredCapacity')) {
-            reqCap = _parseCapInt(data['requiredCapacity'], 1);
-          } else {
-            if (data.containsKey('requireCapacity')) {
-              reqCap = _parseCapInt(data['requireCapacity'], 1);
-            } else {
-              if (data.containsKey('minCapacity')) {
-                reqCap = _parseCapInt(data['minCapacity'], 1);
-              } else {
-                if (data.containsKey('minimumCapacity')) {
-                  reqCap = _parseCapInt(data['minimumCapacity'], 1);
-                }
-              }
-            }
-          }
+          reqCap = _parseCapInt(data['requiredCapacity'], 1);
+          maxCap = _parseCapInt(data['maxCapacity'], 0);
 
-          if (data.containsKey('maximumCapacity')) {
-            maxCap = _parseCapInt(data['maximumCapacity'], 0);
-          } else {
-            if (data.containsKey('maxCapacity')) {
-              maxCap = _parseCapInt(data['maxCapacity'], 0);
-            }
-          }
-
-          // user's requested capacity from previous page
+//---------------------------------------
+// user capacity from previous page
+//---------------------------------------
           final int userCap = widget.userCapacity;
 
-          // does the user capacity fit this facility?
+//---------------------------------------
+// check if it fits the capacity
+//---------------------------------------
           final bool capacityOk = _fitsCapacity(userCap, reqCap, maxCap);
 
-          // manager stream
+//---------------------------------------
+// get manager Id information
+//---------------------------------------
           final Stream<DocumentSnapshot<Map<String, dynamic>>> mgrStream = FirebaseFirestore.instance
               .collection('UserInformation')
               .doc(managerId)
               .snapshots();
 
-          // page content
+//---------------------------------------
+// whole page design
+//---------------------------------------
           return SingleChildScrollView(
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // facility image (placeholder if empty)
+//---------------------------------------
+// facility image
+//---------------------------------------
                 Container(
                   width: double.infinity,
                   height: imgH,
@@ -352,19 +371,23 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                     color: Colors.grey.shade300,
                   ),
                   child: facilityImagePath.isEmpty
+//---------------------------------------
+// if facility no image
+//---------------------------------------
                       ? Center(child: Icon(Icons.image_not_supported, size: 40.sp, color: Colors.white))
                       : Image.asset(facilityImagePath, fit: BoxFit.cover),
                 ),
 
                 SizedBox(height: 16.h),
 
-                // content at 90% width
                 SizedBox(
                   width: sw * 0.90,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // name + small status box
+//---------------------------------------
+// display name
+//---------------------------------------
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
@@ -377,6 +400,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             ),
                           ),
                           SizedBox(width: 8.w),
+//---------------------------------------
+// show is available or not
+//---------------------------------------
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                             decoration: BoxDecoration(
@@ -398,7 +424,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 8.h),
 
-                      // time range
+//---------------------------------------
+// available time for facility to book
+//---------------------------------------
                       Text(
                         timeRange,
                         style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
@@ -406,7 +434,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 12.h),
 
-                      // red warning when unavailable
+//---------------------------------------
+// display facility unavailable
+//---------------------------------------
+
                       if (active == false) ...[
                         Builder(
                           builder: (_) {
@@ -416,7 +447,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             } else {
                               reasonMsg = 'This facility is currently unavailable'; // fallback
                             }
-
+//---------------------------------------
+// design for the unavilable box
+//---------------------------------------
                             return Container(
                               width: double.infinity,
                               padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
@@ -450,7 +483,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 18.h),
 
-                      // location
+//---------------------------------------
+//  display location
+//---------------------------------------
                       Text('Location', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 6.h),
                       Container(
@@ -465,7 +500,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 18.h),
 
-                      // description
+//---------------------------------------
+// display description
+//---------------------------------------
                       Text('Description', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 6.h),
                       Container(
@@ -480,7 +517,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 18.h),
 
-                      // duration
+//---------------------------------------
+// display duration per slot
+//---------------------------------------
                       Text('Duration per slot', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 6.h),
                       Container(
@@ -495,16 +534,20 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 18.h),
 
-                      // manager heading
+//---------------------------------------
+// display manager
+//---------------------------------------
+
                       Text('Manager', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                       SizedBox(height: 6.h),
 
-                      // manager card
+//---------------------------------------
+// get manager name through id
+//---------------------------------------
+
                       StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        // listen to manager document live
                         stream: mgrStream,
                         builder: (context, mgrSnap) {
-                          // show small loader box while manager data loading
                           if (mgrSnap.connectionState == ConnectionState.waiting) {
                             return Container(
                               width: double.infinity,
@@ -518,7 +561,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             );
                           }
 
-                          // prepare simple map for manager values
                           Map<String, dynamic> mm = <String, dynamic>{};
                           if (mgrSnap.hasData) {
                             if (mgrSnap.data != null) {
@@ -528,22 +570,21 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // read manager name
+//---------------------------------------
+// get manager name
+//---------------------------------------
+
                           String username = '';
                           if (mm.containsKey('username')) {
                             if (mm['username'] is String) {
                               username = mm['username'];
                             }
                           }
-                          if (username.isEmpty) {
-                            if (mm.containsKey('name')) {
-                              if (mm['name'] is String) {
-                                username = mm['name'];
-                              }
-                            }
-                          }
 
-                          // read manager email
+//---------------------------------------
+// manager email
+//---------------------------------------
+
                           String email = '';
                           if (mm.containsKey('email')) {
                             if (mm['email'] is String) {
@@ -551,7 +592,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // read manager contact
+//---------------------------------------
+// contact
+//---------------------------------------
+
                           String contact = '';
                           if (mm.containsKey('contact')) {
                             if (mm['contact'] is String) {
@@ -559,7 +603,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // build manager image asset path if present
+//---------------------------------------
+// profile image
+//---------------------------------------
                           String managerAssetPath = '';
                           final dynamic imgNameDyn = mm['profileImageName'];
                           if (imgNameDyn is String) {
@@ -569,33 +615,14 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             }
                           }
 
-                          // read requireApproval from facility doc
-                          bool requireApproval = false;
-                          if (data.containsKey('requireApproval')) {
-                            if (data['requireApproval'] is bool) {
-                              requireApproval = data['requireApproval'];
-                            } else {
-                              final v = data['requireApproval'];
-                              if (v is String) {
-                                if (v.toLowerCase() == 'true') {
-                                  requireApproval = true;
-                                } else {
-                                  requireApproval = false;
-                                }
-                              } else if (v is num) {
-                                if (v != 0) {
-                                  requireApproval = true;
-                                } else {
-                                  requireApproval = false;
-                                }
-                              }
-                            }
-                          }
+                          bool requireApproval = true;
 
-                          // return the whole section
+ //---------------------------------------
+// continue design
+//---------------------------------------
+
                           return Column(
                             children: [
-                              // manager info card (auto height so it never overflows)
                               Container(
                                 width: double.infinity,
                                 constraints: BoxConstraints(minHeight: 135.h),
@@ -607,7 +634,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // left image or grey placeholder
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(8.r),
                                       child: SizedBox(
@@ -625,12 +651,17 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                                     SizedBox(width: 15.w),
 
-                                    // right info
+//---------------------------------------
+// right info form manager card
+//---------------------------------------
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
+ //---------------------------------------
+// use kv line to make it align
+//---------------------------------------
                                           _kvLine(label: 'Name', value: username),
                                           SizedBox(height: 6.h),
                                           _kvLine(label: 'Email', value: email),
@@ -645,7 +676,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                               SizedBox(height: 12.h),
 
-                              // info box for required approval
+//---------------------------------------
+// require approval box
+//---------------------------------------
                               if (requireApproval == true) ...[
                                 Container(
                                   width: double.infinity,
@@ -675,9 +708,14 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                 SizedBox(height: 16.h),
                               ],
 
-                              // Book button (hidden if inactive)
+//---------------------------------------
+// book button
+//---------------------------------------
                               Builder(
                                 builder: (_) {
+//---------------------------------------
+// if active then will show book button
+//---------------------------------------
                                   if (active == true) {
                                     return SizedBox(
                                       width: sw * 0.90,
@@ -690,7 +728,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                           ),
                                         ),
                                         onPressed: () {
-                                          // block when capacity doesn't meet facility min/max
+//---------------------------------------
+// if capacity did not meet requieement
+//---------------------------------------
                                           if (capacityOk == false) {
                                             final String msg = 'Capacity does not meet requirement. ';
                                             ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -702,8 +742,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                             );
                                             return;
                                           }
-
-                                          // navigate to booking date page
+//---------------------------------------
+// or else allows to enter booking page
+//---------------------------------------
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
@@ -736,7 +777,9 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                       SizedBox(height: 16.h),
 
-                      // Review summary (read-only) from Facilities/{facilityId}/Rating
+//---------------------------------------
+// get the rating of facility id
+//---------------------------------------
                       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: FirebaseFirestore.instance
                             .collection('Facilities')
@@ -744,7 +787,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                             .collection('Rating')
                             .snapshots(),
                         builder: (context, rateSnap) {
-                          // loader
                           if (rateSnap.connectionState == ConnectionState.waiting) {
                             return Center(
                               child: SizedBox(width: 24.w, height: 24.w, child: const CircularProgressIndicator()),
@@ -761,24 +803,20 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
 
                             for (final d in docs) {
                               final Map<String, dynamic> r = d.data();
-
+//---------------------------------------
+// get all the rating and total it
+//---------------------------------------
                               if (r.containsKey('rating')) {
                                 final dynamic v = r['rating'];
                                 if (v is int) {
                                   total = total + v.toDouble();
-                                } else if (v is double) {
-                                  total = total + v;
-                                } else if (v is String) {
-                                  final double? p = double.tryParse(v);
-                                  if (p != null) {
-                                    total = total + p;
-                                  }
                                 }
                               }
                             }
                           }
-
-                          // compute average
+//---------------------------------------
+// calculate average
+//---------------------------------------
                           double avg = 0.0;
                           if (count > 0) {
                             avg = total / count;
@@ -789,13 +827,14 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                           // format texts
                           String avgText = avg.toStringAsFixed(1);
                           String countLabel = '';
-                          if (count == 1) {
-                            countLabel = '1 rating';
-                          } else {
-                            countLabel = '$count ratings';
-                          }
 
-                          // render rating card
+                          countLabel = '$count ratings';
+
+
+//---------------------------------------
+// rating box design
+//---------------------------------------
+
                           return Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 12.w),
@@ -817,6 +856,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                 SizedBox(height: 6.h),
                                 Text(countLabel, style: TextStyle(fontSize: 12.5.sp, color: Colors.black87, fontWeight: FontWeight.w500)),
                                 SizedBox(height: 10.h),
+ //---------------------------------------
+// view rating button
+//---------------------------------------
+
                                 SizedBox(
                                   height: 36.h,
                                   child: OutlinedButton(
@@ -848,7 +891,10 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
         },
       ),
 
-      // bottom menu
+//---------------------------------------
+// bottom menu
+//---------------------------------------
+
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -890,9 +936,9 @@ Widget _kvLine({required String label, required String value}) {
   );
 }
 
-// ---------------------------
-// UI Helper: Read-only Stars
-// ---------------------------
+//---------------------------------------
+// design for star
+//---------------------------------------
 Widget _buildStars(double avg) {
   final List<Widget> list = <Widget>[];
 

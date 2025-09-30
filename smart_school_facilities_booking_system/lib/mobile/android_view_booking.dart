@@ -1132,55 +1132,30 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                       k = k + 1;
                     }
 
-                    // -------- ORDER GROUPS: upcoming on top, last 7 days below --------
-                    final List<String> allKeys = byDate.keys.toList();
+                    // -------- ORDER GROUPS: future (incl. today) first ASC, then ALL past DESC --------
+                    final List<String> futureKeys = <String>[];
+                    final List<String> pastKeys = <String>[];
 
-                    // build today baseline and a week-ago baseline
                     final DateTime now = DateTime.now();
                     final DateTime todayOnly = DateTime(now.year, now.month, now.day);
-                    final DateTime weekAgo = todayOnly.subtract(const Duration(days: 7));
 
-                    // prepare two lists for ordering sections
-                    final List<String> upcomingKeys = <String>[];
-                    final List<String> past7Keys = <String>[];
-
-                    int z = 0;                                      // counter z traverses all date keys
-                    while (z < allKeys.length) {
-                      final String kd = allKeys[z];
+                    for (final kd in byDate.keys) {
                       final DateTime d = DateTime.parse(kd);
                       final DateTime dOnly = DateTime(d.year, d.month, d.day);
-
-                      // fill upcoming (today & future) OR past7 (last 7 days) buckets
-                      if (dOnly.isBefore(todayOnly) == true) {
-                        if (dOnly.isAfter(weekAgo) == true || _isSameDay(dOnly, weekAgo) == true) {
-                          past7Keys.add(kd);
-                        }
+                      if (dOnly.isBefore(todayOnly)) {
+                        pastKeys.add(kd);
                       } else {
-                        upcomingKeys.add(kd);
+                        futureKeys.add(kd);
                       }
-
-                      // ++z moves to next date key
-                      z = z + 1;
                     }
 
-                    // sort upcoming ascending (nearest future first)
-                    upcomingKeys.sort((a, b) {
-                      final DateTime da = DateTime.parse(a);
-                      final DateTime db = DateTime.parse(b);
-                      return da.compareTo(db);
-                    });
+// today → future
+                    futureKeys.sort((a, b) => DateTime.parse(a).compareTo(DateTime.parse(b)));
+// yesterday → older and older
+                    pastKeys.sort((a, b) => DateTime.parse(b).compareTo(DateTime.parse(a)));
 
-                    // sort past7 descending (most recent past first)
-                    past7Keys.sort((a, b) {
-                      final DateTime da = DateTime.parse(a);
-                      final DateTime db = DateTime.parse(b);
-                      return db.compareTo(da);
-                    });
+                    final List<String> keys = <String>[...futureKeys, ...pastKeys];
 
-                    // final ordered key list for list builder
-                    final List<String> keys = <String>[];
-                    keys.addAll(upcomingKeys);
-                    keys.addAll(past7Keys);
 
                     // -------- BUILD THE LIST VIEW --------
                     // Build date header + its rows for each key in order.

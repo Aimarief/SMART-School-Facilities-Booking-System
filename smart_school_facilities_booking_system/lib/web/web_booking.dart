@@ -2,14 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
 import 'package:smart_school_facilities_booking_system/notification_service.dart';
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
 import 'web_top_bar.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-/// ==============================
-/// Compact Web Booking
-/// ==============================
 class WebBooking extends StatefulWidget {
   const WebBooking({Key? key}) : super(key: key);
   @override
@@ -28,7 +25,6 @@ class _WebBookingState extends State<WebBooking> {
   void initState() {
     super.initState();
     _readUserAndRole();
-
   }
 
   @override
@@ -67,7 +63,9 @@ class _WebBookingState extends State<WebBooking> {
       _selectedFacData = null;
     });
   }
-
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,7 +74,7 @@ class _WebBookingState extends State<WebBooking> {
         child: WebCustomTopBar(use24HourFormat: true),
       ),
       body: LayoutBuilder(
-        builder: (_, constraints) {
+        builder: (context, constraints) {
           return SingleChildScrollView(
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
@@ -87,13 +85,13 @@ class _WebBookingState extends State<WebBooking> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1684),
+                      constraints: BoxConstraints(maxWidth: 1684.w),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _BookingLeftList(
-                            width: 460,
-                            height: 965,
+                            width: 460.h,
+                            height: 965.h,
                             search: _facSearch,
                             userId: _userId,
                             role: _role,
@@ -101,8 +99,8 @@ class _WebBookingState extends State<WebBooking> {
                           ),
                           const SizedBox(width: 24),
                           _BookingRightPanel(
-                            width: 1200,
-                            height: 965,
+                            width: 1200.w,
+                            height: 965.h,
                             selectedFacilityId: _selectedFacId,
                             selectedFacilityData: _selectedFacData,
                             onClose: _closeRight,
@@ -121,9 +119,9 @@ class _WebBookingState extends State<WebBooking> {
   }
 }
 
-/// ==============================
-/// Generic framed panel
-/// ==============================
+//---------------------------------------
+// Build box design for left and right panel
+//---------------------------------------
 class _BoxPanel extends StatelessWidget {
   const _BoxPanel({
     Key? key,
@@ -158,8 +156,8 @@ class _BoxPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          if (header != null) ...[header!, const SizedBox(height: 8)],
+          SizedBox(height: 8),
+          if (header != null) ...[header!,  SizedBox(height: 8)],
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -203,7 +201,10 @@ class _SearchHeader extends StatelessWidget {
 }
 
 class _ListTileCard extends StatelessWidget {
-  const _ListTileCard({Key? key, required this.label, required this.onTap}) : super(key: key);
+  const _ListTileCard({Key? key,
+    required this.label,
+    required this.onTap
+  }) : super(key: key);
   final String label;
   final VoidCallback onTap;
 
@@ -230,10 +231,9 @@ class _ListTileCard extends StatelessWidget {
     );
   }
 }
-
-/// ==============================
-/// LEFT: Facility list
-/// ==============================
+//---------------------------------------
+// Build the left list
+//---------------------------------------
 class _BookingLeftList extends StatefulWidget {
   const _BookingLeftList({
     Key? key,
@@ -260,6 +260,9 @@ class _BookingLeftListState extends State<_BookingLeftList> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _facilitiesStream() =>
       FirebaseFirestore.instance.collection('Facilities').orderBy('name').snapshots();
 
+//---------------------------------------
+// left list that shows facilities base on manager
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return _BoxPanel(
@@ -272,14 +275,16 @@ class _BookingLeftListState extends State<_BookingLeftList> {
       ),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _facilitiesStream(),
-        builder: (_, snap) {
+        builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: Text('Loading...'));
           }
           if (snap.hasError) {
             return const Center(child: Text('Failed to load'));
           }
-
+//---------------------------------------
+// if it is deleted, not equal to the manager id , wll not display for user the facility for book
+//---------------------------------------
           final q = widget.search.text.trim().toLowerCase();
           final results = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
           for (final d in (snap.data?.docs ?? [])) {
@@ -298,15 +303,36 @@ class _BookingLeftListState extends State<_BookingLeftList> {
 
           if (results.isEmpty) return const Center(child: Text('empty'));
 
-          return ListView.separated(
-            itemCount: results.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) {
-              final doc = results[i];
-              final data = doc.data();
-              final name = (data['name'] ?? '').toString();
-              return _ListTileCard(label: name, onTap: () => widget.onSelect(doc.id, data));
-            },
+          final List<Widget> children = <Widget>[];
+
+          for (int i = 0; i < results.length; i++) {
+            // take one document
+            final doc = results[i];
+
+            // get the map data safely
+            final Map<String, dynamic> data = doc.data();
+
+            // read the facility name (fallback to empty string)
+            final String name = (data['name'] ?? '').toString();
+
+            // add the tile
+            children.add(
+              _ListTileCard(
+                label: name,
+                onTap: () => widget.onSelect(doc.id, data), // call your onSelect
+              ),
+            );
+
+            // add space except after the last item
+            if (i < results.length - 1) {
+              children.add(SizedBox(height: 8.h)); // use .h for scaling
+            }
+          }
+
+// Return a normal ListView with our manually-built children
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(), // allow pull even if short
+            children: children,
           );
         },
       ),
@@ -314,9 +340,9 @@ class _BookingLeftListState extends State<_BookingLeftList> {
   }
 }
 
-/// ==============================
-/// RIGHT: Details + Make Booking
-/// ==============================
+//---------------------------------------
+// build right list
+//---------------------------------------
 class _BookingRightPanel extends StatelessWidget {
   const _BookingRightPanel({
     Key? key,
@@ -333,8 +359,14 @@ class _BookingRightPanel extends StatelessWidget {
   final VoidCallback onClose;
   final String? selectedFacilityId;
 
+//---------------------------------------
+// read if the field have value or not
+//---------------------------------------
   String _s(Map<String, dynamic>? m, String k) => (m == null) ? '-' : (m[k]?.toString() ?? '-');
 
+//---------------------------------------
+//get start and end time
+//---------------------------------------
   Map<String, String> _av(Map<String, dynamic>? m) {
     if (m != null && m['availableTime'] is Map) {
       final at = m['availableTime'] as Map;
@@ -343,10 +375,12 @@ class _BookingRightPanel extends StatelessWidget {
     return {'start': '-', 'end': '-'};
   }
 
+//---------------------------------------
+// convert to hh mm
+//---------------------------------------
   String _hhmm(String raw) {
     var s = raw.trim();
     if (s.isEmpty || s == '-') return '-';
-    s = s.replaceAll('.', ':');
     if (!s.contains(':')) {
       final d = s.replaceAll(RegExp(r'[^0-9]'), '');
       if (d.length == 3) return '0${d[0]}:${d.substring(1, 3)}';
@@ -359,18 +393,9 @@ class _BookingRightPanel extends StatelessWidget {
     return '$hh:$mm';
   }
 
-  String _ampm(String hhmm) {
-    if (!hhmm.contains(':')) return '-';
-    final p = hhmm.split(':');
-    var h = int.tryParse(p[0]) ?? 0;
-    final m = (int.tryParse(p[1]) ?? 0).toString().padLeft(2, '0');
-    String ap = 'am';
-    if (h == 0) h = 12;
-    else if (h == 12) ap = 'pm';
-    else if (h > 12) { h -= 12; ap = 'pm'; }
-    return '$h:$m $ap';
-  }
-
+//---------------------------------------
+// build right side big box
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return _BoxPanel(
@@ -391,13 +416,15 @@ class _BookingRightPanel extends StatelessWidget {
         child: const Center(child: Text('Please pick an option', style: TextStyle(fontWeight: FontWeight.w600))),
       );
     }
-
+//---------------------------------------
+// get all the data and list here
+//---------------------------------------
     final data = selectedFacilityData!;
     final name = _s(data, 'name');
     final at = _av(data);
     final start24 = _hhmm(at['start'] ?? '-');
     final end24 = _hhmm(at['end'] ?? '-');
-    final timeline = (start24 != '-' && end24 != '-') ? '$start24 – $end24 (${_ampm(start24)} – ${_ampm(end24)})' : '-';
+    final timeline = (start24 != '-' && end24 != '-') ? '$start24 – $end24' : '-';
     final loc = _s(data, 'location');
     final det = _s(data, 'details');
     final dur = _s(data, 'bookingDurationHours');
@@ -454,7 +481,6 @@ class _BookingRightPanel extends StatelessWidget {
     } else {
       // Try both common roots.
       bases.add('asset/image/$raw');   // your existing folder
-      bases.add('assets/image/$raw');  // optional fallback if some assets live here
     }
 
     List<String> variantsFor(String path) {
@@ -521,6 +547,9 @@ class _BookingRightPanel extends StatelessWidget {
     child: const Text('No Image', style: TextStyle(fontWeight: FontWeight.w600)),
   );
 
+//---------------------------------------
+// show row details
+//---------------------------------------
   Widget _row(String l, String v) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: Column(
@@ -534,9 +563,7 @@ class _BookingRightPanel extends StatelessWidget {
   );
 }
 
-/// ==============================
-/// Data model for suggestions
-/// ==============================
+
 class _UserPick {
   final String uid;
   final String username;
@@ -545,9 +572,9 @@ class _UserPick {
   _UserPick({required this.uid, required this.username, required this.email, required this.role});
 }
 
-/// ==============================
-/// Make Booking (compact)
-/// ==============================
+//---------------------------------------
+// Make Booking section
+//---------------------------------------
 class _MakeBookingSection extends StatefulWidget {
   const _MakeBookingSection({
     Key? key,
@@ -613,8 +640,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     _loadFacilityConfig();
     _userFocus.addListener(() {
       if (!_userFocus.hasFocus) {
-        Future.microtask(() {
-          if (mounted) setState(() => _showDropdown = false);
+        if (!mounted) return;
+        setState(() {
+          _showDropdown = false;
         });
       }
     });
@@ -650,17 +678,25 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     return '${h.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
   }
 
+//---------------------------------------
+// make it . between the time
+//---------------------------------------
   String _fmtDot(String s) {
     final p = _normalizeHHmm(s).split(':');
     return (p.length >= 2) ? '${p[0]}.${p[1]}' : s;
   }
-
+//---------------------------------------
+// turn them into slot key
+//---------------------------------------
   String _slotKeyFromStart(String s) {
     final n = _normalizeHHmm(s);
     return n.replaceAll(':', '');
     // e.g. "09:30" -> "0930"
   }
 
+//---------------------------------------
+// convert to real year month and date
+//---------------------------------------
   String _ymdOf(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   bool _isHoliday(DateTime d) => _offDays.contains(_ymdOf(d));
@@ -668,7 +704,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     final idx = d.weekday - 1;
     return (idx >= 0 && idx < _weekdayOpen.length) ? _weekdayOpen[idx] : true;
   }
-
+//---------------------------------------
+// turn the unavailable date to date format
+//---------------------------------------
   DateTime? _dateOnly(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) {
@@ -695,7 +733,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     final n = DateTime.now(), d = _selectedDate!;
     return n.year == d.year && n.month == d.month && n.day == d.day;
   }
-
+//---------------------------------------
+// check if slot is past already
+//---------------------------------------
   bool _slotIsPast(String key) {
     if (!_isTodaySelected() || key.length < 4) return false;
     final now = DateTime.now();
@@ -705,7 +745,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     return !now.isBefore(start);
   }
 
-  // ---------- Firestore loads ----------
+//---------------------------------------
+// load the off days from system information
+//---------------------------------------
   Future<void> _loadSettingsAndOffDays() async {
     setState(() => _loadingSettings = true);
     try {
@@ -737,18 +779,7 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
           }
         }
       }
-      if (set.isEmpty) {
-        final old = await FirebaseFirestore.instance.collection('SystemInformation').doc('OffDay').collection('Dates').get();
-        for (final d in old.docs) {
-          String y = (d.data()['dateYMD'] ?? '').toString().trim();
-          if (y.isEmpty) {
-            final v = d.data()['date'];
-            if (v is String) y = v.trim();
-            if (v is Timestamp) y = _ymdOf(v.toDate());
-          }
-          if (y.isNotEmpty) set.add(y);
-        }
-      }
+
       setState(() {
         _offDays
           ..clear()
@@ -760,7 +791,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       setState(() => _loadingSettings = false);
     }
   }
-
+//---------------------------------------
+// load the slot, unavailable date, and sort the slot, also load date that disable in facility
+//---------------------------------------
   Future<void> _loadFacilityConfig() async {
     setState(() => _loadingFacility = true);
     try {
@@ -768,14 +801,20 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       final fd = facDoc.data();
 
       _managerId = (fd?['managerId'] ?? '').toString();
+//---------------------------------------
+// get teh available slot
+//---------------------------------------
 
       int cap = 0;
-      for (final k in ['facilityAvailableSlots', 'availableSlots', 'seatCapacity', 'capacity', 'availableSeats']) {
+      for (final k in ['availableSlots']) {
         final v = fd?[k];
         if (v is int && v > 0) { cap = v; break; }
         if (v is double && v > 0) { cap = v.toInt(); break; }
         if (v is String) { final t = int.tryParse(v); if ((t ?? 0) > 0) { cap = t!; break; } }
       }
+//---------------------------------------
+// get the time slot
+//---------------------------------------
 
       final tmp = <Map<String, String>>[];
       final sub = await FirebaseFirestore.instance.collection('Facilities').doc(widget.facilityId).collection('customTimeSlots').get();
@@ -802,6 +841,10 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
         _slots
           ..clear()
           ..addAll(tmp);
+//---------------------------------------
+// get the inactaive date for that facility
+//---------------------------------------
+
         _inactiveFrom = _dateOnly(fd?['inactiveFrom']);
         _inactiveTo = _dateOnly(fd?['inactiveTo']);
       });
@@ -812,6 +855,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
+//---------------------------------------
+// load the the slot from database
+//---------------------------------------
   Future<void> _loadDayBooked(String ymd) async {
     setState(() {
       _loadingDayBooked = true;
@@ -830,9 +876,13 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       for (final d in snap.docs) {
         final m = d.data();
         int b = 0;
-        final v = m['booked'] ?? m['reserve'];
-        if (v is int) b = v;
-        if (v is double) b = v.toInt();
+//---------------------------------------
+// it find the document for each slot and find the booked quantity
+//---------------------------------------
+        final v = m['booked'];
+        if (v is int)
+          b = v;
+
         tmp[d.id] = b;
       }
       setState(() {
@@ -846,7 +896,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       setState(() => _loadingDayBooked = false);
     }
   }
-
+//---------------------------------------
+// load the seats for the time slot that is pick
+//---------------------------------------
   Future<void> _loadSeats(String ymd, String slotKey) async {
     setState(() {
       _loadingSeats = true;
@@ -869,6 +921,10 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       }
       final offset = (hasZero && !hasOne) ? 0 : 1;
 
+//---------------------------------------
+// so here check, if seat taken is true then the seat index here is true
+//---------------------------------------
+
       for (final d in seatsSnap.docs) {
         final idxRaw = int.tryParse(d.id) ?? -999;
         final idx = (offset == 1) ? idxRaw - 1 : idxRaw;
@@ -883,13 +939,17 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       setState(() => _loadingSeats = false);
     }
   }
-
-  // ---------- user lookups (exclude Admin/Manager) ----------
+//---------------------------------------
+// get student or lecturer role for booking
+//---------------------------------------
   bool _isAllowedRole(String role) {
     final r = role.toLowerCase().trim();
     return r == 'student' || r == 'lecturer';
   }
 
+//---------------------------------------
+// load the user in userinformation and get email and username
+//---------------------------------------
 
   Future<void> _loadUsersOnce() async {
     if (_loadingUsers || _all.isNotEmpty) return;
@@ -907,8 +967,8 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
         if (!_isAllowedRole(role)) continue;   // only Student / Lecturer
         tmp.add(_UserPick(
           uid: d.id,
-          username: (m['username'] ?? m['name'] ?? '').toString(),
-          email: (m['email'] ?? '').toString(),
+          username: (m['username']).toString(),
+          email: (m['email']).toString(),
           role: role,
         ));
       }
@@ -922,6 +982,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       setState(() => _loadingUsers = false);
     }
   }
+//---------------------------------------
+// when search button press, search for the user
+//---------------------------------------
   Future<String?> _findUserByQuery(String input) async {
     final q = input.trim();
     if (q.isEmpty) return null;
@@ -948,9 +1011,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
-
-
-
+//---------------------------------------
+// while searching for userm clears everything
+//---------------------------------------
   Future<void> _onUserChanged(String value) async {
     setState(() {
       _validatedUid = null;
@@ -974,6 +1037,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     await _loadUsersOnce();
 
     final found = <_UserPick>[];
+//---------------------------------------
+// find max 8 user only that are closest to key word
+//---------------------------------------
     for (final u in _all) {
       if (u.username.toLowerCase().contains(q) || u.email.toLowerCase().contains(q)) {
         found.add(u);
@@ -989,6 +1055,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     });
   }
 
+//---------------------------------------
+// after u pick the user form drop down
+//---------------------------------------
   void _pickSuggestion(_UserPick u) {
     if (!_isAllowedRole(u.role)) {
       _toast('Only Student or Lecturer can be booked.');
@@ -1018,10 +1087,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 
     _toast('User placed. Press Search to validate.');
   }
-
-
-
-
+//---------------------------------------
+// search user text box
+//---------------------------------------
   Future<void> _onSearchUser() async {
     final input = _userCtrl.text.trim();
     if (input.isEmpty) {
@@ -1047,6 +1115,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
         _toast('Not allowed to book for Admin or Manager accounts.');
         return;
       }
+//---------------------------------------
+// when user is found, set the value
+//---------------------------------------
       setState(() {
         _validatedUid = uid;
         _selectedDate = null;
@@ -1063,7 +1134,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
-  // ---------- conflicts ----------
+//---------------------------------------
+// check if there are conflict while making booking
+//---------------------------------------
   Future<String> _conflict({
     required String userId,
     required String dateYMD,
@@ -1084,15 +1157,15 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 
       for (final d in qs.docs) {
         final m = d.data();
-
+//---------------------------------------
+// make sure its no deleted
+//---------------------------------------
         final del = m['deleted'];
-        final isDeleted = (del is bool && del) ||
-            (del is String && ['true', '1', 'yes'].contains(del.toLowerCase().trim())) ||
-            (del is num && del != 0);
+        final isDeleted = del == 'true';
         if (isDeleted) continue;
 
         final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
-        if (!(ap == 'accepted' || ap == 'approved' || ap == 'pending')) continue;
+        if (!(ap == 'accepted' || ap == 'pending')) continue;
 
         var s = _normalizeHHmm((m['start'] ?? m['startTime'] ?? '').toString());
         if (s.isEmpty) continue;
@@ -1101,7 +1174,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 
         final es = _hmToMin(s), ee = _hmToMin(e);
         if (sM < ee && eM > es) {
+          //overlap time
           return 'Overlap with other booking ${_fmtDot(s)} - ${_fmtDot(e)}. '
+          //new time
               'New time ${_fmtDot(sN)} - ${_fmtDot(eN)} is not allowed.';
         }
       }
@@ -1111,7 +1186,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
-  // ---------- calendar ----------
+//---------------------------------------
+// show in calendar whcih date and day can be book
+//---------------------------------------
   bool _selectable(DateTime d) {
     if (_isHoliday(d) || !_isWorkingDay(d)) return false;
     if (_inactiveFrom != null && _inactiveTo != null) {
@@ -1129,7 +1206,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     while (!c.isBefore(first)) { if (_selectable(c)) return c; c = c.subtract(const Duration(days: 1)); }
     return null;
   }
-
+//---------------------------------------
+// allow user to pick a date which is not holiday and offday
+//---------------------------------------
   Future<void> _pickDate() async {
     if (_offDays.isEmpty && !_loadingSettings) {
       _loadSettingsAndOffDays(); // fire-and-forget
@@ -1142,9 +1221,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: init,
-      firstDate: first,
-      lastDate: last,
+      initialDate: init, //selectable date
+      firstDate: first,// show today until last date only can be book
+      lastDate: last, //last date show until next year
       selectableDayPredicate: _selectable,
     );
 
@@ -1162,8 +1241,13 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
-  // ---------- confirm ----------
+//---------------------------------------
+// when confirm booking is press
+//---------------------------------------
   Future<void> _onConfirm() async {
+//---------------------------------------
+// check every thing is get or return false
+//---------------------------------------
     if (_validatedUid == null || _validatedUid!.isEmpty) { _toast('Pick a user first.'); return; }
     if (_ymd.isEmpty) { _toast('Please pick a date.'); return; }
     if (_slotKey.isEmpty) { _toast('Please pick a time slot.'); return; }
@@ -1173,6 +1257,10 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     if (me.isEmpty) { _toast('Please sign in.'); return; }
 
     final ts = _slots.firstWhere((m) => m['key'] == _slotKey, orElse: () => <String, String>{});
+
+//---------------------------------------
+// get start time and end time for the picked slot
+//---------------------------------------
     final selStart = _normalizeHHmm((ts['start'] ?? '').trim());
     final selEndCheck = _normalizeHHmm((ts['end'] ?? '').trim().isEmpty ? _endForStart(selStart) : (ts['end'] ?? '').trim());
 
@@ -1226,6 +1314,10 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
         facilityId: widget.facilityId,
         managerId: _managerId ?? '-',
         approval: 'accepted',
+        start: selStart,
+        end: selEndCheck,
+        bookingDate: _ymd,
+        seatIndex: seat1,
       );
 
       _toast('Booking created.');
@@ -1235,7 +1327,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     }
   }
 
-  // ---------- UI ----------
+//---------------------------------------
+// main build for the booking panel
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -1265,7 +1359,7 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
                         focusNode: _userFocus,
                         controller: _userCtrl,
                         onChanged: (v) => _onUserChanged(v),
-                        onSubmitted: (_) => _onSearchUser(), // ← add this
+                        onSubmitted: (_) => _onSearchUser(),
                         keyboardType: TextInputType.text,
                         inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
                         decoration: InputDecoration(
@@ -1293,7 +1387,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
                   ),
                 ],
               ),
-
+//---------------------------------------
+// if it shows drop down means there is user
+//---------------------------------------
               if (_showDropdown) ...[
                 const SizedBox(height: 6),
                 Container(
@@ -1332,7 +1428,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
                           ),
-                          // keep onTap if you want, but onPointerDown is the important one
+//---------------------------------------
+// if u tap them
+//---------------------------------------
                           onTap: () => _pickSuggestion(u),
                         ),
                       );
@@ -1367,16 +1465,20 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
                 _loading('Loading calendar rules...'),
               ],
 
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
+              SizedBox(height: 16),
+              Divider(height: 1),
+              SizedBox(height: 12),
 
               _title('2) Choose Time Slot'),
               const SizedBox(height: 8),
               if (_ymd.isEmpty)
                 _hint('Pick a date first.')
               else
+//---------------------------------------
+// bring u to place that display time slot
+//---------------------------------------
                 _slotWrap(),
+
               if (_loadingFacility || _loadingDayBooked) ...[
                 const SizedBox(height: 10),
                 _loading('Loading time slots...'),
@@ -1391,6 +1493,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
               if (_slotKey.isEmpty)
                 _hint('Pick a time slot first.')
               else
+//---------------------------------------
+// bring u to place that display seat slot
+//---------------------------------------
                 _seatWrap(),
               if (_loadingSeats) ...[
                 const SizedBox(height: 10),
@@ -1412,6 +1517,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
                     ),
                   ),
                   const SizedBox(width: 8),
+//---------------------------------------
+// when confirm button press
+//---------------------------------------
                   ElevatedButton(
                     onPressed: (_validatedUid == null) ? null : _onConfirm,
                     child: const Padding(
@@ -1428,7 +1536,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     );
   }
 
-  // --- Small UI helpers ---
+//---------------------------------------
+// widget decoration
+//---------------------------------------
   Widget _title(String s) => Text(s, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF111827)));
   Widget _hint(String s) => Text(s, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)));
   Widget _loading(String s) => Row(children: [const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 8), Expanded(child: Text(s, style: const TextStyle(fontSize: 12)))]);
@@ -1455,6 +1565,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
     );
   }
 
+//---------------------------------------
+// show each time slot box
+//---------------------------------------
   Widget _slotBox(Map<String, String> s) {
     final start = s['start'] ?? '';
     final end = s['end'] ?? '';
@@ -1462,20 +1575,29 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 
     final past = _slotIsPast(key);
     final booked = _dayBooked[key] ?? 0;
+//---------------------------------------
+// since we got the daybooked key then we check if the capacity which is the available slot is bigger than the booked in the slot
+// list all the time slot with colour
+//---------------------------------------
     final full = _capacity > 0 && booked >= _capacity;
     final selected = _slotKey == key;
 
     Color bg; Color fg; BoxDecoration deco;
     if (past) {
-      bg = const Color(0xFFE5E7EB); fg = const Color(0xFF9CA3AF); deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder));
+      bg = const Color(0xFFE5E7EB); fg = const Color(0xFF9CA3AF);
+      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _cBorder));
     } else if (full) {
-      bg = _cFull; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
+      bg = _cFull; fg = Colors.white;
+      deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
     } else if (selected) {
       bg = _cSelected; fg = Colors.white; deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10));
     } else {
       bg = Colors.white; fg = const Color(0xFF111827); deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: _cBorder));
     }
-
+//---------------------------------------
+// display the time in each slot
+//---------------------------------------
     final label = start.isNotEmpty
         ? (end.isNotEmpty ? '${_fmtDot(start)} - ${_fmtDot(end)}' : _fmtDot(start))
         : key;
@@ -1484,6 +1606,10 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       onTap: () async {
         if (past) { _toast('This time slot has already passed.'); return; }
         if (full) { _toast('This time slot is full.'); return; }
+
+//---------------------------------------
+// so it will hold the slot key for now when it was selected
+//---------------------------------------
         setState(() {
           _slotKey = key;
           _seatIdx = -1;
@@ -1498,7 +1624,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       ),
     );
   }
-
+//---------------------------------------
+// display a space for seat slot
+//---------------------------------------
   Widget _seatWrap() {
     if (_capacity <= 0 && !_loadingSeats) return _hint('No seat capacity set for this facility.');
     return Container(
@@ -1512,7 +1640,9 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
       ),
     );
   }
-
+//---------------------------------------
+// list all the seat slot with colour
+//---------------------------------------
   Widget _seatBox(int index) {
     final taken = (index < _seatTaken.length) ? (_seatTaken[index] == true) : false;
     final selected = (_seatIdx == index);
@@ -1536,6 +1666,7 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
         height: 44,
         alignment: Alignment.center,
         decoration: deco,
+        //becasue always start from 0 so +1 to see the correct slots
         child: Text('${index + 1}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
       ),
     );

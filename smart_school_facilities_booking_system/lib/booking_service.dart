@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;     // to skip on web
 import 'package:firebase_auth/firebase_auth.dart';        // (optional) if you want uid checks later
 
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BookingService {

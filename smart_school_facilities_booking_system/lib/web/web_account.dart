@@ -296,7 +296,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-  // SAVERS
+//---------------------------------------
+// save account
+//---------------------------------------
   Future<void> _saveAccountInfo() async {
     if (userDocId == null) return;
 
@@ -510,8 +512,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
     return null;
   }
-
-  // existing booking conflict finder
+//---------------------------------------
+// find if there is any booking conflicts
+//---------------------------------------
   Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
@@ -569,7 +572,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       workingDays = Map<String, bool>.from(_originalWorkingDays);
     });
   }
-
+//---------------------------------------
+// make default for all holiday
+//---------------------------------------
   void _defaultHolidays() {
     setState(() {
       // clear the UI-only set
@@ -577,7 +582,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       _offDirty = !_setsEqual(_offDaysYMD, _offDaysSaved);
     });
   }
-
+//---------------------------------------
+// cancel holiday, make the list back to previous
+//---------------------------------------
   void _cancelHolidays() {
     setState(() {
       // revert UI to DB snapshot
@@ -690,7 +697,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       const SnackBar(content: Text('Working days saved & users notified')),
     );
   }
-
+//---------------------------------------
+// when apply holiday save to database
+//---------------------------------------
   Future<void> _applyHolidays() async {
     try {
       // write the entire working list exactly as shown in UI
@@ -790,7 +799,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     await Future.wait(tasks);
   }
-
+//---------------------------------------
+// send mail to booking taht have conflict
+//---------------------------------------
   Future<void> _emitRequestUpdateForBooking(String bookingId, Map<String, dynamic> b) async {
     final String userUid = _readFirstStr(b, ['userId']);
     if (userUid.isEmpty) return;
@@ -868,7 +879,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     return;
   }
 
-
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
@@ -893,12 +906,16 @@ class _AdminWebAccountState extends State<WebAccount> {
         child: WebCustomTopBar(use24HourFormat: use24HourFormat),
       ),
       body: isLoading ? const Center(child: CircularProgressIndicator()) : ( isAdmin
-          // ===== Admin keeps the 2-column layout =====
+//---------------------------------------
+// if is admin build right and left
+//---------------------------------------
           ? SingleChildScrollPane(
         leftChild: _buildLeftColumn(true,  screenHeight, emailStr, statusText),
         rightChild: _buildRightColumn(true),
       )
-      // manager: build your separate centered account panel (unchanged)
+//---------------------------------------
+// if not only build one
+//---------------------------------------
           : Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 520.w),
@@ -919,7 +936,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
     return regex.hasMatch(password);
   }
-
+//---------------------------------------
+// show the pop up for change password
+//---------------------------------------
   Future<void> _openChangePasswordDialog() async {
     // controllers
     final TextEditingController _oldCtrl = TextEditingController();
@@ -1114,8 +1133,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       },
     );
   }
-
-  // build the left column at the left side of account page
+//---------------------------------------
+// build left list for account page
+//---------------------------------------
   Widget _buildLeftColumn(bool isAdmin, double screenHeight, String emailStr, String statusText) {
     return Center(
       child: ConstrainedBox(
@@ -1127,7 +1147,9 @@ class _AdminWebAccountState extends State<WebAccount> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                // ---- Account (unchanged) ----
+//---------------------------------------
+// Account setting
+//---------------------------------------
                 Text("Account Settings",
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold)),
@@ -1247,7 +1269,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                 ),
 
                 SizedBox(height: 16.h),
-
+//---------------------------------------
+// log out pop up
+//---------------------------------------
                 SizedBox(
                   width: double.infinity,
                   height: 48.h,
@@ -1272,7 +1296,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       ),
     );
   }
-
+//---------------------------------------
+// right column
+//---------------------------------------
   Widget _buildRightColumn(bool isAdmin) {
       return Center(
         child: ConstrainedBox(
@@ -1297,7 +1323,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ---------------- LEFT of System Setting ----------------
+//---------------------------------------
+// left part of system setting
+//---------------------------------------
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1348,7 +1376,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                             ),
 
                             SizedBox(height: 10.h),
-
+//---------------------------------------
+// if edit hour is press
+//---------------------------------------
                             _editWorkingHour ?
                             Row(
                               children: [
@@ -1369,6 +1399,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 SizedBox(
                                   height: 40.h,
                                   child: ElevatedButton(
+//---------------------------------------
+// pop up when apply working hour
+//---------------------------------------
                                     onPressed: () async {
                                       final ok = await _confirmAction(
                                         'Apply working hour?',
@@ -1403,7 +1436,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
                             SizedBox(height: 75.h),
 
-                            // Working Days
+//---------------------------------------
+// working day
+//---------------------------------------
                             Text("Workdays",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             Column(
@@ -1444,6 +1479,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 SizedBox(
                                   height: 40.h,
                                   child: ElevatedButton(
+//---------------------------------------
+// pop up when press confirm
+//---------------------------------------
                                     onPressed: () async {
                                       final ok = await _confirmAction(
                                         'Apply working days?',
@@ -1477,7 +1515,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
                       SizedBox(width: 24.w),
 
-                      // ---------------- RIGHT of System Setting ----------------
+//---------------------------------------
+// right side of system setting
+//---------------------------------------
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1518,6 +1558,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 SizedBox(
                                   height: 40.h,
                                   child: ElevatedButton(
+//---------------------------------------
+// pop up when apply holiday is press
+//---------------------------------------
                                     onPressed: () async {
                                       final ok = await _confirmAction(
                                         'Apply holidays?',
@@ -1547,15 +1590,15 @@ class _AdminWebAccountState extends State<WebAccount> {
 
                             SizedBox(height: 24.h),
 
-                            // Time Format (moved to the right column per your spec)
-                            Text("Time Format",
-                                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text("Use 24-Hour Format"),
-                              value: use24HourFormat,
-                              onChanged: (bool? v) => _saveTimeFormat(v ?? true),
-                            ),
+                            // // Time Format (moved to the right column per your spec)
+                            // Text("Time Format",
+                            //     style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                            // CheckboxListTile(
+                            //   contentPadding: EdgeInsets.zero,
+                            //   title: const Text("Use 24-Hour Format"),
+                            //   value: use24HourFormat,
+                            //   onChanged: (bool? v) => _saveTimeFormat(v ?? true),
+                            // ),
                           ],
                         ),
                       ),
@@ -1596,7 +1639,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
-  // -------------------- Off Days Calendar UI (unchanged) --------------------
+//---------------------------------------
+// build the calender
+//---------------------------------------
   Widget _buildOffDaysCalendarCard() {
     return Container(
       decoration: BoxDecoration(
@@ -1737,6 +1782,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
+//---------------------------------------
+// set off day cell
+//---------------------------------------
   Widget _offDayCell({
     required double width,
     required double height,
@@ -1746,13 +1794,19 @@ class _AdminWebAccountState extends State<WebAccount> {
     required bool isHoliday,
     required DateTime? date,
   }) {
+
     Color border = const Color(0xFFE5E7EB);
     Color bg = Colors.white;
     Color text = const Color(0xFF111827);
-
+//---------------------------------------
+// set colour to grey for unable date
+//---------------------------------------
     if (!inMonth) text = const Color(0xFF9CA3AF);
     if (isDisabled && inMonth) text = const Color(0xFF9CA3AF);
 
+//---------------------------------------
+// save colour for picked holiday cell
+//---------------------------------------
     if (isHoliday) {
       bg = const Color(0xFFDBEAFE);
       border = const Color(0xFF1D4ED8);
@@ -1791,7 +1845,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-  // -------- off-days helpers (unchanged behavior) --------
+//---------------------------------------
+// convert to string pattern for date
+//---------------------------------------
   String _ymd(DateTime d) {
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
@@ -1808,7 +1864,9 @@ class _AdminWebAccountState extends State<WebAccount> {
   int _leadingEmptyCells(DateTime firstOfMonth) {
     return firstOfMonth.weekday % 7; //This return value tells you how many empty boxes to put before “1” of the month.
   }
-
+//---------------------------------------
+// set month name
+//---------------------------------------
   String _monthName(int m) {
     const names = [
       'January','February','March','April','May','June',
@@ -1835,9 +1893,11 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
     return true;
   }
-
+//---------------------------------------
+// check if it can be holiday, block past and today
+//---------------------------------------
   Future<void> _toggleOffDay(DateTime date) async {
-    // ONLY change local state; do NOT write to Firestore here
+
     final todayOnly = DateUtils.dateOnly(DateTime.now());
     final dateOnly  = DateUtils.dateOnly(date);
     if (!dateOnly.isAfter(todayOnly)) {
@@ -1880,7 +1940,9 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 }
 
-// This widget builds the Admin layout only: LEFT = Account, RIGHT = System Settings.
+//---------------------------------------
+//  main build part that decide which at the left amd right
+//---------------------------------------
 
 class SingleChildScrollPane extends StatelessWidget {
   // left side content (Account panel)

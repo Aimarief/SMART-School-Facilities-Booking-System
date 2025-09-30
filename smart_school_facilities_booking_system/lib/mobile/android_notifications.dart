@@ -1,4 +1,3 @@
-// lib/android_notifications.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,20 +20,24 @@ class AndroidNotifications extends StatefulWidget {
 }
 
 class _AndroidNotificationsState extends State<AndroidNotifications> {
-  int _currentIndex = 3; // this page = fourth tab
+  //---------------------------------------
+// current index page
+//---------------------------------------
+  int _currentIndex = 3;
 
-  // ---------- state (same behavior as web left panel) ----------
   String _filter = 'none'; // 'none' | 'unread' | 'read'
   bool _dateFilterOn = false;
   DateTime _selectedDay = DateTime.now();
 
-  // cache to resolve bookedBy → email for the chip subtitle
+
   final Map<String, String> _emailCache = <String, String>{};
   final Set<String> _emailLoading = <String>{};
   final Map<String, String> _facilityNameCache = <String, String>{};
   final Set<String> _facilityLoading = <String>{};
 
-  // ---------- nav ----------
+//---------------------------------------
+// bottom navigate page
+//---------------------------------------
   void _onTabSelected(int i) {
     if (i == 0) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
@@ -49,9 +52,14 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     }
   }
 
-  // ---------- helpers ----------
+//---------------------------------------
+// get current user id
+//---------------------------------------
   String _currentUid() => FirebaseAuth.instance.currentUser?.uid ?? '';
 
+  //---------------------------------------
+// get all inbox and decending = true , from earliest to latest
+//---------------------------------------
   Stream<QuerySnapshot<Map<String, dynamic>>> _inboxStream() {
     final uid = _currentUid();
     if (uid.isEmpty) {
@@ -65,21 +73,39 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
         .snapshots();
   }
 
+  //---------------------------------------
+// when press filter button it will change
+//---------------------------------------
   String _nextFilter(String f) => f == 'none' ? 'unread' : (f == 'unread' ? 'read' : 'none');
 
+  //---------------------------------------
+// check if same day
+//---------------------------------------
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+  //---------------------------------------
+// change to date format
+//---------------------------------------
   DateTime? _tsToDate(dynamic v) => (v is Timestamp) ? v.toDate() : null;
 
+  //---------------------------------------
+// change to ymd format
+//---------------------------------------
   String _toYMD(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+  //---------------------------------------
+// change to day month year format
+//---------------------------------------
   String _formatLongDate(DateTime d) {
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${d.day} ${months[d.month - 1]} ${d.year}';
   }
 
+  //---------------------------------------
+// change to having am and pm format
+//---------------------------------------
   String _formatTimeShort(DateTime d) {
     int hh = d.hour;
     final mm = d.minute;
@@ -92,6 +118,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     return '$disp:$mmStr $ap';
   }
 
+  //---------------------------------------
+// open calender
+//---------------------------------------
   Future<void> _openDayPicker() async {
     final today = DateTime.now();
     final first = DateTime(today.year - 1, today.month, today.day);
@@ -104,7 +133,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
       lastDate: last,
       builder: (ctx, child) => child ?? const SizedBox(),
     );
-
+//---------------------------------------
+// set state when date is pick
+//---------------------------------------
     if (picked != null) {
       setState(() {
         _selectedDay = picked;
@@ -112,23 +143,30 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
       });
     }
   }
-
+//---------------------------------------
+// mark the notifiation as read after open
+//---------------------------------------
   Future<void> _markAsRead(DocumentReference<Map<String, dynamic>> ref) async {
     try {
       await ref.update({'isRead': true, 'readAt': FieldValue.serverTimestamp()});
     } catch (_) {}
   }
 
-  // visibility: if the mail is actually for this user (like the web left)
+//---------------------------------------
+// check to make sure the mail is for this user role
+//---------------------------------------
   bool _canSee(Map<String, dynamic> m, String uid) {
     if (uid.isEmpty) return false;
-    String recipient = (m['recipientId'] ?? '').toString().trim();
-    String manager   = (m['managerId']   ?? '').toString().trim();
-    String bookedBy  = (m['bookedBy']    ?? m['bookBy'] ?? '').toString().trim();
-    String createdBy = (m['createdBy']   ?? m['creatorUid'] ?? m['creatorId'] ?? '').toString().trim();
+    String recipient = (m['recipientId'] ).toString().trim();
+    String manager   = (m['managerId'] ).toString().trim();
+    String bookedBy  = (m['bookedBy'] ).toString().trim();
+    String createdBy = (m['createdBy']  ).toString().trim();
     return recipient == uid || manager == uid || bookedBy == uid || createdBy == uid;
   }
 
+  //---------------------------------------
+// save the facility in cached
+//---------------------------------------
   Future<void> _ensureFacilityNameCached(String facilityId) async {
     if (facilityId.isEmpty || _facilityNameCache.containsKey(facilityId) || _facilityLoading.contains(facilityId)) return;
     _facilityLoading.add(facilityId);
@@ -137,7 +175,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
       final m = doc.data();
       String name = '';
       if (m != null) {
-        name = (m['name'] ?? m['facilityName'] ?? '').toString().trim();
+        name = (m['name']).toString().trim();
       }
       _facilityNameCache[facilityId] = name.isEmpty ? facilityId : name;
       if (mounted) setState(() {});
@@ -148,23 +186,26 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     }
   }
 
-// prefer inline facilityName from the mail; otherwise fetch by facilityId
+//---------------------------------------
+// save the facility name for mail in cache
+//---------------------------------------
   String _facilityNameForMail(Map<String, dynamic> m) {
-    final inline = _readFirstStr(m, ['facilityName','facility','facilityTitle']);
+    final inline = _readFirstStr(m, ['facilityName']);
     if (inline.isNotEmpty) return inline;
 
-    final fid = _readFirstStr(m, ['facilityId','facilityID','facilityDocId']);
+    final fid = _readFirstStr(m, ['facilityId']);
     if (fid.isEmpty) return '-';
 
     final cached = _facilityNameCache[fid];
     if (cached != null && cached.isNotEmpty) return cached;
 
-    _ensureFacilityNameCached(fid); // async fill
+    _ensureFacilityNameCached(fid);
     return '…';
   }
 
-
-  // group by date — no special "Just" bucket; always show the date
+//---------------------------------------
+// filter the mail by read or not read and date then add to list
+//---------------------------------------
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDate(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     final Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> groups = {};
@@ -181,6 +222,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
       final ts = _tsToDate(m['createdAt']);
       if (ts == null) continue;
       if (_dateFilterOn && !_sameDay(ts, _selectedDay)) continue;
+//---------------------------------------
+// save key (date) and value data
+//---------------------------------------
 
       final key = _toYMD(ts);
       groups.putIfAbsent(key, () => []);
@@ -188,13 +232,18 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     }
     return groups;
   }
-
+//---------------------------------------
+// sort by date
+//---------------------------------------
   List<String> _sortedGroupKeys(Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> g) {
     final keys = g.keys.toList();
     keys.sort((a, b) => a == b ? 0 : (a.compareTo(b) > 0 ? -1 : 1)); // desc by date string
     return keys;
   }
 
+  //---------------------------------------
+// fromat date at the header
+//---------------------------------------
   Widget _groupHeader(String ymd) {
     DateTime? d;
     try {
@@ -210,7 +259,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     );
   }
 
-  // email cache
+  //---------------------------------------
+// chache the email
+//---------------------------------------
   Future<void> _ensureEmailCached(String uid) async {
     if (uid.isEmpty || _emailCache.containsKey(uid) || _emailLoading.contains(uid)) return;
     _emailLoading.add(uid);
@@ -219,7 +270,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
       final m = doc.data();
       String email = '';
       if (m != null) {
-        email = (m['email'] ?? m['userEmail'] ?? m['emailAddress'] ?? '').toString().trim();
+        email = (m['email']).toString().trim();
       }
       _emailCache[uid] = email.isEmpty ? uid : email;
       if (mounted) setState(() {});
@@ -240,67 +291,73 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     }
     return '';
   }
-// 1) add this helper near your other helpers
-  bool _isAmendment(Map<String, dynamic> m) {
-    final v = m['isAmendment'] ?? m['amendment'] ?? m['amend'];
-    if (v is bool && v) return true;
-    if (v is String && v.toLowerCase().contains('amend')) return true;
 
-    // also treat presence of amendmentId as amendment
+//---------------------------------------
+// check if the email is amendment mail
+//---------------------------------------
+  bool _isAmendment(Map<String, dynamic> m) {
+    final v = m['isAmendment'] ;
+    if (v is bool && v)
+      return true;
+
     final amendId = (m['amendmentId'] ?? '').toString().trim();
     if (amendId.isNotEmpty) return true;
 
-    final mode = (m['mode'] ?? m['requestType'] ?? m['action'] ?? '').toString().toLowerCase();
+    final mode = ( m['requestType'] ).toString().toLowerCase();
     return mode.contains('amend');
   }
 
 
-
-  String _displayForUid(String uid) {
-    if (uid.isEmpty) return '-';
-    final cached = _emailCache[uid];
-    if (cached != null && cached.isNotEmpty) return cached;
-    _ensureEmailCached(uid); // async fill; will setState() when ready
-    return '…';
-  }
-
-  /// Title builder that handles approval_status
+//---------------------------------------
+// decide the title for mail
+//---------------------------------------
   String _titleForMail(Map<String, dynamic> m) {
     final type = m['type']?.toString() ?? '';
 
+    //---------------------------------------
+// if mail type is approval
+//---------------------------------------
     if (type == 'approval_status') {
-      final rawAppr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
-      final isAccepted = rawAppr.contains('accept') || rawAppr.contains('approv');
-      final isRejected = rawAppr.contains('reject') || rawAppr.contains('declin') || rawAppr.contains('deni');
+      final rawAppr = (m['approval'] ).toString().toLowerCase();
+      final isAccepted = rawAppr.contains('accepted') ;
+      final isRejected = rawAppr.contains('rejected');
       final label = isRejected ? 'Rejected' : (isAccepted ? 'Approved' : 'Updated');
       return 'Facility $label';
     }
-
+//---------------------------------------
+// if mail type is booking created check if is pending or amendment
+//---------------------------------------
     if (type == 'booking_created') {
       final ap = (m['approval'] ?? '').toString().toLowerCase();
       if (ap == 'pending') {
-        // 👇 Only pending “booking_created” from an amendment gets the suffix
         return _isAmendment(m)
             ? 'Facility pending request (Amendment)'
             : 'Facility pending request';
       }
       return 'Booked Successfully';
     }
-
+//---------------------------------------
+// if booking is updated
+//---------------------------------------
     if (type == 'booking_updated') {
       // leave “update” titles exactly as you have them
       final ap = (m['approval'] ?? '').toString().toLowerCase();
       if (ap == 'pending') return 'Facility pending request';
       return 'Booking updated';
     }
-
+//---------------------------------------
+// for request update facility
+//---------------------------------------
     if (type == 'request_update') return 'Action needed';
+    //---------------------------------------
+// for booking deleted facility
+//---------------------------------------
     if (type == 'booking_deleted') return 'Delete Booking';
     return 'Message';
   }
-
-
-  // ---------- UI ----------
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double barHeight = MediaQuery.of(context).size.height * 0.07;
@@ -329,7 +386,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
         child: Column(
           children: [
-            // Row 1: Filter cycler + Settings (no-op) + "All"/date + Calendar
+//---------------------------------------
+// filter button
+//---------------------------------------
             Row(
               children: [
                 Tooltip(
@@ -356,6 +415,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
                   ),
                 ),
                 SizedBox(width: 8.w),
+//---------------------------------------
+// navigate to notification settting page
+//---------------------------------------
                 SizedBox(
                   width: 40.w,
                   height: 40.h,
@@ -371,7 +433,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
                   ),
                 ),
                 const Spacer(),
-                // label "All" (no filter) or chosen date
+//---------------------------------------
+// display date and date picker
+//---------------------------------------
                 Text(
                   _dateFilterOn ? _formatLongDate(_selectedDay) : 'All',
                   style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700),
@@ -389,8 +453,10 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
               ],
             ),
             SizedBox(height: 10.h),
+//---------------------------------------
+// build the notification list
+//---------------------------------------
 
-            // List (groups + chips) — same look as web left
             Expanded(
               child: _buildList(),
             ),
@@ -406,11 +472,19 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     );
   }
 
+  //---------------------------------------
+// build the list
+//---------------------------------------
+
   Widget _buildList() {
     final uid = _currentUid();
     if (uid.isEmpty) {
       return Center(child: Text('Please sign in', style: TextStyle(fontSize: 14.sp)));
     }
+    //---------------------------------------
+// get the inbox of that user from database
+//---------------------------------------
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _inboxStream(),
       builder: (context, snap) {
@@ -423,12 +497,17 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
         if (!snap.hasData || snap.data!.docs.isEmpty) {
           return Center(child: Text('No notifications', style: TextStyle(fontSize: 14.sp)));
         }
+//---------------------------------------
+// make the filter of inbox by filetr and date
+//---------------------------------------
 
         final groups = _groupByDate(snap.data!.docs);
         if (groups.isEmpty) {
           return Center(child: Text('No notifications', style: TextStyle(fontSize: 14.sp)));
         }
-
+//---------------------------------------
+// sort it by date
+//---------------------------------------
         final keys = _sortedGroupKeys(groups);
         return ListView.builder(
           itemCount: keys.length,
@@ -441,8 +520,14 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+//---------------------------------------
+// display formated date at top of each date
+//---------------------------------------
                   _groupHeader(k),
                   SizedBox(height: 6.h),
+//---------------------------------------
+// build each notifiacation
+//---------------------------------------
                   ..._buildChipList(items),
                 ],
               ),
@@ -453,32 +538,47 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     );
   }
 
+  //---------------------------------------
+// build each notification
+//---------------------------------------
+
   List<Widget> _buildChipList(List<QueryDocumentSnapshot<Map<String, dynamic>>> items) {
     final children = <Widget>[];
     for (final d in items) {
       final m = d.data();
 
-      // Title by type
+//---------------------------------------
+// get the title
+//---------------------------------------
       String title = _titleForMail(m);
 
       final String type = m['type']?.toString() ?? '';
-      final String facilityName = _readFirstStr(m, ['facilityName', 'facility', 'facilityTitle']);
-      String subtitle;
+      final String facilityName = _readFirstStr(m, ['facilityName']);
+//---------------------------------------
+// decide the subtitle
+//---------------------------------------
 
+      String subtitle;
+//---------------------------------------
+// for approval type
+//---------------------------------------
       if (type == 'approval_status') {
-        final rawAppr = (m['approval'] ?? m['approvalStatus'] ?? '').toString().toLowerCase();
-        final isAccepted = rawAppr.contains('accept') || rawAppr.contains('approv');
-        final isRejected = rawAppr.contains('reject') || rawAppr.contains('declin') || rawAppr.contains('deni');
+        final rawAppr = (m['approval'] ).toString().toLowerCase();
+        final isAccepted = rawAppr.contains('accept');
+        final isRejected = rawAppr.contains('reject');
         final verdict = isRejected ? 'rejected' : (isAccepted ? 'accepted' : 'updated');
+
         subtitle = 'The ${facilityName.isEmpty ? '-' : facilityName} is $verdict';
+//---------------------------------------
+// for booking created type
+//---------------------------------------
       } else if (type == 'booking_created') {
-        // pending -> waiting for approval
         final ap = (m['approval'] ?? '').toString().toLowerCase();
         if (ap == 'pending') {
           final facLbl = facilityName.isEmpty ? 'Facility' : facilityName;
           subtitle = '$facLbl is currently waiting for approval';
         } else {
-          final String bookedUid = _readFirstStr(m, ['bookedBy','bookBy']);
+          final String bookedUid = _readFirstStr(m, ['bookedBy']);
           String email = '-';
           if (bookedUid.isNotEmpty) {
             final cached = _emailCache[bookedUid];
@@ -489,10 +589,16 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
               email = '…';
             }
           }
+//---------------------------------------
+// if its not pending then show
+//---------------------------------------
           subtitle = 'The ${facilityName.isEmpty ? '-' : facilityName} is booked by $email';
         }
+
+//---------------------------------------
+// if it is booking updated
+//---------------------------------------
       } else if (type == 'booking_updated') {
-        // pending -> waiting for approval
         final ap = (m['approval'] ?? '').toString().toLowerCase();
         if (ap == 'pending') {
           final facLbl = facilityName.isEmpty ? 'Facility' : facilityName;
@@ -509,20 +615,27 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
               email = '…';
             }
           }
+//---------------------------------------
+// if it is not pending
+//---------------------------------------
           subtitle = 'The ${facilityName.isEmpty ? '-' : facilityName} is booked by $email';
         }
+//---------------------------------------
+// if it is calling user to update facility time
+//---------------------------------------
       } else if (type == 'request_update') {
-        // --- NEW: fixed subtitle text for request_update ---
-        // keep exactly the sentence you asked for
         subtitle = 'Your booking facility have been disable. Please update.';
 
+//---------------------------------------
+// if the booking is deleted
+//---------------------------------------
       } else if (type == 'booking_deleted') {
         final String facName = _facilityNameForMail(m);
         subtitle = 'Your booked ${facName.isEmpty ? '-' : facName} have been deleted';
 
       } else {
         // default behavior (unchanged)
-        final String bookedUid = _readFirstStr(m, ['bookedBy','bookBy']);
+        final String bookedUid = _readFirstStr(m, ['bookedBy']);
         String email = '-';
         if (bookedUid.isNotEmpty) {
           final cached = _emailCache[bookedUid];
@@ -536,10 +649,15 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
         subtitle = 'The ${facilityName.isEmpty ? '-' : facilityName} is booked by $email';
       }
 
-
-      // isRead color + date+time
+//---------------------------------------
+// check if the mail is readed
+//---------------------------------------
       final bool isRead = (m['isRead'] == true);
       String timeLbl = '-';
+//---------------------------------------
+// format the date
+//---------------------------------------
+
       final created = _tsToDate(m['createdAt']);
       if (created != null) {
         final dateLbl = _formatLongDate(created);
@@ -555,13 +673,13 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
           isRead: isRead,
           onTap: () async {
             if (!isRead) await _markAsRead(d.reference);
-
-            final String facilityId = (m['facilityId'] ?? m['facilityID'] ?? m['facilityDocId'] ?? '').toString();
-            final String bookingId = (m['bookingId'] ?? m['booking_id'] ?? m['bookingID'] ?? '').toString();
-            // IMPORTANT: We pass the *absolute* path of this Inbox doc to the details page
-            // so it can stream it directly. That avoids guessing the current user uid again.
+            final String facilityId = (m['facilityId'] ).toString();
+            final String bookingId = (m['bookingId'] ).toString();
             final String inboxDocPath = d.reference.path; // "UserInformation/<uid>/Inbox/<docId>"
-
+            // so it can stream it directly
+//---------------------------------------
+// when tap navigate to detail page
+//---------------------------------------
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -582,9 +700,10 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
   }
 }
 
-// ==============================
-// Chip — same colors as web left
-// ==============================
+//---------------------------------------
+// the whole notification design
+//---------------------------------------
+
 class _NotifChip extends StatelessWidget {
   const _NotifChip({
     Key? key,
@@ -603,6 +722,9 @@ class _NotifChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    //---------------------------------------
+// set read and not read colour back ground
+//---------------------------------------
     const Color unreadBg = Color(0xFFE6D6FF);
     const Color readBg   = Color(0xFFF5ECFF);
     final Color bg = isRead ? readBg : unreadBg;
@@ -621,18 +743,27 @@ class _NotifChip extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+//---------------------------------------
+// display title
+//---------------------------------------
               Text(
                 title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700),
               ),
+//---------------------------------------
+// display subtitle
+//---------------------------------------
               Text(
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 12.sp),
               ),
+//---------------------------------------
+// display time label
+//---------------------------------------
               Text(
                 timeLabel,
                 maxLines: 1,

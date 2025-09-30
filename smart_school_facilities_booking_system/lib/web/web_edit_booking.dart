@@ -1,15 +1,15 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';        // to know who pressed Confirm
-import 'package:smart_school_facilities_booking_system/notification_service.dart';                       // our mail writer
-import 'web_booking_details.dart'; // for openWebBookingDetailsDialog()
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:smart_school_facilities_booking_system/notification_service.dart';
+import 'web_booking_details.dart';
 import 'package:smart_school_facilities_booking_system/booking_service.dart';
-// ---------- helper to open the EDIT popup (keep simple; styling lives inside the widget) ----------
+
+
 Future<void> openWebEditBookingDialog({
   required BuildContext context,
-  required Map<String, dynamic> booking, // raw booking map to show details again later
+  required Map<String, dynamic> booking,
   required String bookingId,
   required String facilityId,
   required String bookedByUid,
@@ -57,10 +57,10 @@ class WebEditBooking extends StatefulWidget {
   final String bookedByUid;
   final String managerUid;
   final String userUid;
-  final String dateYMD;   // current booked date (YYYY-MM-DD)
-  final String timeStart; // current time label shown in details
-  final String timeEnd;   // current time label shown in details
-  final String seatIndex; // current seat index shown in details
+  final String dateYMD;
+  final String timeStart;
+  final String timeEnd;
+  final String seatIndex;
   final String approval;
   final String status;
   final bool use24HourFormat;
@@ -87,49 +87,53 @@ class WebEditBooking extends StatefulWidget {
 }
 
 class _WebEditBookingState extends State<WebEditBooking> {
-  // -------- UI colors (kept inside State to match your pattern) --------
-  final Color _cSelected = const Color(0xFFB779F1);   // purple when selected
-  final Color _cFullRed  = Colors.red;                // full / taken
-  final Color _cAvailBg  = Colors.white;              // default white
-  final Color _cAvailBrd = const Color(0xFFE5E7EB);   // light border
-  final Color _cAvailTxt = const Color(0xFF111827);   // dark text
-  final Color _cPanelBg  = const Color(0xFFF9F4FF);   // whole popup background
-  final Color _cPastBg  = const Color(0xFFE5E7EB);   // grey bg for past
-  final Color _cPastTxt = const Color(0xFF9CA3AF);   // grey text for past
+//---------------------------------------
+// colour that will be used
+//---------------------------------------
 
-  // -------- basic selection state --------
+  final Color _cSelected = const Color(0xFFB779F1);
+  final Color _cFullRed  = Colors.red;
+  final Color _cAvailBg  = Colors.white;
+  final Color _cAvailBrd = const Color(0xFFE5E7EB);
+  final Color _cAvailTxt = const Color(0xFF111827);
+  final Color _cPanelBg  = const Color(0xFFF9F4FF);
+  final Color _cPastBg  = const Color(0xFFE5E7EB);
+  final Color _cPastTxt = const Color(0xFF9CA3AF);
+
+
   DateTime? _selectedDate;
   String _selectedYMD = '';
   String _selectedSlotKey = '';
   int _selectedSeatIndex = -1;
 
-  // -------- facility config --------
-  int _facilitySeatCapacity = 0; // from Facilities/{facilityId}.facilityAvailableSlots (or similar)
+
+  int _facilitySeatCapacity = 0;
   final List<Map<String, String>> _timeSlots = <Map<String, String>>[];
-  // each slot map: {'start': 'HH:MM', 'end': 'HH:MM', 'key': 'HHmm'}
 
   // booked map for selected date: slotKey -> booked count
   final Map<String, int> _dayBooked = <String, int>{};
 
-  // -------- rules for calendar --------
   List<bool> _weekdayOpen = <bool>[true, true, true, true, true, true, true]; // Monday..Sunday
   final Set<String> _offDateYMD = <String>{};
 
-  // -------- seat state for chosen slot --------
   final List<bool> _seatTaken = <bool>[]; // length == _facilitySeatCapacity
 
-  // -------- loading flags --------
   bool _loadingSettings = false;
   bool _loadingFacility = false;
   bool _loadingDayBooked = false;
   bool _loadingSeats = false;
 
+//---------------------------------------
+// run init state first
+//---------------------------------------
 
   @override
   void initState() {
     super.initState();
 
-    // 1) set initial date from booking
+//---------------------------------------
+// set the date first
+//---------------------------------------
     if (widget.dateYMD.isNotEmpty) {
       final d = _parseYMD(widget.dateYMD);
       if (d != null) {
@@ -137,8 +141,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
         _selectedYMD = widget.dateYMD;
       }
     }
-
-    // 2) load system rules + facility config
+//---------------------------------------
+// load off day and facility configuration
+//---------------------------------------
     _loadSettingsAndOffDays();
     _loadFacilityConfig().then((_) async {
       // after we know time slots and capacity, load the day booked map
@@ -148,11 +153,13 @@ class _WebEditBookingState extends State<WebEditBooking> {
     });
   }
 
-  // ---- Inactive window from Facilities doc (inclusive). If either end missing -> ignore.
   DateTime? _inactiveFrom;
   DateTime? _inactiveTo;
 
-// Convert Firestore Timestamp / DateTime / ISO string to date-only (local 00:00)
+//---------------------------------------
+// change to date format to real date
+//---------------------------------------
+
   DateTime? _dateOnly(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) {
@@ -167,14 +174,19 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return null;
   }
 
-// Inside inactive range (inclusive) only when BOTH endpoints exist.
+//---------------------------------------
+// cehck if it is within inactive range
+//---------------------------------------
   bool _isWithinInactiveRange(DateTime d) {
     if (_inactiveFrom == null || _inactiveTo == null) return false;
     final dd = DateTime(d.year, d.month, d.day);
     return !dd.isBefore(_inactiveFrom!) && !dd.isAfter(_inactiveTo!);
   }
 
-// One place to decide if a date is selectable in the calendar
+//---------------------------------------
+// check if taht date is selectable
+//---------------------------------------
+
   bool _isSelectable(DateTime d) {
     if (_isHoliday(d)) return false;
     if (!_isWorkingDay(d)) return false;
@@ -182,7 +194,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return true;
   }
 
-// Pick an initialDate that satisfies selectableDayPredicate to avoid assertion
+//---------------------------------------
+// proccess teh selected date
+//---------------------------------------
+
   DateTime? _firstSelectable(DateTime first, DateTime last, DateTime preferred) {
     if (_isSelectable(preferred)) return preferred;
 
@@ -196,63 +211,70 @@ class _WebEditBookingState extends State<WebEditBooking> {
       if (_isSelectable(cur)) return cur;
       cur = cur.subtract(const Duration(days: 1));
     }
-    return null; // none in range
+    return null;
   }
 
-
+//---------------------------------------
+// check if there is booking conflict with their own time
+//---------------------------------------
   Future<String> _checkUserConflictForInterval({
     required String userId,
     required String dateYMD,
     required String newStartHHmm,
-    required String newEndHHmm, // can be empty; we will handle
+    required String newEndHHmm,
   }) async {
     try {
-      // normalize new interval
+
       final String nS = _normalizeHHmm(newStartHHmm);
       String nE = _normalizeHHmm(newEndHHmm);
       if (nE.isEmpty) nE = _endForStartForConflict(nS);
       final int newS = _hmToMinutes(nS);
       final int newE = _hmToMinutes(nE);
 
+//---------------------------------------
+// get from database for this user all booking time that belongs to the booking date
+//---------------------------------------
       final qs = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('userId', isEqualTo: userId)
           .where('bookingDate', isEqualTo: dateYMD)
-      // OPTIONAL: enable if all docs have `deleted:false` and you’ve added the composite index
-      // .where('deleted', isEqualTo: false)
+          .where('deleted', isEqualTo: false)
           .get();
 
       for (final d in qs.docs) {
-        if (d.id == widget.bookingId) continue;        // ignore this booking
+//---------------------------------------
+// ignore it self booking id
+//---------------------------------------
+        if (d.id == widget.bookingId) continue;
         final m = d.data();
 
-        // 👉 skip soft-deleted bookings
         if ((m['deleted'] ?? false) == true) continue;
 
         // keep only accepted/approved/pending
         final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
-        final keep = ap == 'accepted' || ap == 'approved' || ap == 'pending';
+        final keep = ap == 'accepted' || ap == 'pending';
         if (!keep) continue;
 
         // existing start
-        String s = ((m['start'] ?? m['startTime']) ?? '').toString();
+        String s = (m['start'] ).toString();
         s = _normalizeHHmm(s);
         if (s.isEmpty) continue;
 
         // existing end (doc -> facility map -> +60)
-        String e = ((m['end'] ?? m['endTime']) ?? '').toString();
+        String e = (m['end']).toString();
         e = _normalizeHHmm(e);
         if (e.isEmpty) e = _endForStartForConflict(s);
 
         final int exS = _hmToMinutes(s);
         final int exE = _hmToMinutes(e);
-
+//---------------------------------------
+// cehck if they overlap
+//---------------------------------------
         if (_rangesOverlapStrict(newS, newE, exS, exE)) {
           return 'Overlap with other booking ${_rangeText(s, e)}. '
               'New time ${_rangeText(nS, nE)} is not allowed.';
         }
       }
-
       return '';
     } catch (_) {
       return 'Could not verify other bookings. Please try again.';
@@ -260,8 +282,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
   }
 
 
-
-  // turn minutes back to "HH:mm"
+//---------------------------------------
+// chagne minute back to  HH:MM
+//---------------------------------------
   String _minutesToHHmm(int mins) {
     int h = mins ~/ 60;
     int m = mins % 60;
@@ -272,7 +295,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return hh + ':' + mm;
   }
 
-// find END for a given START using current facility slots; fallback +60 minutes
+//---------------------------------------
+// check the time end, if not time end then assume end after 1 hour
+//---------------------------------------
   String _endForStartForConflict(String startHHmm) {
     String end = '';
     final String sNorm = _normalizeHHmm(startHHmm);
@@ -304,7 +329,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return _normalizeHHmm(end);
   }
 
-// half-open overlap: [aStart,aEnd) vs [bStart,bEnd) ; edge-touch OK
+//---------------------------------------
+// check if they overlap
+//---------------------------------------
   bool _rangesOverlapStrict(int aStart, int aEnd, int bStart, int bEnd) {
     if (aStart < bEnd) {
       if (aEnd > bStart) {
@@ -317,14 +344,25 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-// label like "12.00 - 14.00" for messages
+//---------------------------------------
+// label range for the time
+//---------------------------------------
+
   String _rangeText(String s, String e) {
     return _fmtHHmm(s) + ' - ' + _fmtHHmm(e);
   }
 
 
+//---------------------------------------
+// when confirm is pressed, the proccess
+//---------------------------------------
 
   Future<void> _onConfirm() async {
+
+//---------------------------------------
+// make sure everthing is here
+//---------------------------------------
+
     if (_selectedYMD.isEmpty) {
       _toast('Please pick a date.');
       return;
@@ -338,7 +376,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
       return;
     }
 
-    // 1-based index for database
     final int seatIndex1Based = _selectedSeatIndex + 1;
 
     // get start/end labels from the UI slot you chose
@@ -357,27 +394,29 @@ class _WebEditBookingState extends State<WebEditBooking> {
       }
     }
 
-    // === Conflict check (interval-based; edge-touch OK) ===
     if (selStart.isEmpty) {
       _toast('Please pick a time slot.');
       return;
     }
 
-// ensure end exists and is normalized for BOTH check and save
     String selEndForCheck = selEnd;
     if (selEndForCheck.isEmpty) {
       selEndForCheck = _endForStartForConflict(selStart);
     }
     selEndForCheck = _normalizeHHmm(selEndForCheck); // normalize
 
-// sanity: start < end
+//---------------------------------------
+// turn them to hhmm make sure end time > start time
+//---------------------------------------
     final int sM = _hmToMinutes(_normalizeHHmm(selStart));
     final int eM = _hmToMinutes(selEndForCheck);
     if (!(sM < eM)) {
       _toast('End time must be after start time.');
       return;
     }
-
+//---------------------------------------
+// check for booking conflict
+//---------------------------------------
     final String reason = await _checkUserConflictForInterval(
       userId: widget.bookedByUid,
       dateYMD: _selectedYMD,
@@ -396,15 +435,18 @@ class _WebEditBookingState extends State<WebEditBooking> {
         newDateYMD: _selectedYMD,
         newSlotKey: _selectedSlotKey,
         newSeatIndex: seatIndex1Based,
-        newStartStr: _normalizeHHmm(selStart),      // ✅ normalized
-        newEndStr: selEndForCheck,                  // ✅ normalized, not empty
+        newStartStr: _normalizeHHmm(selStart),
+        newEndStr: selEndForCheck,
       );
     });
 
-    if (!ok) return; // only if txn succeeded
+    if (!ok) return;
+//---------------------------------------
+// after booking is made then make notification
+//---------------------------------------
 
-    final String bookedBy = FirebaseAuth.instance.currentUser?.uid ?? '-'; // actor doing the edit
-    final String userId   = widget.userUid;                                // owner passed into dialog
+    final String bookedBy = FirebaseAuth.instance.currentUser?.uid ?? '-';
+    final String userId   = widget.userUid;
     final String facility = widget.facilityId;
     String managerId = widget.managerUid.trim().isEmpty ? '-' : widget.managerUid.trim();
 
@@ -414,19 +456,17 @@ class _WebEditBookingState extends State<WebEditBooking> {
       bookedBy: bookedBy,                 // actor who edited
       facilityId: facility,
       managerId: managerId,
-      approval: widget.approval,          // keep current approval; use "pending" if you want to re-approve
+      approval: widget.approval,
       seatIndex: seatIndex1Based,         // 1-based
       bookingDate: _selectedYMD,          // "YYYY-MM-DD"
       start: _normalizeHHmm(selStart),    // "HH:MM"
       end: selEndForCheck,                // "HH:MM"
     );
 
+//---------------------------------------
+// after update successfully, will close pop up at bring the new information back to boking details immediately
+//---------------------------------------
 
-
-
-
-
-    // Update local copy so Details popup shows new info immediately
     final updated = Map<String, dynamic>.from(widget.rawBooking);
     updated['bookingDate'] = _selectedYMD;
     updated['slotKey'] = _selectedSlotKey;
@@ -435,13 +475,17 @@ class _WebEditBookingState extends State<WebEditBooking> {
     updated['end'] = selEndForCheck; // always a normalized, non-empty end
 
     if (!mounted) return;
-    Navigator.of(context).pop(); // close edit
+    Navigator.of(context).pop();
     await openWebBookingDetailsDialog(
       context: context,
       booking: updated,
       use24HourFormat: widget.use24HourFormat,
     );
   }
+
+//---------------------------------------
+// change hour to hh:mm format
+//---------------------------------------
 
   String _normalizeHHmm(String s) {
     String t = s.trim();
@@ -474,6 +518,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       return hh + ':' + mm;
     }
   }
+//---------------------------------------
+// change hour and minute to minute
+//---------------------------------------
 
   int _hmToMinutes(String s) {
     final String n = _normalizeHHmm(s);
@@ -490,6 +537,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
     return h * 60 + m;
   }
+//---------------------------------------
+//change time to something like 8.30
+//---------------------------------------
 
   String _fmtHHmm(String s) {
     // label like "08.30"
@@ -503,9 +553,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
   }
 
 
+//---------------------------------------
+// when waiting show loading
+//---------------------------------------
 
-
-// simple busy overlay + friendly errors
   Future<bool> _busy(Future<void> Function() task) async {
     showDialog(
       context: context,
@@ -523,7 +574,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-// map raw service/txn errors to user-friendly lines
+//---------------------------------------
+// show error
+//---------------------------------------
+
   String _niceError(Object e) {
     final s = e.toString();
 
@@ -547,6 +601,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return 'Something went wrong. Please try again.';
   }
 
+//---------------------------------------
+// check if the selected is the same day
+//---------------------------------------
+
   bool _isSelectedDateToday() {
     if (_selectedDate == null) return false;
     final now = DateTime.now();
@@ -569,12 +627,17 @@ class _WebEditBookingState extends State<WebEditBooking> {
   }
 
 
+//---------------------------------------
+// main build
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
     final double maxW = 960.w;
 
-    // Rounded lilac panel with border and (optional) soft shadow
+//---------------------------------------
+// return a panel design
+//---------------------------------------
     return ClipRRect(
       borderRadius: BorderRadius.circular(16.r),
       child: Container(
@@ -582,14 +645,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
           color: _cPanelBg,
           borderRadius: BorderRadius.circular(16.r),
           border: Border.all(color: _cAvailBrd),
-          // Optional soft shadow (uncomment if you want)
-          // boxShadow: [
-          //   BoxShadow(
-          //     color: Colors.black.withOpacity(0.06),
-          //     blurRadius: 12.r,
-          //     offset: Offset(0, 4.h),
-          //   ),
-          // ],
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxW),
@@ -598,7 +653,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ---------- header ----------
+//---------------------------------------
+// header
+//---------------------------------------
                 Row(
                   children: [
                     Expanded(
@@ -619,8 +676,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
                   ],
                 ),
                 SizedBox(height: 12.h),
+//---------------------------------------
+// show current booking details
+//---------------------------------------
 
-                // ---------- current booking summary ----------
                 _sectionTitle('Current Booking'),
                 SizedBox(height: 8.h),
                 _pillInfoRow('Date', widget.dateYMD),
@@ -633,7 +692,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
                 const Divider(height: 1),
                 SizedBox(height: 12.h),
 
-                // ---------- Step 1: Date ----------
+//---------------------------------------
+// allow user to choose date
+//---------------------------------------
                 _sectionTitle('1) Choose Date'),
                 SizedBox(height: 8.h),
                 Row(
@@ -661,13 +722,16 @@ class _WebEditBookingState extends State<WebEditBooking> {
                 const Divider(height: 1),
                 SizedBox(height: 12.h),
 
-                // ---------- Step 2: Time Slot (from facility customTimeSlots) ----------
+//---------------------------------------
+// select the time slot for the picked date
+//---------------------------------------
+
                 _sectionTitle('2) Choose Time Slot'),
                 SizedBox(height: 8.h),
                 if (_selectedYMD.isEmpty)
                   _helpText('Pick a date first.')
                 else
-                  _buildSlotsWrap(), // paints FULL red using booked >= facilitySeatCapacity
+                  _buildSlotsWrap(),
 
                 if (_loadingFacility || _loadingDayBooked) ...[
                   SizedBox(height: 10.h),
@@ -678,7 +742,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
                 const Divider(height: 1),
                 SizedBox(height: 12.h),
 
-                // ---------- Step 3: Seat / Slot number ----------
+//---------------------------------------
+// pick slot number
+//---------------------------------------
+
                 _sectionTitle('3) Choose Seat / Slot Number'),
                 SizedBox(height: 8.h),
                 if (_selectedSlotKey.isEmpty)
@@ -690,6 +757,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
                   SizedBox(height: 10.h),
                   _loadingLine('Loading seats...'),
                 ],
+//---------------------------------------
+// show legend
+//---------------------------------------
 
                 SizedBox(height: 18.h),
                 _legendRow(),
@@ -698,7 +768,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
                 const Divider(height: 1),
                 SizedBox(height: 12.h),
 
-                // ---------- actions ----------
+//---------------------------------------
+// show button
+//---------------------------------------
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
@@ -725,10 +797,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
                         child: Text('Confirm', style: TextStyle(fontSize: 12.sp)),
                       ),
                     )
-
-
-
-
                   ],
                 ),
               ],
@@ -739,9 +807,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
-  // ================================
-  // UI helpers
-  // ================================
+//---------------------------------------
+// design for each title
+//---------------------------------------
 
   Widget _sectionTitle(String s) {
     return Align(
@@ -749,6 +817,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
       child: Text(s, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700, color: const Color(0xFF111827))),
     );
   }
+
+//---------------------------------------
+// design that shows each info
+//---------------------------------------
 
   Widget _pillInfoRow(String k, String v) {
     String value = v;
@@ -788,6 +860,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       ],
     );
   }
+//---------------------------------------
+// show each legend
+//---------------------------------------
 
   Widget _legendRow() {
     return Row(
@@ -800,6 +875,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       ],
     );
   }
+//---------------------------------------
+// design for legend
+//---------------------------------------
 
   Widget _legendBox(Color c, String label) {
     // add border when the swatch is white so it’s visible on lilac
@@ -819,7 +897,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
-  // ---------- Slots wrap (from facility customTimeSlots) ----------
+//---------------------------------------
+// design for the time slot
+//---------------------------------------
+
   Widget _buildSlotsWrap() {
     if (_timeSlots.isEmpty && !_loadingFacility) {
       return _helpText('No time slots configured for this facility.');
@@ -833,6 +914,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
         borderRadius: BorderRadius.circular(10.r),
         border: Border.all(color: _cAvailBrd),
       ),
+
       child: Wrap(
         spacing: 8.w,
         runSpacing: 8.h,
@@ -844,7 +926,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
-  // One slot box: white by default, purple when selected, red when FULL
+//---------------------------------------
+// each time slot design
+//---------------------------------------
+
   Widget _slotBox(Map<String, String> slot) {
     String start = '';
     String end = '';
@@ -854,7 +939,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
     if (slot.containsKey('end'))   end   = slot['end']!;
     if (slot.containsKey('key'))   key   = slot['key']!;
 
-    // ✅ compute AFTER key is known
     final bool past = _isSlotPastForSelectedDate(key);
 
     String label;
@@ -873,6 +957,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     Color bg;
     Color fg;
     BoxDecoration deco;
+//---------------------------------------
+// if the time already past
+//---------------------------------------
 
     if (past) {
       bg = _cPastBg;
@@ -882,15 +969,25 @@ class _WebEditBookingState extends State<WebEditBooking> {
         borderRadius: BorderRadius.circular(10.r),
         border: Border.all(color: _cAvailBrd),
       );
+//---------------------------------------
+// if already full
+//---------------------------------------
+
     } else if (full) {
       bg = _cFullRed;
       fg = Colors.white;
       deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
+//---------------------------------------
+// for selected
+//---------------------------------------
     } else if (selected) {
       bg = _cSelected;
       fg = Colors.white;
       deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
     } else {
+//---------------------------------------
+// default white
+//---------------------------------------
       bg = _cAvailBg;
       fg = _cAvailTxt;
       deco = BoxDecoration(
@@ -915,8 +1012,16 @@ class _WebEditBookingState extends State<WebEditBooking> {
           _selectedSeatIndex = -1;
           _seatTaken.clear();
         });
+//---------------------------------------
+// once its selected, it will set state and start to laod available slot
+//---------------------------------------
+
         await _loadSeatsForSlot(_selectedYMD, key);
       },
+//---------------------------------------
+// place time label into each time slot
+//---------------------------------------
+
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
         decoration: deco,
@@ -928,8 +1033,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
+//---------------------------------------
+// design for the slot
+//---------------------------------------
 
-  // ---------- Seats grid ----------
   Widget _buildSeatsWrap() {
     if (_facilitySeatCapacity <= 0 && !_loadingSeats) {
       return _helpText('No seat capacity set for this facility.');
@@ -954,11 +1061,18 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
-  // One seat box: white default, purple when selected, red when taken
+//---------------------------------------
+// design for each slot in slot
+//---------------------------------------
+
   Widget _seatBox(int index) {
     final String seatLabel = (index + 1).toString();
 
     bool taken = false;
+//---------------------------------------
+// if taken = true it is taken
+//---------------------------------------
+
     if (index < _seatTaken.length) {
       if (_seatTaken[index] == true) {
         taken = true;
@@ -966,6 +1080,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
         taken = false;
       }
     }
+
+//---------------------------------------
+// check which is selected
+//---------------------------------------
 
     bool selected = false;
     if (_selectedSeatIndex == index) {
@@ -976,16 +1094,27 @@ class _WebEditBookingState extends State<WebEditBooking> {
     Color fg;
     BoxDecoration deco;
 
+//---------------------------------------
+// if it is taken
+//---------------------------------------
+
     if (taken) {
       bg = _cFullRed;
       fg = Colors.white;
       deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
     } else {
+//---------------------------------------
+// if is it selected
+//---------------------------------------
       if (selected) {
         bg = _cSelected;
         fg = Colors.white;
         deco = BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10.r));
       } else {
+//---------------------------------------
+// default
+//---------------------------------------
+
         bg = _cAvailBg;
         fg = _cAvailTxt;
         deco = BoxDecoration(
@@ -998,17 +1127,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
     return InkWell(
       onTap: () {
-        // do not allow selecting taken seats
+
         if (taken) {
           _toast('This seat is already taken.');
           return;
         }
 
-        // set chosen seat index
         setState(() {
           _selectedSeatIndex = index;
         });
       },
+//---------------------------------------
+// display the slot number for each slot
+//---------------------------------------
+
       child: Container(
         width: 56.w,
         height: 44.h,
@@ -1022,16 +1154,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
     );
   }
 
-  // ================================
-  // Actions
-  // ================================
 
-  // open the calendar safely after rules are loaded
+//---------------------------------------
+// open the calendar
+//---------------------------------------
+
   Future<void> _openCalendarAndPick() async {
     if (_loadingSettings == true) {
       _toast('Loading calendar rules... please try again in a moment.');
       return;
     }
+//---------------------------------------
+// load all the off day
+//---------------------------------------
+
     if (_offDateYMD.isEmpty) {
       await _loadSettingsAndOffDays();
     }
@@ -1040,22 +1176,27 @@ class _WebEditBookingState extends State<WebEditBooking> {
     final DateTime minDate = DateTime(today.year, today.month, today.day);
     final DateTime maxDate = DateTime(today.year + 1, today.month, today.day);
 
-    // prefer current selection; otherwise today
+//---------------------------------------
+// get the selected day
+//---------------------------------------
+
     final DateTime preferred = _selectedDate ?? minDate;
 
-    // ensure initialDate satisfies selectableDayPredicate to avoid assertion crash
     final DateTime? safeInit = _firstSelectable(minDate, maxDate, preferred);
     if (safeInit == null) {
       _toast('No selectable dates available in the allowed range.');
       return;
     }
+//---------------------------------------
+// show the date picker with content
+//---------------------------------------
 
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: safeInit,
       firstDate: minDate,
       lastDate: maxDate,
-      selectableDayPredicate: _isSelectable, // unified rule: holidays + weekdays + inactive range
+      selectableDayPredicate: _isSelectable,
     );
 
     if (picked != null) {
@@ -1073,18 +1214,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
   }
 
 
-  // ================================
-  // Firestore loaders
-  // ================================
+//---------------------------------------
+// load off day first
+//---------------------------------------
 
-  // read weekday open flags AND OffDays array (SystemInformation/OffDays.offDays)
   Future<void> _loadSettingsAndOffDays() async {
     setState(() {
       _loadingSettings = true;
     });
 
     try {
-      // ---- 1) Weekday settings (SystemInformation/Setting) ----
+//---------------------------------------
+// get weekday from setting
+//---------------------------------------
+
       final DocumentSnapshot<Map<String, dynamic>> setDoc = await FirebaseFirestore.instance
           .collection('SystemInformation')
           .doc('Setting')
@@ -1105,7 +1248,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
         });
       }
 
-      // ---- 2) OffDays array (SystemInformation/OffDays.offDays) ----
+//---------------------------------------
+// get the off day
+//---------------------------------------
       final DocumentSnapshot<Map<String, dynamic>> offDoc = await FirebaseFirestore.instance
           .collection('SystemInformation')
           .doc('OffDays')
@@ -1161,7 +1306,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
         }
       }
 
-      // ---- 3) Optional fallback (old structure) ----
       if (tmpOff.isEmpty) {
         final QuerySnapshot<Map<String, dynamic>> old = await FirebaseFirestore.instance
             .collection('SystemInformation')
@@ -1210,7 +1354,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-  // Load facilityAvailableSlots and customTimeSlots
+//---------------------------------------
+// load the facility available slot and custom slot
+//---------------------------------------
+
   Future<void> _loadFacilityConfig() async {
     setState(() {
       _loadingFacility = true;
@@ -1224,98 +1371,48 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
       final Map<String, dynamic>? fd = facDoc.data();
 
-      // seat capacity: try common keys
       int cap = 0;
       if (fd != null) {
-        cap = _readInt(fd, 'facilityAvailableSlots', 0);
-        if (cap <= 0) {
-          final int a = _readInt(fd, 'availableSlots', 0);
-          if (a > 0) {
-            cap = a;
-          } else {
-            final int b = _readInt(fd, 'seatCapacity', 0);
-            if (b > 0) {
-              cap = b;
-            } else {
-              final int c = _readInt(fd, 'capacity', 0);
-              if (c > 0) {
-                cap = c;
-              } else {
-                final int d = _readInt(fd, 'availableSeats', 0);
-                if (d > 0) {
-                  cap = d;
-                }
-              }
-            }
-          }
-        }
+        cap = _readInt(fd, 'availableSlots', 0);       // read 'availableSlots'
       }
 
-      // time slots from subcollection "customTimeSlots"
-      final List<Map<String, String>> tmpSlots = <Map<String, String>>[];
-      final QuerySnapshot<Map<String, dynamic>> sub = await FirebaseFirestore.instance
-          .collection('Facilities')
-          .doc(widget.facilityId)
-          .collection('customTimeSlots')
-          .get();
+      final List<Map<String, String>> tmpSlots = [];
 
-      if (sub.docs.isNotEmpty) {
-        for (final doc in sub.docs) {
-          final Map<String, dynamic> m = doc.data();
-          String s = '';
-          String e = '';
-          if (m.containsKey('start')) {
-            final v = m['start'];
-            if (v is String) {
-              s = v.trim();
-            } else {
-              s = v.toString();
-            }
-          }
-          if (m.containsKey('end')) {
-            final v = m['end'];
-            if (v is String) {
-              e = v.trim();
-            } else {
-              e = v.toString();
-            }
-          }
-          if (s.isNotEmpty || e.isNotEmpty) {
-            final String key = _slotKeyFromStart(s);
-            tmpSlots.add({'start': s, 'end': e, 'key': key});
-          }
-        }
-      } else {
-        // else: try array field on facility doc
-        if (fd != null) {
-          if (fd.containsKey('customTimeSlots')) {
-            final v = fd['customTimeSlots'];
-            if (v is List) {
-              for (final item in v) {
-                if (item is Map<String, dynamic>) {
-                  String s = '';
-                  String e = '';
-                  if (item.containsKey('start')) {
-                    final vs = item['start'];
-                    if (vs is String) {
-                      s = vs.trim();
-                    } else {
-                      s = vs.toString();
-                    }
-                  }
-                  if (item.containsKey('end')) {
-                    final ve = item['end'];
-                    if (ve is String) {
-                      e = ve.trim();
-                    } else {
-                      e = ve.toString();
-                    }
-                  }
-                  if (s.isNotEmpty || e.isNotEmpty) {
-                    final String key = _slotKeyFromStart(s);
-                    tmpSlots.add({'start': s, 'end': e, 'key': key});
-                  }
-                }
+      if (fd != null) {
+        // get the field that stores your slots
+        final dynamic v = fd['customTimeSlots'];
+
+        // make sure it's a list
+        if (v is List) {
+          // loop one by one
+          for (final item in v) {
+            // each item must be a map with 'start' and 'end'
+            if (item is Map<String, dynamic>) {
+              // read start time as string (trim spaces)
+              String s = '';
+              final dynamic vs = item['start'];
+              if (vs is String) {
+                s = vs.trim();
+              } else if (vs != null) {
+                s = vs.toString().trim();
+              }
+
+              // read end time as string (trim spaces)
+              String e = '';
+              final dynamic ve = item['end'];
+              if (ve is String) {
+                e = ve.trim();
+              } else if (ve != null) {
+                e = ve.toString().trim();
+              }
+
+              // only add if there is at least a start or end
+              if (s.isNotEmpty || e.isNotEmpty) {
+                // build a sortable key from start (e.g. "0930")
+                final String key = _slotKeyFromStart(s);
+
+                // add to list
+                tmpSlots.add({'start': s, 'end': e, 'key': key});
               }
             }
           }
@@ -1351,7 +1448,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-  // Load booked numbers for the selected date (one read for all slots)
+//---------------------------------------
+// start to load the booked for the facilites time slot
+//---------------------------------------
+
   Future<void> _loadDayBookedMap(String ymd) async {
     setState(() {
       _loadingDayBooked = true;
@@ -1383,17 +1483,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
               booked = v.toInt();
             }
           }
-        } else {
-          if (m.containsKey('reserve')) {
-            final v = m['reserve'];
-            if (v is int) {
-              booked = v;
-            } else {
-              if (v is double) {
-                booked = v.toInt();
-              }
-            }
-          }
         }
         tmp[doc.id] = booked;
       }
@@ -1412,7 +1501,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-  // Load seats taken flags for the chosen slot (handles 0-based or 1-based IDs)
+//---------------------------------------
+// load the slot for the time slot
+//---------------------------------------
+
   Future<void> _loadSeatsForSlot(String ymd, String slotKey) async {
     setState(() {
       _loadingSeats = true;
@@ -1421,12 +1513,15 @@ class _WebEditBookingState extends State<WebEditBooking> {
     });
 
     try {
-      // default all false according to facility capacity
+
       if (_facilitySeatCapacity > 0) {
         for (int i = 0; i < _facilitySeatCapacity; i++) {
           _seatTaken.add(false);
         }
       }
+//---------------------------------------
+// wnt into database and check if it is taken or not
+//---------------------------------------
 
       final QuerySnapshot<Map<String, dynamic>> seatsSnap = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -1447,8 +1542,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
         if (d.id == '1') hasOne  = true;
       }
 
-// Default to 1-based (matches your writers). Fall back to 0-based only
-// when there is '0' and there is NO '1'.
+
       int idOffset = 1;
       if (hasZero && !hasOne) {
         idOffset = 0;
@@ -1468,6 +1562,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
         if (idOffset == 1) {
           idx = rawIdx - 1;
         }
+//---------------------------------------
+// check if the slot is taken or not add into seattaken list
+//---------------------------------------
 
         if (idx >= 0) {
           if (idx < _seatTaken.length) {
@@ -1501,11 +1598,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
-  // ================================
-  // Small helpers
-  // ================================
+//---------------------------------------
+// make it become a slotkey
+//---------------------------------------
 
-  // Make slotKey from start time "HH:MM" -> "HHmm"
   String _slotKeyFromStart(String start) {
     String s = start.trim();
     if (s.contains('.')) {
@@ -1522,6 +1618,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
+  //---------------------------------------
+// check if it is holiday
+//---------------------------------------
+
   bool _isHoliday(DateTime d) {
     final String ymd = _toYMD(d);
     if (_offDateYMD.contains(ymd)) {
@@ -1530,6 +1630,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       return false;
     }
   }
+//---------------------------------------
+// check if it is working day
+//---------------------------------------
 
   bool _isWorkingDay(DateTime d) {
     final int idx = d.weekday - 1; // Mon=1 -> 0
@@ -1544,12 +1647,20 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
   }
 
+  //---------------------------------------
+// convert to y - m - d format
+//---------------------------------------
+
   String _toYMD(DateTime d) {
     final String y = d.year.toString().padLeft(4, '0');
     final String m = d.month.toString().padLeft(2, '0');
     final String da = d.day.toString().padLeft(2, '0');
     return y + '-' + m + '-' + da;
   }
+
+//---------------------------------------
+// parse the YMD to int for each for dateformat purpose
+//---------------------------------------
 
   DateTime? _parseYMD(String s) {
     try {
@@ -1563,6 +1674,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     } catch (_) {}
     return null;
   }
+//---------------------------------------
+// change tiem format to hh.mm
+//---------------------------------------
 
   String _fmtTimeLabel(String v) {
     String s = v.trim();
@@ -1583,6 +1697,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       }
     }
   }
+//---------------------------------------
+// combine time to a - b
+//---------------------------------------
 
   String _combineTime(String a, String b) {
     if (a.isEmpty && b.isEmpty) {
@@ -1599,7 +1716,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       }
     }
   }
-
+//---------------------------------------
+// if its string but actually boolean , turn them into bollean
+//---------------------------------------
   bool _readBool(Map<String, dynamic> m, String key, bool def) {
     if (m.containsKey(key)) {
       final v = m[key];
@@ -1625,6 +1744,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       return def;
     }
   }
+//---------------------------------------
+// parse string to int
+//---------------------------------------
 
   int _readInt(Map<String, dynamic> m, String key, int def) {
     if (m.containsKey(key)) {

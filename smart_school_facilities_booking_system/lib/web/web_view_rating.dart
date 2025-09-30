@@ -1,7 +1,5 @@
-// lib/web_view_rating.dart
 import 'dart:convert';
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,13 +14,11 @@ class WebViewRating extends StatefulWidget {
 }
 
 class _WebViewRatingState extends State<WebViewRating> {
-  // top bar
+
   final bool _use24HourFormat = true;
 
-  // left search
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // selection
   String? _selectedFacilityId;
   String _selectedFacilityName = '';
 
@@ -37,7 +33,10 @@ class _WebViewRatingState extends State<WebViewRating> {
     super.dispose();
   }
 
-  // ===================== build =====================
+//---------------------------------------
+// main build
+//---------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,17 +57,19 @@ class _WebViewRatingState extends State<WebViewRating> {
                     scrollDirection: Axis.horizontal,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth: 460.w + 24.w + 1200.w,
+                        maxWidth: 1684.w,
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // LEFT: Facilities list
+//---------------------------------------
+// show left box
+//---------------------------------------
                           _Box(
                             width: 460.w,
                             height: 965.h,
                             title: 'Facilities',
-                            header: _SearchHeaderNoAdd(
+                            header: _SearchHeader(
                               controller: _searchCtrl,
                               hint: 'Search facility',
                               onChanged: (t) {
@@ -78,7 +79,9 @@ class _WebViewRatingState extends State<WebViewRating> {
                             child: _buildFacilitiesList(),
                           ),
                           SizedBox(width: 24.w),
-                          // RIGHT: Rating & Reviews
+//---------------------------------------
+// show right box
+//---------------------------------------
                           _Box(
                             width: 1200.w,
                             height: 965.h,
@@ -101,7 +104,9 @@ class _WebViewRatingState extends State<WebViewRating> {
     );
   }
 
-  // ---------------- LEFT LIST ----------------
+//---------------------------------------
+// build left list design
+//---------------------------------------
   Widget _buildFacilitiesList() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -114,7 +119,9 @@ class _WebViewRatingState extends State<WebViewRating> {
         }
 
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snapshot.data!.docs;
-
+//---------------------------------------
+// get what is search  and compare
+//---------------------------------------
         final String q = _clean(_searchCtrl.text).toLowerCase();
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered =
         <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -124,7 +131,9 @@ class _WebViewRatingState extends State<WebViewRating> {
           final d = docs[i];
           final m = d.data();
 
-          // deleted filter (treat null as false)
+//---------------------------------------
+// filter deleted = true
+//---------------------------------------
           bool del;
           if (m.containsKey('deleted') && m['deleted'] != null) {
             if (m['deleted'] == true) {
@@ -142,7 +151,9 @@ class _WebViewRatingState extends State<WebViewRating> {
           } else {
             nm = '';
           }
-
+//---------------------------------------
+// if search bar is empty, pick all, if not empty get name that contain the key word
+//---------------------------------------
           bool matches;
           if (q.isEmpty) {
             matches = true;
@@ -182,7 +193,9 @@ class _WebViewRatingState extends State<WebViewRating> {
             } else {
               nm = '';
             }
-
+//---------------------------------------
+// facility on tap set id and name
+//---------------------------------------
             return _ListTileCard(
               label: nm,
               onTap: () {
@@ -198,7 +211,9 @@ class _WebViewRatingState extends State<WebViewRating> {
     );
   }
 
-  // ---------------- RIGHT PANEL ----------------
+//---------------------------------------
+// build right panel design
+//---------------------------------------
   Widget _buildRightPanel() {
     if (_selectedFacilityId == null) {
       return SizedBox(
@@ -211,6 +226,9 @@ class _WebViewRatingState extends State<WebViewRating> {
         ),
       );
     }
+//---------------------------------------
+// get the rating from the facility id
+//---------------------------------------
 
     final String fid = _selectedFacilityId!;
     final Stream<QuerySnapshot<Map<String, dynamic>>> ratingStream = FirebaseFirestore.instance
@@ -223,14 +241,15 @@ class _WebViewRatingState extends State<WebViewRating> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title line with selected facility name
+//---------------------------------------
+// display facility name
+//---------------------------------------
           Text(
             _selectedFacilityName,
             style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w700),
           ),
           SizedBox(height: 10.h),
 
-          // Summary card: average + stars + count
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: ratingStream,
             builder: (context, snap) {
@@ -242,7 +261,9 @@ class _WebViewRatingState extends State<WebViewRating> {
 
               int count = 0;
               double total = 0.0;
-
+//---------------------------------------
+// count the total of rating for all doc
+//---------------------------------------
               if (snap.hasData) {
                 final rd = snap.data!.docs;
                 count = rd.length;
@@ -256,19 +277,15 @@ class _WebViewRatingState extends State<WebViewRating> {
                     } else {
                       if (v is double) {
                         total = total + v;
-                      } else {
-                        if (v is String) {
-                          final double? p = double.tryParse(v);
-                          if (p != null) {
-                            total = total + p;
-                          }
-                        }
                       }
                     }
                   }
                   k = k + 1;
                 }
               }
+//---------------------------------------
+// count the average rating
+//---------------------------------------
 
               double avg;
               if (count > 0) {
@@ -279,11 +296,10 @@ class _WebViewRatingState extends State<WebViewRating> {
               final String avgText = avg.toStringAsFixed(1);
 
               String countLabel;
-              if (count == 1) {
-                countLabel = '1 rating';
-              } else {
+//---------------------------------------
+// how many person rated
+//---------------------------------------
                 countLabel = '$count ratings';
-              }
 
               return Container(
                 width: double.infinity,
@@ -316,7 +332,10 @@ class _WebViewRatingState extends State<WebViewRating> {
 
           SizedBox(height: 14.h),
 
-          // Reviews list
+//---------------------------------------
+// show review list
+//---------------------------------------
+
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: ratingStream,
             builder: (context, snap) {
@@ -329,7 +348,9 @@ class _WebViewRatingState extends State<WebViewRating> {
               final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
               (snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]).toList();
 
-              // sort by createdAt desc (missing -> 0)
+ //---------------------------------------
+// sort by date
+//---------------------------------------
               docs.sort((a, b) {
                 final ma = a.data();
                 final mb = b.data();
@@ -350,7 +371,9 @@ class _WebViewRatingState extends State<WebViewRating> {
 
                 return tb.compareTo(ta);
               });
-
+//---------------------------------------
+// if empty means no review yet
+//---------------------------------------
               if (docs.isEmpty) {
                 return Container(
                   width: double.infinity,
@@ -364,7 +387,7 @@ class _WebViewRatingState extends State<WebViewRating> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: docs.length,
-                separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                separatorBuilder: (context, index) => SizedBox(height: 10.h),
                 itemBuilder: (context, i) {
                   final m = docs[i].data();
 
@@ -390,14 +413,8 @@ class _WebViewRatingState extends State<WebViewRating> {
                     } else {
                       if (v is double) {
                         rating = v;
-                      } else {
-                        if (v is String) {
-                          final double? p = double.tryParse(v);
-                          if (p != null) {
-                            rating = p;
-                          }
-                        }
                       }
+
                     }
                   }
                   if (rating < 0) {
@@ -441,7 +458,10 @@ class _WebViewRatingState extends State<WebViewRating> {
     );
   }
 
-  // --------------- review tile ---------------
+//---------------------------------------
+// display each review for each person
+//---------------------------------------
+
   Widget _reviewTile({
     required String userId,
     required double rating,
@@ -493,6 +513,9 @@ class _WebViewRatingState extends State<WebViewRating> {
               }
             }
           }
+//---------------------------------------
+// design for displaying each review and person
+//---------------------------------------
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -543,7 +566,10 @@ class _WebViewRatingState extends State<WebViewRating> {
     );
   }
 
-  // --------------- avatar loader ---------------
+  //---------------------------------------
+// get teh user image and display
+//---------------------------------------
+
   Widget _userAvatar(String userId) {
     if (userId.isEmpty) {
       return _placeholderAvatar();
@@ -562,6 +588,10 @@ class _WebViewRatingState extends State<WebViewRating> {
         }
 
         final Map<String, dynamic> m = snap.data!.data() ?? <String, dynamic>{};
+
+//---------------------------------------
+// decode the base64 iamge
+//---------------------------------------
 
         if (m.containsKey('profileImageBase64')) {
           if (m['profileImageBase64'] is String) {
@@ -588,6 +618,9 @@ class _WebViewRatingState extends State<WebViewRating> {
       },
     );
   }
+//---------------------------------------
+// the width of the image display if no image
+//---------------------------------------
 
   Widget _placeholderAvatar() {
     return Container(
@@ -600,8 +633,9 @@ class _WebViewRatingState extends State<WebViewRating> {
   }
 }
 
-// ================== Shared pieces (style-matched) ==================
-
+//---------------------------------------
+// box to design the both left and right box
+//---------------------------------------
 class _Box extends StatelessWidget {
   const _Box({
     Key? key,
@@ -659,8 +693,12 @@ class _Box extends StatelessWidget {
   }
 }
 
-class _SearchHeaderNoAdd extends StatelessWidget {
-  const _SearchHeaderNoAdd({
+//---------------------------------------
+// search header design
+//---------------------------------------
+
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({
     Key? key,
     required this.controller,
     required this.hint,
@@ -696,8 +734,14 @@ class _SearchHeaderNoAdd extends StatelessWidget {
   }
 }
 
+//---------------------------------------
+// list each facility at left list
+//---------------------------------------
 class _ListTileCard extends StatelessWidget {
-  const _ListTileCard({Key? key, required this.label, required this.onTap}) : super(key: key);
+  const _ListTileCard({Key? key,
+    required this.label,
+    required this.onTap
+  }) : super(key: key);
 
   final String label;
   final VoidCallback onTap;
@@ -743,7 +787,10 @@ class _EmptyCenter extends StatelessWidget {
   }
 }
 
-// ---------------- Stars + date (same as Android style) ----------------
+//---------------------------------------
+// build the star base on average
+//---------------------------------------
+
 Widget _buildStars(double avg, {bool centered = false}) {
   final List<Widget> list = <Widget>[];
 
@@ -752,17 +799,26 @@ Widget _buildStars(double avg, {bool centered = false}) {
     if (avg >= i) {
       icon = Icons.star;
     } else {
+//---------------------------------------
+// if is less than 0.5 zero star, if more than 0.5 take half star
+//---------------------------------------
+
       final double diff = i - avg;
       icon = (diff <= 0.5) ? Icons.star_half : Icons.star_border;
     }
     list.add(Icon(icon, size: 20.sp, color: const Color(0xFFFFC107)));
     if (i < 5) list.add(SizedBox(width: 2.w));
   }
-
+//---------------------------------------
+// display the star
+//---------------------------------------
   final row = Row(mainAxisSize: MainAxisSize.min, children: list);
   return centered ? Align(alignment: Alignment.center, child: row) : row;
 }
 
+//---------------------------------------
+// change the format to day month year
+//---------------------------------------
 
 String _fmtDate(DateTime d) {
   const List<String> months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
