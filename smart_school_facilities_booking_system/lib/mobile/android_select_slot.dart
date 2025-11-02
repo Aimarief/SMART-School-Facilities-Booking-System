@@ -65,6 +65,7 @@ class _SelectSlotState extends State<SelectSlot> {
 //---------------------------------------
 
   Future<void> _loadFacilityOnce() async {
+
     try {
       final doc = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -80,6 +81,7 @@ class _SelectSlotState extends State<SelectSlot> {
         if (data != null) {
            cap = data['availableSlots'] as int;
            slotDuration = data['bookingDurationHours'] as int;
+
         }
       }
 
@@ -225,7 +227,7 @@ class _SelectSlotState extends State<SelectSlot> {
       );
     } else {
       //---------------------------------------
-// content
+// main design 2
 //---------------------------------------
       bodyChild = Stack(
         children: [
@@ -303,6 +305,9 @@ class _SelectSlotState extends State<SelectSlot> {
               valueListenable: _pickedCount,
               builder: (context, count, _) {
                 bool ready = false;
+                //---------------------------------------
+// check count first to make sure all seat slot is picked
+//---------------------------------------
                 if (!_saving) {
                   if (count == widget.startTimes.length) {
                     ready = true;
@@ -320,7 +325,6 @@ class _SelectSlotState extends State<SelectSlot> {
                 } else {
                   onPressed = null;
                 }
-
 //---------------------------------------
 // button design
 //---------------------------------------
@@ -328,10 +332,14 @@ class _SelectSlotState extends State<SelectSlot> {
                   height: 48.h,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF9747FF),
+                      backgroundColor: (onPressed == null)
+                          ? Colors.grey // disabled state
+                          : const Color(0xFF9747FF),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28.r)),
+
                     ),
                     onPressed: onPressed,
+
                     child: Text(
                       confirmText,
                       style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700, color: Colors.white),
@@ -346,7 +354,7 @@ class _SelectSlotState extends State<SelectSlot> {
     }
 
 //---------------------------------------
-// main design
+// main design 1
 //---------------------------------------
     return Scaffold(
       appBar: PreferredSize(
@@ -532,9 +540,9 @@ class _SelectSlotState extends State<SelectSlot> {
             onTap = () {
               setState(() {
                 if (isChosen) {
-                  _pick.remove(start);                         // unpick
+                  _pick.remove(start);// unpick
                 } else {
-                  _pick[start] = idx;                          // pick
+                  _pick[start] = idx;// pick
                 }
                 _pickedCount.value = _pick.length;
               });
@@ -573,7 +581,7 @@ class _SelectSlotState extends State<SelectSlot> {
         }
 
 //---------------------------------------
-// full container design for each cheap
+// main design 3 full container design for each cheap
 //---------------------------------------
 
         return Container(

@@ -377,10 +377,6 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 
       for (final d in qs.docs) {
         int? idx = int.tryParse(d.id);
-        if (idx == null) {
-          final onlyNum = d.id.replaceAll(RegExp(r'[^0-9]'), '');
-          idx = int.tryParse(onlyNum);
-        }
         if (idx == null || idx <= 0) continue;
 
         final m = d.data();

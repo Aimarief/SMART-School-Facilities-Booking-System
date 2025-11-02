@@ -77,7 +77,8 @@ class WebBookingDetails extends StatelessWidget {
 // save the new status reason
 //---------------------------------------
 
-  Future<void> _saveStatusReason(String bookingId, String? reason) async {
+  Future<void> _saveStatusReason(String bookingId, String?
+  reason) async {
     final r = (reason ?? '').trim();
     if (r.isEmpty) return;
     await FirebaseFirestore.instance
@@ -110,7 +111,6 @@ class WebBookingDetails extends StatelessWidget {
       await batch.commit();
     }
 
-    await wipe('amendments');
     await wipe('Amendments');
   }
 
@@ -161,31 +161,25 @@ class WebBookingDetails extends StatelessWidget {
 //---------------------------------------
 // show cancel button only for require status and approval
 //---------------------------------------
-    bool showDelete = statusLc == 'upcoming'
-        && (approvalLc == 'accepted')
-        && !hasAmend;
-
+    bool showDelete = statusLc == 'upcoming' && (approvalLc == 'accepted') && !hasAmend;
 //---------------------------------------
 // show edit button only for require approval and make sure no amendment and not yet complete amendment
 //---------------------------------------
-    bool showEdit = statusLc == 'upcoming'
-        && (approvalLc == 'accepted')
-        && !hasAmend
-        && !completedAmendment;
+    bool showEdit = statusLc == 'upcoming' && (approvalLc == 'accepted') && !hasAmend;
+
 
 //---------------------------------------
 // if have amendment
 //---------------------------------------
     final String reason = (hasAmend && amend != null)
-        ? _readFirstStr(amend!, ['reason'])
+        ? _readFirstStr(amend, ['reason'])
         : _readFirstStr(booking, ['approvalReason']);
 
 //---------------------------------------
 // decision to show approve and reject
 //---------------------------------------
     final bool isApprovalFinal = (approvalLc == 'accepted' || approvalLc == 'rejected');
-    final bool showApproveReject =
-        (statusLc == 'upcoming') && (hasAmend || !isApprovalFinal);
+    final bool showApproveReject = (statusLc == 'upcoming') && (hasAmend || !isApprovalFinal);
 
 //---------------------------------------
 // get the booking id
@@ -334,7 +328,6 @@ class WebBookingDetails extends StatelessWidget {
 //---------------------------------------
 // approve button
 //---------------------------------------
-
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -464,7 +457,6 @@ class WebBookingDetails extends StatelessWidget {
 //---------------------------------------
 // when on approve for the booking
 //---------------------------------------
-
   Future<void> _onApprove(BuildContext context, {required String bookingId}) async {
     if (bookingId.isEmpty) {
       _toast(context, 'Missing booking id to approve.');
@@ -473,7 +465,6 @@ class WebBookingDetails extends StatelessWidget {
 //---------------------------------------
 // pop up write approve reason
 //---------------------------------------
-
     final reason = await _askReasonDialog(context, title: 'Approve booking');
     if (reason == null) return;
 
@@ -537,36 +528,32 @@ class WebBookingDetails extends StatelessWidget {
     if (reason == null) return;
 
     final ok = await _busy(context, () async {
-      //---------------------------------------
+ //---------------------------------------
 // update the firebase  and reason
 //---------------------------------------
-
-      await BookingService.rejectBookingByIdSimple(bookingId: bookingId);
+      await BookingService.rejectBookingById(bookingId: bookingId);
       await _saveStatusReason(bookingId, reason);
-
 //---------------------------------------
 // send meal that is on reject
 //---------------------------------------
-
       final String facilityId = _readFirstStr(booking, ['facilityId']);
       final String userId     = _readFirstStr(booking, ['userId']);
       final String managerId  = _readFirstStr(booking, ['managerId']);
       final String actor      = FirebaseAuth.instance.currentUser?.uid ?? '-';
       final String seatRawR = _readFirstStr(booking, ['seatIndex']);
       final int seatIndexR  = int.tryParse(seatRawR) ?? -1;
-
       String startR = _readFirstStr(booking, ['start']);
       String endR   = _readFirstStr(booking, ['end']);
       final DateTime? tStartR = _readTime(booking, ['start']);
       final DateTime? tEndR   = _readTime(booking, ['end']);
       if (startR.isEmpty && tStartR != null) startR = _fmtHHmm(tStartR);
       if (endR.isEmpty   && tEndR   != null) endR   = _fmtHHmm(tEndR);
-
       String bookingDateR = _readFirstStr(booking, ['bookingDate']);
       final DateTime? bookDateR = _readBookingDate(booking);
       if (bookingDateR.trim().isEmpty && bookDateR != null) bookingDateR = _toYMD(bookDateR);
-
-
+//---------------------------------------
+// send approval mails
+//---------------------------------------
       await NotificationService.sendBookingApprovalMails(
         bookingId: bookingId,
         userId: userId,
@@ -618,13 +605,7 @@ class WebBookingDetails extends StatelessWidget {
       final s = v.toString().trim();
       if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) return s; // already Y-M-D
       // try DD/MM/YYYY
-      try {
-        final p = s.split('/');
-        if (p.length == 3) {
-          final d = DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-          return '${d.year.toString().padLeft(4,'0')}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
-        }
-      } catch (_) {}
+
       return s; // last resort
     }
 //---------------------------------------
@@ -683,10 +664,9 @@ class WebBookingDetails extends StatelessWidget {
       final String? newStartStr  = (ap['start']?.toString().trim().isNotEmpty ?? false) ? ap['start'].toString().trim() : null;
       final String? newEndStr    = (ap['end']?.toString().trim().isNotEmpty ?? false) ? ap['end'].toString().trim() : null;
 
-      // 1) Move like pending->approved would, but for an already accepted booking:
-      //    - free old seat / decrement old slot if slot changed
-      //    - take new seat / increment new slot
-      //    - update booking fields (facilityId, bookingDate, slotKey, seatIndex, start/end)
+//---------------------------------------
+// approving amendment booking is same as update booking
+//---------------------------------------
       await BookingService.moveAcceptedBookingByIdTx(
         bookingId: bookingId,
         newFacilityId: newFacilityId,
@@ -734,7 +714,9 @@ class WebBookingDetails extends StatelessWidget {
         final DateTime? tEnd0 = _readTime(data, ['end']);
         if (tEnd0 != null) endAm = _fmtHHmm(tEnd0);
       }
-
+//---------------------------------------
+// send approval mails
+//---------------------------------------
       await NotificationService.sendBookingApprovalMails(
         bookingId: bookingId,
         userId: userId,
@@ -799,7 +781,6 @@ class WebBookingDetails extends StatelessWidget {
 //---------------------------------------
 // notification for rejected amendment
 //---------------------------------------
-
       final String facilityId = _readFirstStr(booking, ['facilityId']);
       final String userId     = _readFirstStr(booking, ['userId']);
       final String managerId  = _readFirstStr(booking, ['managerId']);
@@ -817,8 +798,9 @@ class WebBookingDetails extends StatelessWidget {
       String bookingDateAR = _readFirstStr(booking, ['bookingDate']);
       final DateTime? bookDateAR = _readBookingDate(booking);
       if (bookingDateAR.trim().isEmpty && bookDateAR != null) bookingDateAR = _toYMD(bookDateAR);
-
-
+//---------------------------------------
+// send mails
+//---------------------------------------
       await NotificationService.sendBookingApprovalMails(
         bookingId: bookingId,
         userId: userId,
@@ -832,7 +814,6 @@ class WebBookingDetails extends StatelessWidget {
         start: startAR,
         end: endAR,
       );
-
 
       await _saveStatusReason(bookingId, 'Amendment rejected: ${reason.trim()}');
       await _hardDeleteAmendments(bookingId);
@@ -1623,9 +1604,10 @@ class _PersonCard extends StatelessWidget {
   }
 }
 
-// ⬇️ Put near the bottom of web_booking_details.dart (outside any class)
+//---------------------------------------
+// open the details pop up when at edit part, user click back or out
+//---------------------------------------
 
-// open the DETAILS popup (wrapper so we don't repeat code)
 Future<void> openWebBookingDetailsDialog({
   required BuildContext context,
   required Map<String, dynamic> booking,
@@ -1636,7 +1618,7 @@ Future<void> openWebBookingDetailsDialog({
     context: context,
     barrierDismissible: true, // allow clicking outside to close
     builder: (_) {
-      // Dialog ensures it is a popup (not full screen)
+      // Dialog ensures it is a popup
       return Dialog(
         insetPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
         child: WebBookingDetails(

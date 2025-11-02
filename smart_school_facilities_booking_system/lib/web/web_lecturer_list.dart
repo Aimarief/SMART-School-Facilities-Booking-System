@@ -19,6 +19,7 @@ class _LecturerListState extends State<LecturerList> {
   final bool _use24HourFormat = true;
 
   final TextEditingController _searchCtrl = TextEditingController();
+  final TextEditingController _rejectCtrl = TextEditingController();
   String _searchKeyword = '';
 //---------------------------------------
 // get the user information in database
@@ -157,7 +158,9 @@ class _LecturerListState extends State<LecturerList> {
                   final m = <String, dynamic>{};
 
                   m['id'] = d.id; // document id (User ID)
-
+//---------------------------------------
+// lower case for search purpose
+//---------------------------------------
                   String email = '';
                   if (raw.containsKey('email') && raw['email'] != null) {
                     email = raw['email'].toString();
@@ -231,9 +234,9 @@ class _LecturerListState extends State<LecturerList> {
                 final k = _searchKeyword;
                 final filtered = k.isEmpty
                     ? items
-                    : items.where((it) {
-                  final u = (it['usernameLower'] ?? '') as String;
-                  final e = (it['emailLower'] ?? '') as String;
+                    : items.where((user) {
+                  final u = (user['usernameLower'] ?? '') as String;
+                  final e = (user['emailLower'] ?? '') as String;
                   return u.contains(k) || e.contains(k);
                 }).toList();
 
@@ -305,7 +308,6 @@ class _LecturerListState extends State<LecturerList> {
 //---------------------------------------
 // view pop up for lecturer information
 //---------------------------------------
-
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
@@ -318,7 +320,6 @@ class _LecturerListState extends State<LecturerList> {
                                           style: TextStyle(fontSize: 13.sp)),
                                     ),
                                   ),
-
 //---------------------------------------
 // if not yet approve
 //---------------------------------------
@@ -344,7 +345,9 @@ class _LecturerListState extends State<LecturerList> {
       ),
     );
   }
-
+//---------------------------------------
+// search field design
+//---------------------------------------
   Widget _buildSearchField() {
     return TextField(
       controller: _searchCtrl,
@@ -370,16 +373,16 @@ class _LecturerListState extends State<LecturerList> {
 // pop up design
 //---------------------------------------
 
-  Future<void> _openViewDialog(Map<String, dynamic> it) async {
-    final String docId = it['id'] ?? '';
+  Future<void> _openViewDialog(Map<String, dynamic> user) async {
+    final String docId = user['id'] ?? '';
 
-    final String email = it['email'] ?? '';
-    final String username = it['username'] ?? '';
-    final String contact = it['contact'] ?? '';
-    final String role = it['role'] ?? '';
-    final String proofB64 = it['proofImageBase64'] ?? '';
-    final bool approval = it['approval'] == true;
-    final bool active = it['active'] == true;
+    final String email = user['email'] ?? '';
+    final String username = user['username'] ?? '';
+    final String contact = user['contact'] ?? '';
+    final String role = user['role'] ?? '';
+    final String proofB64 = user['proofImageBase64'] ?? '';
+    final bool approval = user['approval'] == true;
+    final bool active = user['active'] == true;
 
  //---------------------------------------
 // decode the image first
@@ -462,7 +465,6 @@ class _LecturerListState extends State<LecturerList> {
 //---------------------------------------
 // if not approve show button approval
 //---------------------------------------
-
           actions: _buildDialogActions(
             approval: approval,
             active: active,
@@ -519,11 +521,20 @@ class _LecturerListState extends State<LecturerList> {
       right.add(
         TextButton(
           onPressed: () async {
-            await _rejectLecturer(docId);
-            if (mounted) Navigator.of(context).pop();
+            final bool? ok = await _confirmReject();
+            if (ok == true) {
+              await _rejectLecturer(docId);
+              if (mounted) Navigator.of(context).pop();
+            }
           },
-          child: Text('Reject', style: TextStyle(fontSize: 14.sp)),
+          style:
+          ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF0707)),
+          child: Text('Reject', style: TextStyle(fontSize: 14.sp, color: Colors.white) ),
         ),
+
+      );
+      right.add(
+        SizedBox(width:5.w)
       );
 //---------------------------------------
 // when approve is press
@@ -534,7 +545,7 @@ class _LecturerListState extends State<LecturerList> {
             await _approveLecturer(docId);
             if (mounted) Navigator.of(context).pop();
           },
-          child: Text('Approve', style: TextStyle(fontSize: 14.sp)),
+          child: Text('Approve', style: TextStyle(fontSize: 14.sp, color: Colors.black)),
         ),
       );
 //---------------------------------------
@@ -620,10 +631,18 @@ class _LecturerListState extends State<LecturerList> {
 // reject proccess
 //---------------------------------------
   Future<void> _rejectLecturer(String docId) async {
+    final String reason = _rejectCtrl.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter your reason', style: TextStyle(fontSize: 13.sp))));
+      return;
+    }
+
     try {
-      await _usersCol().doc(docId).update(<String, dynamic>{
+      await _usersCol().doc(docId).set(<String, dynamic>{
         'approval': true,
-      });
+        'rejectDetails': reason,
+      }, SetOptions(merge: true));
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Rejected.', style: TextStyle(fontSize: 13.sp))),
@@ -693,4 +712,59 @@ class _LecturerListState extends State<LecturerList> {
       },
     );
   }
+//---------------------------------------
+// reject pop up
+//---------------------------------------
+  Future<bool?> _confirmReject() async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+          ),
+          title: Text('Rejection Details',
+              style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
+
+          content: Container(
+            width:400.w,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10.r),
+            ),
+          child:TextField(
+            controller: _rejectCtrl,
+            keyboardType: TextInputType.text,
+              style: TextStyle(fontSize: 14.sp),
+              maxLines: 5,
+              decoration: InputDecoration(
+                hintText: 'Enter details',
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12.w, vertical: 10.h,
+                ),
+                border: OutlineInputBorder(),
+          ),
+          ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF0707)),
+              child: Text('Confirm',
+                  style: TextStyle(fontSize: 14.sp, color: Colors.white)),
+            ),
+
+          ],
+        );
+      },
+    );
+  }
+
+
 }

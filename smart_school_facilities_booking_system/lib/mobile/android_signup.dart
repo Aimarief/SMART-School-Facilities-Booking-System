@@ -162,7 +162,7 @@ class _SignupInformationState extends State<SignupInformation> {
         _contactError = message;
       } else if (field == "password") {
         _passwordError = message;
-      } else if (field == "confirm") { // (NEW) support confirm password
+      } else if (field == "confirm") {
         _confirmPasswordError = message;
       } else if (field == "role") {
         _roleError = message;
@@ -188,7 +188,7 @@ class _SignupInformationState extends State<SignupInformation> {
 //---------------------------------------
 // sign up process
 //---------------------------------------
-  Future<void> _validateAndSignUp() async {
+  Future<void> _onSignUp() async {
 //---------------------------------------
 // clear previous error
 //---------------------------------------
@@ -207,23 +207,18 @@ class _SignupInformationState extends State<SignupInformation> {
 //---------------------------------------
 // check username
 //---------------------------------------
-
     if (_usernameController.text.isEmpty) {
       _showError("username", "Username cannot be empty");
       isValid = false;
     }
-
 //---------------------------------------
 // check email
 //---------------------------------------
-
     if (_emailController.text.contains("@")) {
-      // ok
     } else {
       _showError("email", "Invalid email address");
       isValid = false;
     }
-
 //---------------------------------------
 // check contact
 //---------------------------------------
@@ -237,10 +232,10 @@ class _SignupInformationState extends State<SignupInformation> {
 //---------------------------------------
     if (_isPasswordStrong(_passwordController.text)) {
     } else {
-      _showError("password", "Password must be at least 8 characters, include 1 uppercase letter and 1 special character");
+      _showError("password", "Password must be at least 8 characters, "
+          "include 1 uppercase letter and 1 special character");
       isValid = false;
     }
-
 //---------------------------------------
 // check confrim password
 //---------------------------------------
@@ -299,15 +294,14 @@ class _SignupInformationState extends State<SignupInformation> {
 //---------------------------------------
 // if email still not yet varified
 //---------------------------------------
-
         if (user.emailVerified == false) {
           await user.sendEmailVerification();
-
 //---------------------------------------
 // when verification send show pop up
 //---------------------------------------
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Verification email sent. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
+            SnackBar(content: Text('Verification email sent. Please check your inbox.',
+                style: TextStyle(fontSize: 14.sp))),
           );
 
 //---------------------------------------
@@ -342,23 +336,20 @@ class _SignupInformationState extends State<SignupInformation> {
     }
   }
 
-  //---------------------------------------
+//---------------------------------------
 // check if user name exist
 //---------------------------------------
-
   Future<bool> _usernameExists(String username) async {
     final String u = username.trim();
     if (u.isEmpty) {
       return false;
     }
-
     try {
       final qs = await FirebaseFirestore.instance
           .collection("UserInformation")
           .where("username", isEqualTo: u)
           .limit(1)
           .get();
-
       if (qs.docs.isNotEmpty == true) {
         return true;
       } else {
@@ -389,7 +380,8 @@ class _SignupInformationState extends State<SignupInformation> {
         } else {
 
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Email not verified yet. Please check your inbox.', style: TextStyle(fontSize: 14.sp))),
+            SnackBar(content: Text('Email not verified yet. Please check your inbox.',
+                style: TextStyle(fontSize: 14.sp))),
           );
         }
       } else {
@@ -759,7 +751,7 @@ class _SignupInformationState extends State<SignupInformation> {
                     height: 55.h,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Color(0xFF8620E5)),
-                      onPressed: _validateAndSignUp,
+                      onPressed: _onSignUp,
                       child: Text(
                         "Sign Up",
                         style: TextStyle(color: Colors.white, fontSize: 14.sp),

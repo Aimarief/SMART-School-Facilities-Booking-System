@@ -66,17 +66,8 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
             }
           }
         }
-        if (name.isEmpty == true) {
-          if (u.email != null) { name = u.email!; } else { name = 'User'; }
-        }
         if (mounted) {
           setState(() { _username = name; });
-        }
-      }).catchError((e) {
-        String fallback = '';
-        if (u.email != null) { fallback = u.email!; } else { fallback = 'User'; }
-        if (mounted) {
-          setState(() { _username = fallback; });
         }
       });
     } else {
@@ -188,7 +179,7 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
   Future<void> _loadExistingRatingForThisBooking() async {
     try {
       //---------------------------------------
-// get the rating for this booking id form database
+// get the rating for this booking id form database and check if there is no rating yet then its new rating or else its edit rating
 //---------------------------------------
 
       final QuerySnapshot<Map<String, dynamic>> qs = await FirebaseFirestore.instance

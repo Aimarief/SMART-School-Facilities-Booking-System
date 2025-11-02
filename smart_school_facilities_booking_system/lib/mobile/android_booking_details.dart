@@ -12,9 +12,12 @@ import 'android_notifications.dart';
 import 'android_account.dart';
 import 'android_view_booking.dart';
 
+//---------------------------------------
+// get the item that is click from previouse page
+//---------------------------------------
 class AndroidBookingDetails extends StatefulWidget {
-  final String bookingId;   // from list page tap
-  final String facilityId;  // from the tapped item
+  final String bookingId;
+  final String facilityId;
 
   const AndroidBookingDetails({
     Key? key,
@@ -26,11 +29,17 @@ class AndroidBookingDetails extends StatefulWidget {
   State<AndroidBookingDetails> createState() => _AndroidBookingDetailsState();
 }
 
-// state and navigation
 class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
-  int _currentIndex = 1; // this page index in bottom bar
+  //---------------------------------------
+// current page
+//---------------------------------------
 
-  // bottom bar navigation
+  int _currentIndex = 1;
+
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
+
   void _onTabSelected(int i) {
     if (i == 0) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
@@ -45,13 +54,19 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // format helpers
+//---------------------------------------
+// fromat date to day, date month year
+//---------------------------------------
+
   String _formatFullDate(DateTime d) {
     final DateFormat f = DateFormat('EEE, d MMM yyyy');
     return f.format(d);
   }
 
-  // format helpers
+//---------------------------------------
+// format time to am pm
+//---------------------------------------
+
   String _formatTime12(DateTime d) {
     final DateFormat f = DateFormat('h.mm a');
     String s = f.format(d).toLowerCase();
@@ -59,24 +74,15 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     return s;
   }
 
-  // read date-only from mixed fields
+//---------------------------------------
+// read and parse into date format
+//---------------------------------------
+
   DateTime? _readDateOnly(dynamic v) {
-    if (v is Timestamp) {
-      final DateTime d = v.toDate();
-      return DateTime(d.year, d.month, d.day);
-    } else {
-      if (v is DateTime) {
-        return DateTime(v.year, v.month, v.day);
-      } else {
+
         if (v is String) {
           DateTime? parsed;
           try { parsed = DateTime.tryParse(v); } catch (_) { parsed = null; }
-          if (parsed == null) {
-            try {
-              final DateFormat fmt = DateFormat('yyyy-MM-dd');
-              parsed = fmt.parseStrict(v);
-            } catch (_) { parsed = null; }
-          }
           if (parsed != null) {
             return DateTime(parsed.year, parsed.month, parsed.day);
           } else {
@@ -85,11 +91,11 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         } else {
           return null;
         }
-      }
-    }
   }
 
-  // read DateTime (legacy Timestamp/DateTime support)
+//---------------------------------------
+// get the date time
+//---------------------------------------
   DateTime? _readDateTime(dynamic v) {
     if (v is Timestamp) {
       return v.toDate();
@@ -102,15 +108,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // parse 24h time string like "13:30","1330","13.30","9:05"
+//---------------------------------------
+// parse time into h and m
+//---------------------------------------
   List<int>? _parseHourMinute(String s) {
     if (s.isEmpty == true) {
       return null;
     } else {
       String t = s.trim();
-      t = t.replaceAll(' ', '');
-      t = t.replaceAll('.', ':');
-      t = t.replaceAll('-', ':');
 
       if (t.contains(':') == true) {
         final List<String> parts = t.split(':');
@@ -131,59 +136,23 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         } else {
           return null;
         }
-      } else {
-        String d = '';
-        int i = 0;
-        while (i < t.length) {
-          final String ch = t.substring(i, i + 1);
-          if (ch.codeUnitAt(0) >= 48 && ch.codeUnitAt(0) <= 57) {
-            d = d + ch;
-          }
-          i = i + 1;
-        }
-
-        int h = -1;
-        int m = -1;
-
-        if (d.length == 4) {
-          try { h = int.parse(d.substring(0, 2)); } catch (_) { h = -1; }
-          try { m = int.parse(d.substring(2, 4)); } catch (_) { m = -1; }
-        } else {
-          if (d.length == 3) {
-            try { h = int.parse(d.substring(0, 1)); } catch (_) { h = -1; }
-            try { m = int.parse(d.substring(1, 3)); } catch (_) { m = -1; }
-          } else {
-            if (d.length == 2) {
-              try { h = int.parse(d); } catch (_) { h = -1; }
-              m = 0;
-            } else {
-              h = -1;
-              m = -1;
-            }
-          }
-        }
-
-        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          return <int>[h, m];
-        } else {
-          return null;
-        }
       }
     }
   }
 
-  // compose DateTime from bookingDate + time string or use existing Timestamp
+//---------------------------------------
+// get the full date and time
+//---------------------------------------
+
   DateTime? _composeFromBookingDate(dynamic bookingDateField, dynamic timeField) {
     final DateTime? ts = _readDateTime(timeField);
     if (ts != null) {
       return ts;
     }
-
     String tStr = '';
     if (timeField != null) {
       tStr = timeField.toString();
     }
-
     if (tStr.isNotEmpty == true) {
       final List<int>? hm = _parseHourMinute(tStr);
       if (hm != null) {
@@ -198,13 +167,16 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
     return null;
   }
+//---------------------------------------
+// lock edit button when within 3 hour before the booking start
+//---------------------------------------
 
   bool _isEditLocked(DateTime? startDT) {
     if (startDT == null) {
-      return false; // cannot decide, so do not lock
+      return false;
     } else {
-      final DateTime now = DateTime.now();                           // get current local time
-      final DateTime deadline = startDT.subtract(const Duration(hours: 3)); // 3 hours before start
+      final DateTime now = DateTime.now();
+      final DateTime deadline = startDT.subtract(const Duration(hours: 3));
       if (now.isAfter(deadline)) {
         return true;  // already inside last 3 hours (or past), lock it
       } else {
@@ -213,7 +185,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // approval text to lowercase string
+//---------------------------------------
+// get approval text
+//---------------------------------------
   String _approvalText(dynamic v) {
     if (v is bool) {
       if (v == true) { return 'approved'; } else { return 'pending'; }
@@ -222,9 +196,12 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // chip color resolver
+  //---------------------------------------
+// assign chip colour and back ground
+//---------------------------------------
+
   List<Color> _chipColors(String labelLower) {
-    if (labelLower == 'approved' || labelLower == 'accept' || labelLower == 'accepted' || labelLower == 'upcoming') {
+    if ( labelLower == 'accepted' || labelLower == 'upcoming') {
       return <Color>[Colors.green.shade200, Colors.green];
     } else {
       if (labelLower == 'rejected') {
@@ -233,7 +210,7 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         if (labelLower == 'pending' || labelLower == 'ongoing') {
           return <Color>[Colors.amber.shade200, Colors.amber];
         } else {
-          if (labelLower == 'ended' || labelLower == 'complete' || labelLower == 'completed') {
+          if (labelLower == 'ended') {
             return <Color>[Colors.grey.shade300, Colors.grey];
           } else {
             return <Color>[Colors.grey.shade200, Colors.grey];
@@ -243,7 +220,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // chip builder
+//---------------------------------------
+// build each chip for status and approval
+//---------------------------------------
+
   Widget _buildChip(String text, Color fill, Color border, {Color? textColor}) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
@@ -264,8 +244,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     );
   }
 
-
-  // capitalize first letter
+//---------------------------------------
+// capitalize the first word
+//---------------------------------------
   String _capitalize(String s) {
     if (s.isEmpty == true) { return s; } else {
       final String first = s.substring(0, 1).toUpperCase();
@@ -274,11 +255,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
+  //---------------------------------------
+// for cancel amendment pop up
+//---------------------------------------
+
   Future<void> _confirmCancelAmendment() async {
-    // Show confirmation dialog with your saved logout-style design
     final bool? ok = await showDialog<bool>(
       context: context,
-      barrierDismissible: false, // ❗ can't dismiss by tapping outside
+      barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
           title: Text(
@@ -290,12 +274,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
             style: TextStyle(fontSize: 14.sp),
           ),
           shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero, // ❗ square corners
+            borderRadius: BorderRadius.zero,
           ),
+ //---------------------------------------
+// close dislog when press cancel
+//---------------------------------------
           actions: [
             TextButton(
               onPressed: () {
-                // Close dialog and do nothing
                 Navigator.of(ctx).pop(false);
               },
               child: Text(
@@ -303,16 +289,18 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                 style: TextStyle(fontSize: 14.sp),
               ),
             ),
+//---------------------------------------
+// close dialog and return true when confirm press
+//---------------------------------------
             ElevatedButton(
               onPressed: () {
-                // Close dialog and confirm
                 Navigator.of(ctx).pop(true);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF0707), // ❗ red
+                backgroundColor: const Color(0xFFFF0707),
                 foregroundColor: Colors.white,
                 shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero, // ❗ square corners
+                  borderRadius: BorderRadius.zero,
                 ),
               ),
               child: Text(
@@ -324,16 +312,17 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         );
       },
     );
-
-    // Keep the existing logic: if user confirms, run the cancellation
+//---------------------------------------
+// if ok then will perform the cancel amendment proccess
+//---------------------------------------
     if (ok == true) {
       await _performCancelAmendment();
     }
   }
-
-
+  //---------------------------------------
+// cancel amendment proccess
+//---------------------------------------
   Future<void> _performCancelAmendment() async {
-    // small blocking spinner
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -341,16 +330,21 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     );
 
     try {
+//---------------------------------------
+// get the bookings from database
+//---------------------------------------
+
       final docRef = FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId);
 
-      // 1) Clear flags on the booking document
+      //---------------------------------------
+// delete and set false to the required field
+//---------------------------------------
       await docRef.set({
         'hasPendingAmendment': false,
         'amendmentPreview': FieldValue.delete(),
         'lastActivityAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // 2) Hard delete amendment subcollections (both spellings supported)
       Future<void> wipe(String sub) async {
         final qs = await docRef.collection(sub).get();
         if (qs.docs.isEmpty) return;
@@ -367,11 +361,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
         await batch.commit();
       }
 
-      await wipe('amendments');
       await wipe('Amendments');
 
       if (mounted) {
-        Navigator.of(context).pop(); // close spinner
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Amendment cancelled.')),
         );
@@ -386,19 +379,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     }
   }
 
-  // --- read any datetime from many formats (Timestamp / DateTime / String ISO) ---
-  DateTime? _readAnyDateTimeLoose(dynamic v) {
-    // if value is Firestore Timestamp -> convert
-    if (v is Timestamp) { return v.toDate(); }
-    // if value is already DateTime -> use it
-    if (v is DateTime) { return v; }
-    // if value is String -> try parse ISO-8601 like "2025-09-18T12:34:56Z"
-    if (v is String) {
-      try { return DateTime.tryParse(v); } catch (_) { return null; }
-    }
-    // otherwise unknown -> return null
-    return null;
-  }
+//---------------------------------------
+// get when the rating is created and belong to the booking Id
+//---------------------------------------
 
   Future<DateTime?> _getRatingCreatedAt(String facilityId, String bookingId) async {
     final qs = await FirebaseFirestore.instance
@@ -414,22 +397,22 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
     final data = qs.docs.first.data();
     final v = data['createdAt'];
 
-    if (v is Timestamp) return v.toDate();
-    if (v is DateTime) return v;
-    if (v is String) {
-      try { return DateTime.tryParse(v); } catch (_) {}
-    }
+    if (v is Timestamp) return
+      v.toDate();
     return null;
   }
 
-
-  // build
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double sw = 1.0.sw;
     final double barHeight = 0.07.sh;
 
-    // live streams
+    //---------------------------------------
+// stream for booking id and facilities
+//---------------------------------------
     final Stream<DocumentSnapshot<Map<String, dynamic>>> bookingStream =
     FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId).snapshots();
     final Stream<DocumentSnapshot<Map<String, dynamic>>> facilityStream =
@@ -462,6 +445,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
           ],
         ),
       ),
+
+      //---------------------------------------
+// stream facility first
+//---------------------------------------
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: facilityStream,
         builder: (context, facSnap) {
@@ -474,7 +461,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
           final Map<String, dynamic> fac = facSnap.data!.data()!;
 
-          // facility fields
+//---------------------------------------
+// get all facilities details
+//---------------------------------------
           String name = fac['name']?.toString() ?? '';
           String imageName = fac['imageName']?.toString().trim() ?? '';
           String facilityImagePath = '';
@@ -483,31 +472,20 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
           }
           String location = fac['location']?.toString() ?? '';
           String description = fac['details']?.toString() ?? '';
-
-          // duration text
+//---------------------------------------
+// get booking duration
+//---------------------------------------
           String durationText = '';
-          final dynamic dur = fac['bookingDurationHours'];
-          if (dur is int) {
-            if (dur == 1) { durationText = '1 hour'; } else { durationText = '$dur hours'; }
-          } else {
-            if (dur is double) {
-              final int intPart = dur.toInt();
-              if (dur == intPart) {
-                if (intPart == 1) { durationText = '1 hour'; } else { durationText = '$intPart hours'; }
-              } else {
-                durationText = '$dur hours';
-              }
-            } else {
-              if (dur != null) { durationText = dur.toString(); } else { durationText = ''; }
-            }
-          }
+          final int dur = fac['bookingDurationHours'] as int;
+          durationText = '$dur hours';
 
-          // manager stream (id from facility doc)
+//---------------------------------------
+// get the manager from database
+//---------------------------------------
           final String managerId = fac['managerId']?.toString() ?? '';
           final Stream<DocumentSnapshot<Map<String, dynamic>>> mgrStream =
           FirebaseFirestore.instance.collection('UserInformation').doc(managerId).snapshots();
 
-          // booking stream
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: bookingStream,
             builder: (context, bookSnap) {
@@ -520,40 +498,34 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
               final Map<String, dynamic> bk = bookSnap.data!.data()!;
 
-              // booking fields
-              dynamic bookingDateField;
+//---------------------------------------
+// get the booking date
+//---------------------------------------
+              String bookingDateField;
               bookingDateField = bk['bookingDate'];
-
 
               final DateTime? bookingDate = _readDateOnly(bookingDateField);
               DateTime? shownBookingDate = bookingDate;
 
-              final DateTime? startDT = _composeFromBookingDate(bookingDateField, bk['start'] ?? bk['startTime']);
-              final DateTime? endDT   = _composeFromBookingDate(bookingDateField, bk['end']   ?? bk['endTime']);
+              final DateTime? startDT = _composeFromBookingDate(bookingDateField, bk['start'] );
+              final DateTime? endDT   = _composeFromBookingDate(bookingDateField, bk['end'] );
 
               final bool editLocked = _isEditLocked(startDT);
 
+//---------------------------------------
+// get and format the start and end date to am pm
+//---------------------------------------
               String startStr = '--.--';
               if (startDT != null) { startStr = _formatTime12(startDT); }
               String endStr = '--.--';
               if (endDT != null) { endStr = _formatTime12(endDT); }
 
               String seatText = '-';
-              if (bk.containsKey('seatIndex')) {
-                if (bk['seatIndex'] != null) { seatText = bk['seatIndex'].toString(); }
-              } else {
-                if (bk.containsKey('slotIndex')) {
-                  if (bk['slotIndex'] != null) { seatText = bk['slotIndex'].toString(); }
-                }
-              }
+              seatText = bk['seatIndex'].toString();
 
-              final String approval = _approvalText(bk['approval']).trim();
+              final String approval = bk['approval'].trim();
               String status = '';
-              if (bk.containsKey('status')) {
-                if (bk['status'] != null) { status = bk['status'].toString().toLowerCase().trim(); }
-              } else if (bk.containsKey('state')) {
-                if (bk['state'] != null) { status = bk['state'].toString().toLowerCase().trim(); }
-              }
+              status = bk['status'].toString().toLowerCase().trim();
 
               bool isPending = false;
               bool isRejected = false;
@@ -562,35 +534,31 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
               bool isAccepted = false;
               if (approval == 'pending') isPending = true;
               if (approval == 'rejected') isRejected = true;
-              if (approval == 'approved' || approval == 'accept' || approval == 'accepted') isAccepted = true;
-              if (status == 'ended' || status == 'complete' || status == 'completed') isEnded = true;
+              if (approval == 'accepted') isAccepted = true;
+              if (status == 'ended') isEnded = true;
               if (status == 'ongoing') isOngoing = true;
 
 
               final List<Widget> chips = <Widget>[];
-
+//---------------------------------------
+// check if amendment is complete before
+//---------------------------------------
               final bool hasAmendment =
-                  (bk['hasPendingAmendment'] == true) ||
-                      (bk['amendmentPreview'] is Map && (bk['amendmentPreview'] as Map).isNotEmpty);
-
-              bool completedAmendment = false; // default
+                  (bk['hasPendingAmendment'] == true);
+              bool completedAmendment = false;
               if (bk.containsKey('completeAmendment')) {
                 final dynamic ca = bk['completeAmendment'];
                 if (ca is bool) {
                   completedAmendment = ca;
-                } else if (ca is String) {
-                  completedAmendment = ca.toLowerCase() == 'true';
-                } else if (ca is num) {
-                  completedAmendment = ca != 0;
                 }
               }
-
-
+//---------------------------------------
+// check for the status
+//---------------------------------------
               if (isEnded == true) {
                 final List<Color> c = _chipColors('ended');
                 chips.add(_buildChip('Ended', c[0], c[1]));
               } else if (hasAmendment) {
-                // White box, blue outline/text
                 const Color amendBlue = Color(0xFF1D4ED8);
                 chips.add(_buildChip('Amendment', Colors.white, amendBlue, textColor: amendBlue));
               } else {
@@ -605,73 +573,89 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                   }
                 }
               }
-
-              bool showEdit = false;     // "Edit" for pending
-              bool showAmend = false;    // "Request amendment" for accepted & upcoming
+//---------------------------------------
+// decide to show which button
+//---------------------------------------
+              bool showEdit = false;
+              bool showAmend = false;
               bool showRate = false;
               bool showCancelAmend = hasAmendment;
 
-// 1) If an amendment exists, ONLY show "Cancel amendment"
-              // 1) If an amendment exists, ONLY show "Cancel amendment"
+//---------------------------------------
+// if had amendment then show cancel amendment
+//---------------------------------------
               if (showCancelAmend) {
-                // leave others false
               } else {
-                // 2) Otherwise decide normally
+//---------------------------------------
+// if ended then show rating button
+//---------------------------------------
                 if (isEnded == true) {
                   showRate = true;
+ //---------------------------------------
+// if rejected show nothing
+//---------------------------------------
                 } else if (isRejected == true) {
-                  // nothing
+//---------------------------------------
+// if ongoing show nothing also
+//---------------------------------------
                 } else if (isOngoing == true) {
-                  // nothing
                 } else {
+//---------------------------------------
+// if pending then show edit button
+//---------------------------------------
                   if (isPending == true) {
                     showEdit = true;
+//---------------------------------------
+// if accepted and upcoming then show amendment button
+//---------------------------------------
                   } else if (isAccepted == true && status == 'upcoming') {
-                    showAmend = true; // <-- would show the "Request amendment" button
+                    showAmend = true;
                   }
                 }
               }
 
-// 3) The 3-hour lock applies to edit/amend (NOT to cancel amendment)
+//---------------------------------------
+// then check if its within 3 hour if yes then lock the button means disable it
+//---------------------------------------
               if (_isEditLocked(startDT) == true) {
                 showEdit = false;
                 showAmend = false;
               }
-
-// NEW: if the booking already completed an amendment before, the button will be disabled (but still visible)
+//---------------------------------------
+// check if completed emendment is equal true, if yes disable the amendment button
+//---------------------------------------
               final bool disableAmendButton = completedAmendment == true;
 
 
-// 3) The 3-hour lock applies to edit/amend (NOT to cancel amendment)
-              if (_isEditLocked(startDT) == true) {
-                showEdit = false;
-                showAmend = false;
-              }
+//---------------------------------------
+// check if its already rated
+//---------------------------------------
 
               bool ratedAlready = false;
               if (bk.containsKey('rated')) {
                 final dynamic rv = bk['rated'];
                 if (rv is bool) {
                   ratedAlready = rv == true;
-                } else if (rv is String) {
-                  ratedAlready = rv.toLowerCase() == 'true';
-                } else if (rv is num) {
-                  ratedAlready = rv != 0;
                 }
               }
+//---------------------------------------
+// prepare image size
+//---------------------------------------
 
               double imgH = sw * 0.75;
               if (imgH < 240.h) { imgH = 240.h; } else { if (imgH > 420.h) { imgH = 420.h; } }
 
-
-
+ //---------------------------------------
+// check for amendment preview
+//---------------------------------------
               Map<String, dynamic>? amend;
               if (bk['amendmentPreview'] is Map) {
                 amend = Map<String, dynamic>.from(bk['amendmentPreview'] as Map);
               }
-
+//---------------------------------------
+// get all information from amendment preview  if there is amendment
+//---------------------------------------
               if (hasAmendment && amend != null) {
-                // Use amended bookingDate/start/end/seat for UI display ONLY
                 final dynamic amendDateField = amend['bookingDate'];
                 final DateTime? amendDateOnly = _readDateOnly(amendDateField);
 
@@ -682,7 +666,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                   shownBookingDate = amendDateOnly;
                 }
 
-                // Replace the strings used by the card
                 if (amendStartDT != null) {
                   final String s = _formatTime12(amendStartDT);
                   startStr = s;
@@ -692,35 +675,20 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                   endStr = e;
                 }
 
-                // Replace the "Booking Date:" line
-                if (amendDateOnly != null) {
-                  // overwrite local variable used for label
-                  // (we keep the label build code untouched)
-                  // Rebuild bookingDate variable used below
-                  // (shadowing original bookingDate is fine here)
-                  // ignore: unused_local_variable
-                  final DateTime? _ignoredOriginal = bookingDate;
-                  // set bookingDate used by the label:
-                  // (Dart allows reassign because it's not final)
-                  // If yours is final, just introduce a new local var for printing.
-                  // Here it is not final above, so reassign:
-                  // bookingDate = amendDateOnly;  <-- uncomment if 'bookingDate' is not 'final' above
-                }
-
-                // Seat index override
-                final dynamic seatNew = amend['seatIndex'];
-                if (seatNew != null && seatNew.toString().trim().isNotEmpty) {
+                final int seatNew = amend['seatIndex'];
                   seatText = seatNew.toString();
-                }
               }
-
-
+//---------------------------------------
+// main design for the booking details
+//---------------------------------------
               return SingleChildScrollView(
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    // facility image
+//---------------------------------------
+// display image
+//---------------------------------------
                     Container(
                       width: double.infinity,
                       height: imgH,
@@ -736,13 +704,14 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                     SizedBox(height: 16.h),
 
-                    // main content
+//---------------------------------------
+// display facility name
+//---------------------------------------
                     SizedBox(
                       width: sw * 0.90,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          // name
                           Text(
                             name,
                             style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w700),
@@ -752,7 +721,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 10.h),
 
-                          // booking date
+//---------------------------------------
+// display booking date
+//---------------------------------------
+
                           if (shownBookingDate != null)
                             Text(
                               'Booking Date: ${_formatFullDate(shownBookingDate!)}',
@@ -761,7 +733,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 12.h),
 
-                          // time + slot + chips
+//---------------------------------------
+//
+//---------------------------------------
+
                           Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
@@ -779,7 +754,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: <Widget>[
-                                // times
+//---------------------------------------
+// show start time
+//---------------------------------------
                                 SizedBox(
                                   width: 78.w,
                                   height: 68.h,
@@ -795,10 +772,17 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w700, color: Colors.black87),
                                         ),
                                       ),
+//---------------------------------------
+// something like devider
+//---------------------------------------
                                       Align(
                                         alignment: Alignment.centerLeft,
                                         child: Text('      |', style: TextStyle(fontSize: 16.sp, color: Colors.black45)),
                                       ),
+//---------------------------------------
+// display end time
+//---------------------------------------
+
                                       Align(
                                         alignment: Alignment.bottomLeft,
                                         child: Text(
@@ -812,16 +796,18 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                     ],
                                   ),
                                 ),
-
-                                // vertical divider
+//---------------------------------------
+// another devider
+//---------------------------------------
                                 Container(
                                   width: 2.w,
                                   height: 50.h,
                                   margin: EdgeInsets.symmetric(horizontal: 12.w),
                                   color: const Color(0xFF7E57C2),
                                 ),
-
-                                // slot + chips
+//---------------------------------------
+// display seat
+//---------------------------------------
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -842,6 +828,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                         ],
                                       ),
                                       SizedBox(height: 8.h),
+//---------------------------------------
+// display arppoval chip
+//---------------------------------------
+
                                       Wrap(children: chips),
                                     ],
                                   ),
@@ -852,7 +842,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // location
+//---------------------------------------
+// display location
+//---------------------------------------
                           Text('Location', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -867,7 +859,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // description
+//---------------------------------------
+// display decription
+//---------------------------------------
                           Text('Description', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -882,7 +876,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // duration
+//---------------------------------------
+// display duration per slot
+//---------------------------------------
                           Text('Duration per slot', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
                           Container(
@@ -897,11 +893,15 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                           SizedBox(height: 18.h),
 
-                          // manager header
+//---------------------------------------
+// display manager info
+//---------------------------------------
                           Text('Manager', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700)),
                           SizedBox(height: 6.h),
 
-                          // manager card and action button
+ //---------------------------------------
+// use the manager stream builder wheich called previously
+//---------------------------------------
                           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                             stream: mgrStream,
                             builder: (context, mgrSnap) {
@@ -925,12 +925,8 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                               }
 
                               String username = mm['username']?.toString() ?? '';
-                              if (username.isEmpty == true) {
-                                username = mm['name']?.toString() ?? '';
-                              }
                               String email = mm['email']?.toString() ?? '';
                               String contact = mm['contact']?.toString() ?? '';
-
                               String managerAssetPath = '';
                               final String img = mm['profileImageName']?.toString().trim() ?? '';
                               if (img.isNotEmpty == true) {
@@ -939,7 +935,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                               return Column(
                                 children: <Widget>[
-                                  // manager info card
+//---------------------------------------
+// display the card and using kv line to align them
+//---------------------------------------
                                   Container(
                                     width: double.infinity,
                                     constraints: BoxConstraints(minHeight: 135.h),
@@ -956,6 +954,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           child: SizedBox(
                                             width: 110.w,
                                             height: 110.w,
+//---------------------------------------
+// use place holder if no image
+//---------------------------------------
                                             child: (managerAssetPath.isEmpty)
                                                 ? Container(
                                               color: Colors.grey.shade400,
@@ -966,6 +967,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           ),
                                         ),
                                         SizedBox(width: 15.w),
+//---------------------------------------
+// use kvline to display them
+//---------------------------------------
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -985,7 +989,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
 
                                   SizedBox(height: 16.h),
 
-                                  // bottom single action (Edit OR Request amendment OR Rate)
+//---------------------------------------
+// show button for cancel amendment
+//---------------------------------------
                                   Builder(
                                     builder: (_) {
                                       if (showCancelAmend == true) {
@@ -1002,9 +1008,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           ),
                                         );
                                       }
-
+//---------------------------------------
+// show edit button while in pending approval
+//---------------------------------------
                                       if (showEdit == true) {
-                                        // PENDING -> Edit (unchanged)
                                         return SizedBox(
                                           width: sw * 0.90,
                                           height: 48.h,
@@ -1021,7 +1028,6 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                                 MaterialPageRoute(
                                                   builder: (_) => AndroidEditBooking(
                                                     bookingId: widget.bookingId,
-                                                    // pass approval so edit screen can branch
                                                     approval: approval,
                                                   ),
                                                 ),
@@ -1030,25 +1036,35 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                             child: Text('Edit', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.white)),
                                           ),
                                         );
+//---------------------------------------
+// if show amend button means approval is accepted and is upcoming
+//---------------------------------------
+
                                       } else if (showAmend == true) {
-                                        final bool isAmendDisabled = disableAmendButton; // true => already used
+//---------------------------------------
+// then check if user done amendent before
+//---------------------------------------
+                                        final bool isAmendDisabled = disableAmendButton;
                                         final String amendText = isAmendDisabled ? 'Amendment used' : 'Request amendment';
 
                                         return SizedBox(
                                           width: sw * 0.90,
                                           height: 48.h,
                                           child: ElevatedButton(
-                                            // IMPORTANT: tell Flutter what to use when disabled
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(0xFF8620E5),   // enabled color (purple)
-                                              foregroundColor: Colors.white,              // enabled text
+ //---------------------------------------
+// for disable and enable background
+//---------------------------------------
+
+                                            backgroundColor: const Color(0xFF8620E5),
+                                              foregroundColor: Colors.white,
                                               disabledBackgroundColor: const Color(0xFF9E9E9E),
-                                              disabledForegroundColor: Colors.white,             // text when disabled
+                                              disabledForegroundColor: Colors.white,
                                               elevation: 0,
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
                                             ),
                                             onPressed: isAmendDisabled
-                                                ? null // disabled -> uses disabledBackgroundColor above
+                                                ? null
                                                 : () {
                                               Navigator.push(
                                                 context,
@@ -1065,27 +1081,38 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                         );
                                       }
 
+//---------------------------------------
+// if it is already end , show rating button
+//---------------------------------------
                                       else if (showRate == true) {
                                         return FutureBuilder<DateTime?>(
-                                          future: _getRatingCreatedAt(widget.facilityId, widget.bookingId),
+//---------------------------------------
+// get the rating date if done
+//---------------------------------------
+                                        future: _getRatingCreatedAt(widget.facilityId, widget.bookingId),
                                           builder: (context, snap) {
                                             bool canEditRating = false;
                                             bool isDisabled = false;
                                             String btnLabel = 'Rate';
-
+//---------------------------------------
+// if use rated before
+//---------------------------------------
                                             if (ratedAlready == true) {
-                                              // default: allow edit if we can't read the timestamp (don’t block the user)
                                               canEditRating = true;
 
                                               if (snap.connectionState == ConnectionState.done && snap.data != null) {
                                                 final DateTime ratedAtLocal = snap.data!.toLocal();
+ //---------------------------------------
+// check the difference wit the created date
+//---------------------------------------
                                                 final Duration diff = DateTime.now().difference(ratedAtLocal);
-                                                // inside 7 days -> can edit; otherwise lock
                                                 if (diff.inDays >= 7) {
                                                   canEditRating = false;
                                                 }
                                               }
-
+//---------------------------------------
+// if can edit rating set the text
+//---------------------------------------
                                               if (canEditRating == true) {
                                                 btnLabel = 'Edit rating';
                                               } else {
@@ -1095,7 +1122,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                             } else {
                                               btnLabel = 'Rate';
                                             }
-
+//---------------------------------------
+// set the button colour
+//---------------------------------------
                                             final Color btnColor = (isDisabled) ? Colors.grey : const Color(0xFF8620E5);
 
                                             return SizedBox(
@@ -1128,7 +1157,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
                                           },
                                         );
                                       }
-
+//---------------------------------------
+// if it was rejected or ongoing, will show nothing so shrink it means just nothing
+//---------------------------------------
                                       else {
                                         return const SizedBox.shrink();
                                       }
@@ -1148,6 +1179,9 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
           );
         },
       ),
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
       bottomNavigationBar: BottomMenuBar(
         height: barHeight,
         currentIndex: _currentIndex,
@@ -1157,7 +1191,10 @@ class _AndroidBookingDetailsState extends State<AndroidBookingDetails> {
   }
 }
 
-// small ui helper
+//---------------------------------------
+// display them allign way
+//---------------------------------------
+
 Widget _kvLine({required String label, required String value}) {
   return Padding(
     padding: EdgeInsets.only(bottom: 6.h),

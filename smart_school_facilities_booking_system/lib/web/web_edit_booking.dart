@@ -217,7 +217,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
 //---------------------------------------
 // check if there is booking conflict with their own time
 //---------------------------------------
-  Future<String> _checkUserConflictForInterval({
+  Future<String> _checkUserBookingConflict({
     required String userId,
     required String dateYMD,
     required String newStartHHmm,
@@ -255,12 +255,16 @@ class _WebEditBookingState extends State<WebEditBooking> {
         final keep = ap == 'accepted' || ap == 'pending';
         if (!keep) continue;
 
-        // existing start
+//---------------------------------------
+// get the start time in munute
+//---------------------------------------
         String s = (m['start'] ).toString();
         s = _normalizeHHmm(s);
         if (s.isEmpty) continue;
 
-        // existing end (doc -> facility map -> +60)
+//---------------------------------------
+// get the endtime in minute
+//---------------------------------------
         String e = (m['end']).toString();
         e = _normalizeHHmm(e);
         if (e.isEmpty) e = _endForStartForConflict(s);
@@ -362,7 +366,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
 //---------------------------------------
 // make sure everthing is here
 //---------------------------------------
-
     if (_selectedYMD.isEmpty) {
       _toast('Please pick a date.');
       return;
@@ -378,7 +381,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
     final int seatIndex1Based = _selectedSeatIndex + 1;
 
-    // get start/end labels from the UI slot you chose
+//---------------------------------------
+// get the start and end time
+//---------------------------------------
     String selStart = '';
     String selEnd = '';
     final Map<String, String> ts = _timeSlots.firstWhere(
@@ -417,7 +422,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
 //---------------------------------------
 // check for booking conflict
 //---------------------------------------
-    final String reason = await _checkUserConflictForInterval(
+    final String reason = await _checkUserBookingConflict(
       userId: widget.bookedByUid,
       dateYMD: _selectedYMD,
       newStartHHmm: selStart,
@@ -427,7 +432,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
       _toast(reason);
       return;
     }
-
+//---------------------------------------
+// update the booking information then use move Accepted booking so
+// it change the taken seat to the right one
+//---------------------------------------
     final ok = await _busy(() async {
       await BookingService.moveAcceptedBookingByIdTx(
         bookingId: widget.bookingId,
@@ -439,12 +447,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
         newEndStr: selEndForCheck,
       );
     });
-
     if (!ok) return;
 //---------------------------------------
 // after booking is made then make notification
 //---------------------------------------
-
     final String bookedBy = FirebaseAuth.instance.currentUser?.uid ?? '-';
     final String userId   = widget.userUid;
     final String facility = widget.facilityId;
@@ -452,15 +458,15 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
     await NotificationService.sendBookingUpdatedMails(
       bookingId: widget.bookingId,
-      userId: userId,                     // owner (booker)
-      bookedBy: bookedBy,                 // actor who edited
+      userId: userId,
+      bookedBy: bookedBy,
       facilityId: facility,
       managerId: managerId,
       approval: widget.approval,
-      seatIndex: seatIndex1Based,         // 1-based
-      bookingDate: _selectedYMD,          // "YYYY-MM-DD"
-      start: _normalizeHHmm(selStart),    // "HH:MM"
-      end: selEndForCheck,                // "HH:MM"
+      seatIndex: seatIndex1Based,
+      bookingDate: _selectedYMD,
+      start: _normalizeHHmm(selStart),
+      end: selEndForCheck,
     );
 
 //---------------------------------------
@@ -612,7 +618,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     return now.year == d.year && now.month == d.month && now.day == d.day;
   }
 
-  /// key = "HHmm" (e.g., "0930"). Returns true if now >= slot start.
+//---------------------------------------
+// check if the slot past already
+//---------------------------------------
   bool _isSlotPastForSelectedDate(String key) {
     if (!_isSelectedDateToday()) return false;
     if (key.length < 4) return false;
@@ -622,7 +630,6 @@ class _WebEditBookingState extends State<WebEditBooking> {
     final mm = int.tryParse(key.substring(2, 4)) ?? 0;
     final slotStart = DateTime(now.year, now.month, now.day, hh, mm);
 
-    // Treat "now == slot start" as past/unavailable:
     return !now.isBefore(slotStart);
   }
 
@@ -940,7 +947,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     if (slot.containsKey('key'))   key   = slot['key']!;
 
     final bool past = _isSlotPastForSelectedDate(key);
-
+//---------------------------------------
+// design the time when - when
+//---------------------------------------
     String label;
     if (start.isNotEmpty) {
       label = end.isNotEmpty
@@ -951,7 +960,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
     }
 
     int booked = _dayBooked[key] ?? 0;
-    bool full = _facilitySeatCapacity > 0 && booked >= _facilitySeatCapacity;
+    //---------------------------------------
+// check if the time slot is full
+//---------------------------------------
+    bool full = booked >= _facilitySeatCapacity;
     bool selected = _selectedSlotKey == key;
 
     Color bg;
@@ -1050,6 +1062,10 @@ class _WebEditBookingState extends State<WebEditBooking> {
         borderRadius: BorderRadius.circular(10.r),
         border: Border.all(color: _cAvailBrd),
       ),
+      //---------------------------------------
+// use wrap
+//---------------------------------------
+
       child: Wrap(
         spacing: 8.w,
         runSpacing: 8.h,
@@ -1072,14 +1088,11 @@ class _WebEditBookingState extends State<WebEditBooking> {
 //---------------------------------------
 // if taken = true it is taken
 //---------------------------------------
-
-    if (index < _seatTaken.length) {
       if (_seatTaken[index] == true) {
         taken = true;
       } else {
         taken = false;
       }
-    }
 
 //---------------------------------------
 // check which is selected
@@ -1267,75 +1280,17 @@ class _WebEditBookingState extends State<WebEditBooking> {
             if (arr is List) {
               for (final item in arr) {
                 String ymd = '';
-
                 if (item is String) {
                   ymd = item.trim();
-                } else {
-                  if (item is Timestamp) {
-                    final DateTime dt = item.toDate();
-                    ymd = _toYMD(dt);
-                  } else {
-                    if (item is Map<String, dynamic>) {
-                      if (item.containsKey('date')) {
-                        final v = item['date'];
-                        if (v is String) {
-                          ymd = v.trim();
-                        } else {
-                          if (v is Timestamp) {
-                            ymd = _toYMD(v.toDate());
-                          }
-                        }
-                      } else {
-                        if (item.containsKey('dateYMD')) {
-                          final v = item['dateYMD'];
-                          if (v is String) {
-                            ymd = v.trim();
-                          }
-                        }
-                      }
-                    }
-                  }
                 }
-
+//---------------------------------------
+// add the off day to the tmp off list
+//---------------------------------------
                 if (ymd.isNotEmpty) {
                   tmpOff.add(ymd);
                 }
               }
             }
-          }
-        }
-      }
-
-      if (tmpOff.isEmpty) {
-        final QuerySnapshot<Map<String, dynamic>> old = await FirebaseFirestore.instance
-            .collection('SystemInformation')
-            .doc('OffDay')
-            .collection('Dates')
-            .get();
-
-        for (final doc in old.docs) {
-          final Map<String, dynamic> d = doc.data();
-          String ymd = '';
-          if (d.containsKey('dateYMD')) {
-            final v = d['dateYMD'];
-            if (v is String) {
-              ymd = v.trim();
-            }
-          }
-          if (ymd.isEmpty) {
-            if (d.containsKey('date')) {
-              final v = d['date'];
-              if (v is String) {
-                ymd = v.trim();
-              } else {
-                if (v is Timestamp) {
-                  ymd = _toYMD(v.toDate());
-                }
-              }
-            }
-          }
-          if (ymd.isNotEmpty) {
-            tmpOff.add(ymd);
           }
         }
       }
@@ -1362,7 +1317,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
     setState(() {
       _loadingFacility = true;
     });
-
+//---------------------------------------
+// get the facility from database
+//---------------------------------------
     try {
       final DocumentSnapshot<Map<String, dynamic>> facDoc = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -1373,44 +1330,39 @@ class _WebEditBookingState extends State<WebEditBooking> {
 
       int cap = 0;
       if (fd != null) {
-        cap = _readInt(fd, 'availableSlots', 0);       // read 'availableSlots'
+        cap = _readInt(fd, 'availableSlots', 0);// read 'availableSlots'
       }
 
       final List<Map<String, String>> tmpSlots = [];
 
       if (fd != null) {
-        // get the field that stores your slots
+//---------------------------------------
+// get the time slot
+//---------------------------------------
         final dynamic v = fd['customTimeSlots'];
 
-        // make sure it's a list
         if (v is List) {
-          // loop one by one
           for (final item in v) {
-            // each item must be a map with 'start' and 'end'
+            //---------------------------------------
+// get start and end time
+//---------------------------------------
             if (item is Map<String, dynamic>) {
-              // read start time as string (trim spaces)
               String s = '';
               final dynamic vs = item['start'];
               if (vs is String) {
                 s = vs.trim();
-              } else if (vs != null) {
-                s = vs.toString().trim();
               }
-
-              // read end time as string (trim spaces)
               String e = '';
               final dynamic ve = item['end'];
               if (ve is String) {
                 e = ve.trim();
-              } else if (ve != null) {
-                e = ve.toString().trim();
               }
 
-              // only add if there is at least a start or end
               if (s.isNotEmpty || e.isNotEmpty) {
-                // build a sortable key from start (e.g. "0930")
+ //---------------------------------------
+// change the start to slot key format
+//---------------------------------------
                 final String key = _slotKeyFromStart(s);
-
                 // add to list
                 tmpSlots.add({'start': s, 'end': e, 'key': key});
               }
@@ -1424,7 +1376,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
         _timeSlots
           ..clear()
           ..addAll(tmpSlots);
-
+//---------------------------------------
+// get inactive from and inactive to
+//---------------------------------------
         _inactiveFrom = _dateOnly(fd?['inactiveFrom']);
         _inactiveTo   = _dateOnly(fd?['inactiveTo']);
 
@@ -1460,7 +1414,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       _selectedSeatIndex = -1;
       _seatTaken.clear();
     });
-
+//---------------------------------------
+// get the slot of the facility
+//---------------------------------------
     try {
       final QuerySnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -1469,7 +1425,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
           .doc(ymd)
           .collection('Slots')
           .get();
-
+//---------------------------------------
+// get the booked amount
+//---------------------------------------
       final Map<String, int> tmp = <String, int>{};
       for (final doc in snap.docs) {
         final Map<String, dynamic> m = doc.data();
@@ -1486,7 +1444,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
         }
         tmp[doc.id] = booked;
       }
-
+//---------------------------------------
+// add to daybooked
+//---------------------------------------
       setState(() {
         _dayBooked
           ..clear()
@@ -1533,61 +1493,21 @@ class _WebEditBookingState extends State<WebEditBooking> {
           .collection('Seats')
           .get();
 
-      // detect indexing scheme: 0-based vs 1-based
-      bool hasZero = false;
-      bool hasOne  = false;
-
-      for (final d in seatsSnap.docs) {
-        if (d.id == '0') hasZero = true;
-        if (d.id == '1') hasOne  = true;
-      }
-
-
-      int idOffset = 1;
-      if (hasZero && !hasOne) {
-        idOffset = 0;
-      }
-
-      // mark taken seats with correct index
       for (final doc in seatsSnap.docs) {
-        final String idStr = doc.id;
-        int rawIdx = -1;
-        try {
-          rawIdx = int.parse(idStr);
-        } catch (_) {
-          rawIdx = -1;
-        }
 
-        int idx = rawIdx;
-        if (idOffset == 1) {
-          idx = rawIdx - 1;
-        }
+        final int? idNum = int.tryParse(doc.id);
+        if (idNum == null) continue;
 //---------------------------------------
-// check if the slot is taken or not add into seattaken list
+// -1 because list start from 0
 //---------------------------------------
+        final int idx = idNum - 1;
 
-        if (idx >= 0) {
-          if (idx < _seatTaken.length) {
-            final Map<String, dynamic> d = doc.data();
-            bool taken = false;
-            if (d.containsKey('taken')) {
-              final v = d['taken'];
-              if (v is bool) {
-                taken = v;
-              } else {
-                taken = false;
-              }
-            } else {
-              taken = false;
-            }
-
-            if (taken == true) {
-              _seatTaken[idx] = true;
-            }
-          }
+        final Map<String, dynamic> data = doc.data();
+        final bool taken = data['taken'] == true;
+        if (taken) {
+          _seatTaken[idx] = true;
         }
       }
-
       setState(() {});
     } catch (e) {
       _toast('Failed to load seats.');
@@ -1773,6 +1693,9 @@ class _WebEditBookingState extends State<WebEditBooking> {
       return def;
     }
   }
+//---------------------------------------
+// make snack bar pop up
+//---------------------------------------
 
   void _toast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));

@@ -167,13 +167,13 @@ class _AndroidAccountState extends State<AndroidAccount> {
 //---------------------------------------
   Future<void> _openChangePasswordDialog() async {
 
-    final TextEditingController _oldCtrl = TextEditingController();      // old password input
-    final TextEditingController _newCtrl = TextEditingController();      // new password input
-    final TextEditingController _confirmCtrl = TextEditingController();  // confirm new password
+    final TextEditingController _oldCtrl = TextEditingController();// old password input
+    final TextEditingController _newCtrl = TextEditingController();// new password input
+    final TextEditingController _confirmCtrl = TextEditingController();// confirm new password
 
-    bool _hideOld = true;       // obscure old password
-    bool _hideNew = true;       // obscure new password
-    bool _hideConfirm = true;   // obscure confirm password
+    bool _hideOld = true;// obscure old password
+    bool _hideNew = true;// obscure new password
+    bool _hideConfirm = true;// obscure confirm password
 
     String? _oldErr;
     String? _newErr;
@@ -207,19 +207,16 @@ class _AndroidAccountState extends State<AndroidAccount> {
                 setStateDialog(() { _oldErr = "Old password cannot be empty"; });
                 ok = false;
               }
-              // check new strong
               if (_isPasswordStrong(_newCtrl.text)) {
               } else {
                 setStateDialog(() { _newErr = "Min 8 chars, 1 uppercase, 1 special"; });
                 ok = false;
               }
-              // check confirm
               if (_confirmCtrl.text.isEmpty) {
                 setStateDialog(() { _confirmErr = "Confirm password cannot be empty"; });
                 ok = false;
               } else {
                 if (_confirmCtrl.text == _newCtrl.text) {
-                  // ok
                 } else {
                   setStateDialog(() { _confirmErr = "Passwords do not match"; });
                   ok = false;
@@ -277,7 +274,6 @@ class _AndroidAccountState extends State<AndroidAccount> {
 // when have error
 //---------------------------------------
               } on FirebaseAuthException catch (e) {
-                // map common errors to friendly messages
                 if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
                   setStateDialog(() { _oldErr = "Old password is incorrect"; });
                 } else if (e.code == 'weak-password') {
@@ -304,7 +300,7 @@ class _AndroidAccountState extends State<AndroidAccount> {
             }
 
 //---------------------------------------
-// desgin of the pop up
+// desgin of the change password pop up
 //---------------------------------------
             return AlertDialog(
               title: Text("Change Password", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
@@ -660,6 +656,31 @@ class _AndroidAccountState extends State<AndroidAccount> {
     }
   }
 
+  //---------------------------------------
+// check username exist
+//---------------------------------------
+  Future<bool> _usernameExists(String username, userId) async {
+    final String u = username.trim();
+    if (u.isEmpty) {
+      return false;
+    }
+    try {
+      final qs = await FirebaseFirestore.instance
+          .collection("UserInformation")
+          .where("username", isEqualTo: u)
+          .limit(2)
+          .get();
+
+      for (final d in qs.docs) {
+        if (d.id != userId) return true;
+      }
+      return false;
+    }
+    catch (e) {
+      return false;
+    }
+  }
+
 //---------------------------------------
 // main build
 //---------------------------------------
@@ -791,7 +812,7 @@ class _AndroidAccountState extends State<AndroidAccount> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
 //---------------------------------------
-// profile picture
+// show profile picture
 //---------------------------------------
                 GestureDetector(
                   onTap: () {
@@ -805,7 +826,6 @@ class _AndroidAccountState extends State<AndroidAccount> {
                       }
                     }
                   },
-
                   child: Container(
                     width: 150.w,
                     height: 150.w,
@@ -813,15 +833,21 @@ class _AndroidAccountState extends State<AndroidAccount> {
                     clipBehavior: Clip.antiAlias,
                     child: Builder(
                       builder: (ctx) {
-                        // Show pending preview first
+ //---------------------------------------
+// show pending image first if there is
+//---------------------------------------
                         if (_pendingImageBytes != null) {
                           return Image.memory(_pendingImageBytes!, fit: BoxFit.cover);
                         } else {
-                          // Else show saved image
+//---------------------------------------
+// show image from database
+//---------------------------------------
                           if (_savedImageBytes != null) {
                             return Image.memory(_savedImageBytes!, fit: BoxFit.cover);
                           } else {
-                            // Else show label (tap-to-add in edit mode)
+//---------------------------------------
+// if no image
+//---------------------------------------
                             String hint = "";
                             if (_isEditing == true) {
                               hint = "Tap to add";
@@ -867,7 +893,7 @@ class _AndroidAccountState extends State<AndroidAccount> {
                 SizedBox(height: 16.h),
 
 //---------------------------------------
-// profile part
+// profile part when edit and lable
 //---------------------------------------
                 Align(
                   alignment: Alignment.centerLeft,
@@ -916,6 +942,16 @@ class _AndroidAccountState extends State<AndroidAccount> {
 //---------------------------------------
                             bool ok = _validateInputs();
                             if (ok == true) {
+
+                              final bool taken = await _usernameExists(_usernameCtrl.text,uid);
+                              if (taken == true) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Username already taken.', style: TextStyle(fontSize: 14.sp))),
+                                );
+                                setState(() {});
+                                return;
+                              }
+
                               final Map<String, dynamic> updates = {
                                 "username": _usernameCtrl.text.trim(),
                                 "contact": _contactCtrl.text.trim(),
@@ -966,9 +1002,9 @@ class _AndroidAccountState extends State<AndroidAccount> {
                         ),
                         child: Text(
 //---------------------------------------
-// button already set above
+// if in editing mode set to button to confrim if not set to edit
 //---------------------------------------
-                          mainButtonLabel,
+                          _isEditing ? "Confirm" : "Edit",
                           style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600),
                         ),
                       ),

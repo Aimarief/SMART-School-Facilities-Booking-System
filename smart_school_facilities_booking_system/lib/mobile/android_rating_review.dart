@@ -209,7 +209,13 @@ class _AndroidRatingReviewState extends State<AndroidRatingReview> {
 //---------------------------------------
 // star design
 //---------------------------------------
-                      _buildStars(avg),
+
+                      Row(children: [
+                        SizedBox(width: 125.w),
+                        _buildStars(avg),
+                      ],),
+
+
                       SizedBox(height: 6.h),
 //---------------------------------------
 // total rating
@@ -571,10 +577,8 @@ Widget _buildStars(double avg) {
 // list to store five star
 //---------------------------------------
   final List<Widget> list = <Widget>[];
-
   for (int i = 1; i <= 5; i++) {
     IconData icon;
-
     // full star when avg crosses the index
     if (avg >= i) {
       icon = Icons.star;
@@ -587,16 +591,12 @@ Widget _buildStars(double avg) {
         icon = Icons.star_border;
       }
     }
-
 //---------------------------------------
-// add star into list and display
+// add star into list and and return children list to display
 //---------------------------------------
-
     list.add(Icon(icon, size: 20.sp, color: const Color(0xFFFFC107)));
     if (i < 5) list.add(SizedBox(width: 2.w));
   }
-
-  // return a compact row of stars
   return Row(children: list);
 }
 

@@ -124,10 +124,8 @@ class _LoginInformationState extends State<LoginInformation> {
 //---------------------------------------
 // log in proccess
 //---------------------------------------
-
   Future<void> loginUser(BuildContext context, String emailOrUsername, String password) async {
     setState(() { _errorMessage = null; });
-
 //---------------------------------------
 // check if it is empty
 //---------------------------------------
@@ -136,7 +134,6 @@ class _LoginInformationState extends State<LoginInformation> {
       setState(() { _errorMessage = "Please enter your email/username and password"; });
       return;
     }
-
 //---------------------------------------
 // if it is user name
 //---------------------------------------
@@ -191,7 +188,15 @@ class _LoginInformationState extends State<LoginInformation> {
 //---------------------------------------
 
     if (approval && !isActive) {
-      setState(() { _errorMessage = "Login failed. This account has been rejected by Admin."; });
+
+      final data = pre['rejectDetails'];
+      final reason = (data is String ? data.trim() : '');
+      final display = reason.isEmpty ? '-' : reason;
+
+      setState(() {
+        _errorMessage =
+        "This account has been rejected by Admin.\nReason: $display";
+      });
       return;
     }
 
@@ -417,7 +422,6 @@ class _LoginInformationState extends State<LoginInformation> {
 //---------------------------------------
                     try {
                       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text('Password reset email sent to $email')),
                       );

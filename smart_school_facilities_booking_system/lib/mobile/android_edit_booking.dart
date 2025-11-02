@@ -14,11 +14,11 @@ import 'android_list_of_facilities.dart';
 import 'android_notifications.dart';
 import 'android_account.dart';
 
-// ---------------- widget: AndroidEditBooking ----------------
 class AndroidEditBooking extends StatefulWidget {
-  // booking id to edit
+//---------------------------------------
+// get the booking id and approval from previous
+//---------------------------------------
   final String bookingId;
-  // optional, for callers that pass approval; we still read live doc
   final String? approval;
 
   const AndroidEditBooking({
@@ -31,49 +31,47 @@ class AndroidEditBooking extends StatefulWidget {
   State<AndroidEditBooking> createState() => _AndroidEditBookingState();
 }
 
-// ---------------- state: AndroidEditBooking ----------------
 class _AndroidEditBookingState extends State<AndroidEditBooking> {
+//---------------------------------------
+// current page
+//---------------------------------------
   int _currentIndex = 1;
 
-  // one-time init guard
   bool _initApplied = false;
 
-  // booking-derived fields
   String _facilityId = '';
   DateTime? _origDate;
   String _origStartStr = '';
   String _origEndStr = '';
   String _origSeatText = '-';
   int _reasonLen = 0;
-// --- memoized streams to prevent flicker on rebuilds ---
+//---------------------------------------
+// booking stream and facility steam
+//---------------------------------------
+
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _bookingStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _facilityStream;
   String _facilityStreamForId = '';
 
-  // facility data
   String _facilityName = '';
-  int _capacity = 0;                                  // facility fallback capacity
-  final List<String> _timeChoices = <String>[];       // "HH:mm"
-  final Map<String, String> _startToEnd = <String, String>{}; // start -> end
+  int _capacity = 0;
+  final List<String> _timeChoices = <String>[];
+  final Map<String, String> _startToEnd = <String, String>{};
 
-  // user selections
   final List<DateTime> _dateChoices = <DateTime>[];
   DateTime? _selectedDate;
   String _selectedTime = '';
   int _selectedSeat = -1;
 
-  // per-date slot metadata
-  final Map<String, int> _slotBooked = <String, int>{};      // "HHmm" -> booked
-  final Map<String, int> _slotCapOverride = <String, int>{}; // "HHmm" -> capacity
 
-  // prevent redundant loads
-  String _loadedKey = ''; // "facilityId|YYYY-MM-DD"
+  final Map<String, int> _slotBooked = <String, int>{};
+  final Map<String, int> _slotCapOverride = <String, int>{};
 
-  // off rules from SystemInformation
-  Set<int> _offWeekdays = <int>{};      // 1..7 (Mon..Sun) off
+  String _loadedKey = '';
+
+  Set<int> _offWeekdays = <int>{};
   Set<String> _offDatesYmd = <String>{};
 
-  // facility inactive window (inclusive). If either is null, ignore.
   DateTime? _inactiveFrom;
   DateTime? _inactiveTo;
 
@@ -84,15 +82,23 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
   @override
   void initState() {
     super.initState();
+//---------------------------------------
+// get the booking from firebase
+//---------------------------------------
     _bookingStream = FirebaseFirestore.instance
         .collection('Bookings')
         .doc(widget.bookingId)
         .snapshots();
-
+//---------------------------------------
+// after load working day and off day then create the next seven day from today
+//---------------------------------------
     _loadWorkRules().then((_) {
       _buildNext6Days();
       if (mounted) setState(() {});
     });
+    //---------------------------------------
+// add listender for reason text box , max to 200 length
+//---------------------------------------
     _reasonCtrl.addListener(() {
       setState(() => _reasonLen = _reasonCtrl.text.characters.length.clamp(0, 200));
     });
@@ -104,7 +110,10 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     super.dispose();
   }
 
-  // ---------------- bottom bar: on tab selected ----------------
+//---------------------------------------
+// navigation bar page index
+//---------------------------------------
+
   void _onTabSelected(int i) {
     if (i == 0) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AndroidAgenda()));
@@ -119,9 +128,14 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     }
   }
 
-  // ---------------- small format helpers ----------------
+//---------------------------------------
+// format the date to day, date, month , year
+//---------------------------------------
   String _formatFullDate(DateTime d) => DateFormat('EEE, d MMM yyyy').format(d);
 
+  //---------------------------------------
+// change to am pm
+//---------------------------------------
   String _toAmPmDot(String hhmm) {
     final p = hhmm.split(':');
     int h = int.tryParse(p[0]) ?? 0;
@@ -133,6 +147,10 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     return '$h.$mm $suf';
   }
 
+  //---------------------------------------
+// convert minute to hh mm
+//---------------------------------------
+
   String _minutesToHHmm(int mins) {
     int h = mins ~/ 60;
     int m = mins % 60;
@@ -141,19 +159,21 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 
+  //---------------------------------------
+// change (may not need this)
+//---------------------------------------
+
   String _normalizeHHmm(String s) {
-    String t = s.trim().replaceAll(' ', '').replaceAll('.', ':').replaceAll('-', ':');
-    if (!t.contains(':')) {
-      final digits = RegExp(r'\d+').allMatches(t).map((e) => e.group(0)!).join();
-      if (digits.isEmpty) return t;
-      final four = digits.length == 3 ? '0$digits' : digits.padLeft(4, '0').substring(0, 4);
-      return '${four.substring(0, 2)}:${four.substring(2, 4)}';
-    }
+    String t = s.trim();
     final p = t.split(':');
     final hh = (p.isNotEmpty ? p[0] : '0').padLeft(2, '0');
     final mm = (p.length > 1 ? p[1] : '0').padLeft(2, '0');
     return '$hh:$mm';
   }
+
+  //---------------------------------------
+// parse hour to minute
+//---------------------------------------
 
   int _minutesOf(String hhmm) {
     final p = hhmm.split(':');
@@ -161,11 +181,16 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     final m = int.tryParse(p.length > 1 ? p[1] : '0') ?? 0;
     return h * 60 + m;
   }
+//---------------------------------------
+// change to slot key format
+//---------------------------------------
 
   String _slotKey4FromHHmm(String s) => _normalizeHHmm(s).replaceAll(':', '');
 
   String _ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
+//---------------------------------------
+// change to date format
+//---------------------------------------
   DateTime? _dateOnly(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) {
@@ -179,56 +204,78 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     }
     return null;
   }
-
-  // ---------------- SystemInformation rules ----------------
+//---------------------------------------
+// get all the weeky day off
+//---------------------------------------
   void _applyWeekdayBooleansFromMap(Map<String, dynamic> m) {
     void add(String k, int wd) {
       if (!m.containsKey(k)) return;
       final v = m[k];
       bool off = false;
-      if (v is bool) off = !v;
-      else if (v is String) off = v.toLowerCase().trim() == 'false';
-      else if (v is num) off = v == 0;
-      if (off) _offWeekdays.add(wd);
+      //---------------------------------------
+// check if it is off or not off, then add to offweekday list
+//---------------------------------------
+      if (v is bool)
+        off = !v;
+
+      if (off)
+        _offWeekdays.add(wd);
     }
+    //---------------------------------------
+// check by 1 by 1 using add
+//---------------------------------------
+
     add('Monday', 1); add('Tuesday', 2); add('Wednesday', 3);
     add('Thursday', 4); add('Friday', 5); add('Saturday', 6); add('Sunday', 7);
   }
+//---------------------------------------
+//
+//---------------------------------------
 
   String _normalizeYmdString(String s) {
-    final t = s.trim().replaceAll('/', '-');
+    final t = s.trim();
     final d = DateTime.tryParse(t);
     if (d == null) return t;
     return _ymd(d);
   }
+//---------------------------------------
+// load not working day
+//---------------------------------------
 
   Future<void> _loadWorkRules() async {
     _offWeekdays = <int>{};
     _offDatesYmd = <String>{};
+    //---------------------------------------
+// load week day off first
+//---------------------------------------
+
     try {
       final ds = await FirebaseFirestore.instance.collection('SystemInformation').doc('Setting').get();
       if (ds.exists) {
         final m = ds.data();
         if (m != null) {
           _applyWeekdayBooleansFromMap(m);
-          final nested = m['Setting'];
-          if (nested is Map<String, dynamic>) _applyWeekdayBooleansFromMap(nested);
         }
       }
     } catch (_) {}
     try {
+//---------------------------------------
+// then load off day
+//---------------------------------------
       final off = await FirebaseFirestore.instance.collection('SystemInformation').doc('OffDays').get();
       if (off.exists) {
         final m = off.data();
         if (m != null && m['offDays'] is List) {
           for (final e in (m['offDays'] as List)) {
-            final norm = _normalizeYmdString(e.toString());
-            if (norm.isNotEmpty) _offDatesYmd.add(norm);
+           _offDatesYmd.add(e);
           }
         }
       }
     } catch (_) {}
   }
+//---------------------------------------
+// check if it is pickable day or not
+//---------------------------------------
 
   bool _isPickableDay(DateTime d) {
     final ymd = _ymd(d);
@@ -241,53 +288,80 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     return true;
   }
 
-  // ---------------- facility parsing ----------------
+//---------------------------------------
+// get facility information
+//---------------------------------------
+
   void _applyFacilityData(Map<String, dynamic> fac) {
     _facilityName = (fac['name'] ?? '').toString();
-
-    final v = fac['availableSlots'] ?? fac['capacity'];
-    if (v is int) _capacity = v;
-    else if (v is double) _capacity = v.toInt();
-    else _capacity = int.tryParse((v ?? '').toString()) ?? 0;
-    if (_capacity <= 0) _capacity = 1;
-
+    _capacity = fac['availableSlots'] as int;
     _inactiveFrom = _dateOnly(fac['inactiveFrom']);
     _inactiveTo   = _dateOnly(fac['inactiveTo']);
 
     _timeChoices.clear();
     _startToEnd.clear();
-    final arr = fac['customTimeSlots'];
-    if (arr is List) {
-      for (final it in arr) {
-        String start = '', end = '';
-        if (it is Map) {
-          start = (it['start'] ?? '').toString().trim();
-          end   = (it['end']   ?? '').toString().trim();
-        } else if (it is String) {
-          final s = it.trim();
-          if (s.contains('-')) { final p = s.split('-'); start = p[0].trim(); end = (p.length > 1 ? p[1].trim() : ''); }
-          else { start = s; }
-        }
-        if (start.isEmpty) continue;
-        final ns = _normalizeHHmm(start);
-        final ne = end.isNotEmpty ? _normalizeHHmm(end) : '';
-        if (!_startToEnd.containsKey(ns)) {
-          _timeChoices.add(ns);
-          if (ne.isNotEmpty) _startToEnd[ns] = ne;
-        }
-      }
+
+    final dynamic arr = fac['customTimeSlots'];
+
+    final List<Map<String, dynamic>> slots = <Map<String, dynamic>>[];
+    int i = 0;
+    while (i < arr.length) {
+      final dynamic it = arr[i];
+        slots.add(it);
+
+      i = i + 1;
     }
-    _timeChoices.sort((a, b) => _minutesOf(a).compareTo(_minutesOf(b)));
+    //---------------------------------------
+// sort by start time
+//---------------------------------------
+    slots.sort((a, b) {
+      final int sa = (a['startMin'] as int?) ?? 0;
+      final int sb = (b['startMin'] as int?) ?? 0;
+      return sa.compareTo(sb);
+    });
+
+//---------------------------------------
+// make sure no duplicate time
+//---------------------------------------
+    int j = 0;
+    while (j < slots.length) {
+      final Map<String, dynamic> it = slots[j];
+
+      final String startHHmm = (it['start'] as String).trim(); // "09:00"
+      final String endHHmm   = (it['end'] as String).trim();// "10:00"
+
+      final String ns = _normalizeHHmm(startHHmm); // "09:00" -> "0900"
+      final String ne = _normalizeHHmm(endHHmm); // "10:00" -> "1000"
+
+      if (_startToEnd.containsKey(ns) == false) { // avoid duplicates
+//---------------------------------------
+// keep end time also in list
+//---------------------------------------
+        _timeChoices.add(ns);// add "0900"
+        _startToEnd[ns] = ne;// map to "1000"
+      }
+      j = j + 1;
+    }
   }
 
-  // ---------------- day/time helpers ----------------
+//---------------------------------------
+// get the next six day from today
+//---------------------------------------
+
   void _buildNext6Days() {
     _dateChoices.clear();
+    //---------------------------------------
+// add the date that can be pick into datechoices
+//---------------------------------------
+
     final t = DateTime.now();
     for (int i = 0; i <= 6; i++) {
       _dateChoices.add(DateTime(t.year, t.month, t.day).add(Duration(days: i)));
     }
   }
+//---------------------------------------
+// check if selected day is today
+//---------------------------------------
 
   bool _isSelectedDayToday() {
     if (_selectedDate == null) return false;
@@ -295,6 +369,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     final d = _selectedDate!;
     return now.year == d.year && now.month == d.month && now.day == d.day;
   }
+//---------------------------------------
+// check if the time already past for today
+//---------------------------------------
 
   bool _isTimePastForSelectedDay(String hhmm) {
     if (!_isSelectedDayToday()) return false;
@@ -302,12 +379,22 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     return (now.hour * 60 + now.minute) >= _minutesOf(_normalizeHHmm(hhmm));
   }
 
-  Future<void> _loadSlotMetaForSelectedDate() async {
+  //---------------------------------------
+// load the available slot for selected date
+//---------------------------------------
+
+  Future<void> _loadSlotForSelectedDate() async {
     _slotBooked.clear();
-    _slotCapOverride.clear();
     if (_facilityId.isEmpty || _selectedDate == null) return;
+    //---------------------------------------
+// format slected date to yyyy-mm-dd
+//---------------------------------------
+
     final ymd = _ymd(_selectedDate!);
     try {
+      //---------------------------------------
+// get the slot from facilities database
+//---------------------------------------
       final q = await FirebaseFirestore.instance
           .collection('Facilities').doc(_facilityId)
           .collection('Days').doc(ymd)
@@ -317,56 +404,39 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         final key = d.id.trim();
         final m = d.data();
         int booked = 0;
-        final bv = m['booked'];
-        if (bv is int) booked = bv; else booked = int.tryParse((bv ?? '0').toString()) ?? 0;
-        _slotBooked[key] = booked.clamp(0, 1 << 30);
-        final cv = m['capacity'];
-        if (cv != null) {
-          int cap = 0;
-          if (cv is int) cap = cv;
-          else cap = int.tryParse(cv.toString()) ?? 0;
-          if (cap > 0) _slotCapOverride[key] = cap;
-        }
+        booked = m['booked'];
+        _slotBooked[key] = booked;
       }
     } catch (_) {}
   }
-
-  void _queueLoadIfNeeded() {
-    if (_facilityId.isEmpty || _selectedDate == null) return;
-    final key = '$_facilityId|${_ymd(_selectedDate!)}';
-    if (_loadedKey != key) {
-      _loadedKey = key;
-      _loadSlotMetaForSelectedDate().then((_) { if (mounted) setState(() {}); });
-    }
-  }
-
+//---------------------------------------
+// check if same day
+//---------------------------------------
   bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
+  //---------------------------------------
+// parse the seat from text to int
+//---------------------------------------
   int _parseSeatText(String s) => int.tryParse(s) ?? -1;
 
+  //---------------------------------------
+// get the end time using start time in the list
+//---------------------------------------
   String _lookupEndFromFacilityByStart(String start) {
     final s = _normalizeHHmm(start);
     final e = _startToEnd[s];
     return e == null ? '' : _normalizeHHmm(e);
   }
 
-  String _endForStartFallback(String start) {
-    final e = _lookupEndFromFacilityByStart(start);
-    return e.isNotEmpty ? e : _minutesToHHmm(_minutesOf(_normalizeHHmm(start)) + 60);
-  }
-
-  // ----------------------------------------------
-// Show confirm dialog for deleting a booking
-// - same design as your logout dialog
-// - returns true if user confirms
-// ----------------------------------------------
+//---------------------------------------
+// confirm cancel booking pop up
+//---------------------------------------
   Future<bool> _confirmDeleteDialog() async {
     final bool? yes = await showDialog<bool>(
       context: context,
       barrierDismissible: false, // cannot tap outside to close
       builder: (ctx) {
         return AlertDialog(
-          // square corners (no rounding)
           shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
           title: Text(
             'Delete booking?',
@@ -377,12 +447,16 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
             style: TextStyle(fontSize: 14.sp),
           ),
           actions: [
-            // Cancel button = close dialog, return false
+//---------------------------------------
+// cancel button return false
+//---------------------------------------
             TextButton(
               onPressed: () { Navigator.of(ctx).pop(false); },
               child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
             ),
-            // Red Confirm button = close dialog, return true
+//---------------------------------------
+// true button return true
+//---------------------------------------
             ElevatedButton(
               onPressed: () { Navigator.of(ctx).pop(true); },
               style: ElevatedButton.styleFrom(
@@ -400,58 +474,48 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
   }
 
 
-  // ---------------- delete (soft-delete) current booking ----------------
+//---------------------------------------
+// delete proccess
+//---------------------------------------
+
   Future<void> _onDelete() async {
-    // 1) Ask user with the new confirmation popup
+//---------------------------------------
+// pop up to ask user
+//---------------------------------------
     final bool ok = await _confirmDeleteDialog();
-    // 2) If user did not confirm, stop here (logic unchanged)
     if (ok != true) return;
 
     try {
-      // read once to build notification payload
-      final doc = await FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId).get();
+      //---------------------------------------
+// get the booking id
+//---------------------------------------
+      final doc = await FirebaseFirestore.instance.collection('Bookings')
+          .doc(widget.bookingId).get();
       if (!doc.exists || doc.data() == null) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Booking not found')));
         return;
       }
+
       final m = doc.data()!;
-      String facilityId = (m['facilityId'] ?? m['facilityID'] ?? '').toString().trim();
-      final String userId = (m['userId'] ?? m['uid'] ?? m['bookedBy'] ?? m['bookBy'] ?? '').toString().trim();
-      String managerId = (m['managerId'] ?? m['managerUID'] ?? m['managerUid'] ?? '').toString().trim();
-      if (managerId.isEmpty && facilityId.isNotEmpty) {
-        try {
-          final fac = await FirebaseFirestore.instance.collection('Facilities').doc(facilityId).get();
-          final fm = fac.data();
-          if (fm != null) {
-            managerId = (fm['managerId'] ?? fm['managerUID'] ?? fm['managerUid'] ?? '').toString().trim();
-            if (facilityId.isEmpty) facilityId = fac.id;
-          }
-        } catch (_) {}
-      }
+      String facilityId = (m['facilityId']).toString().trim();
+      final String userId = (m['userId']).toString().trim();
+      String managerId = (m['managerId']).toString().trim();
+      final int seatIndex = m['seatIndex'] as int;
+      final String start = m['start'];
+      final String end   = m['end'];
+      final String bookingDate = m['bookingDate'];
 
-      String _hhmmStrict(String raw) {
-        final digits = RegExp(r'\d+').allMatches(raw).map((e) => e.group(0)!).join();
-        if (digits.isEmpty) return '';
-        final four = digits.length == 3 ? '0$digits' : digits.padLeft(4, '0').substring(0, 4);
-        int hh = int.tryParse(four.substring(0, 2)) ?? 0; hh = hh.clamp(0, 23);
-        int mm = int.tryParse(four.substring(2, 4)) ?? 0; mm = mm.clamp(0, 59);
-        return '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}';
-      }
-
-      final int seatIndex = int.tryParse((m['seatIndex'] ?? m['slotIndex'] ?? '').toString()) ?? -1;
-      final String start = _hhmmStrict((m['start'] ?? m['startTime'] ?? '').toString());
-      final String end   = _hhmmStrict((m['end']   ?? m['endTime']   ?? '').toString());
-
-      DateTime? _dateOnlyAny(dynamic v) => _dateOnly(v) ?? _dateOnly(m['booking_date']) ?? _dateOnly(m['date']);
-      final DateTime? bd = _dateOnlyAny(m['bookingDate']);
-      final String bookingDate = bd != null
-          ? _ymd(bd)
-          : _normalizeYmdString((m['bookingDate'] ?? m['booking_date'] ?? m['date'] ?? '').toString());
-
+//---------------------------------------
+// find current user
+//---------------------------------------
       final String actor = FirebaseAuth.instance.currentUser?.uid ?? '';
-
+//---------------------------------------
+// cancel this booking using booking service
+//---------------------------------------
       await BookingService.deleteAcceptedBookingByIdTx(bookingId: widget.bookingId);
-
+//---------------------------------------
+// send deleted mails
+//---------------------------------------
       await NotificationService.sendBookingDeletedMails(
         bookingId: widget.bookingId,
         userId: userId,
@@ -472,7 +536,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     }
   }
 
-  // Small red "Delete" chip button used in the header row
+//---------------------------------------
+// delete button design
+//---------------------------------------
   Widget _buildDeleteButton() {
     return Container(
       width: 110.w,
@@ -492,6 +558,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
             children: <Widget>[
               Icon(Icons.delete, size: 16.sp, color: const Color(0xFFD32F2F)),
               SizedBox(width: 6.w),
+ //---------------------------------------
+// display cancel text
+//---------------------------------------
               Text(
                 'Cancel',
                 style: TextStyle(
@@ -506,60 +575,92 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       ),
     );
   }
-  // --- overlap check helper (same-day, exclude current booking) ---
+
+//---------------------------------------
+// find if there is overlap booking
+//---------------------------------------
   Future<Map<String, String>?> _findOverlapWithMyOtherBookings({
     required String userId,
     required String dateYMD,
-    required String newStart,        // "HH:mm"
-    required String newEnd,          // "HH:mm"
+    required String newStart,
+    required String newEnd,
     required String excludeBookingId,
   }) async {
     try {
-      final qs = await FirebaseFirestore.instance
+//---------------------------------------
+// get the booking date
+//---------------------------------------
+      final normalcheck = await FirebaseFirestore.instance
           .collection('Bookings')
           .where('userId', isEqualTo: userId)
           .where('bookingDate', isEqualTo: dateYMD)
           .get();
-
+//---------------------------------------
+// format them to minute format
+//---------------------------------------
       final int newS = _minutesOf(_normalizeHHmm(newStart));
       final int newE = _minutesOf(_normalizeHHmm(newEnd));
 
-      for (final d in qs.docs) {
-        if (d.id == excludeBookingId) continue;           // ignore the booking being edited
+      for (final d in normalcheck.docs) {
+        if (d.id == excludeBookingId) continue;
         final m = d.data();
         if (m['deleted'] == true) continue;
 
         final ap = (m['approval'] ?? '').toString().toLowerCase().trim();
-        if (!(ap == 'accepted' || ap == 'approved' || ap == 'pending')) continue;
+        if (!(ap == 'accepted' || ap == 'pending')) continue;
 
-        // existing booking times
-        String s = _normalizeHHmm((m['start'] ?? m['startTime'] ?? '').toString());
-        String e = (m['end'] ?? m['endTime'] ?? '').toString().trim();
+        String s = (m['start']).toString();
+        String e = (m['end'] ).toString();
 
-        if (e.isEmpty) {
-          // try facility template, else +60m
-          final fromTpl = _lookupEndFromFacilityByStart(s);
-          e = fromTpl.isNotEmpty ? _normalizeHHmm(fromTpl) : _minutesToHHmm(_minutesOf(s) + 60);
-        } else {
-          e = _normalizeHHmm(e);
-        }
-
+//---------------------------------------
+// convert to minute
+//---------------------------------------
         final int sM = _minutesOf(s);
         final int eM = _minutesOf(e);
 
-        // overlap: [newS,newE) vs [sM,eM)
+        //---------------------------------------
+// check both if overlap or not
+//---------------------------------------
         if (newS < eM && newE > sM) {
           return {'start': s, 'end': e};
         }
       }
+
+//---------------------------------------
+// check for amendment request overlap
+//---------------------------------------
+      final apcheck = await FirebaseFirestore.instance
+          .collection('Bookings')
+          .where('userId', isEqualTo: userId)
+          .where('hasPendingAmendment', isEqualTo: true)
+          .where('amendmentPreview.bookingDate', isEqualTo: dateYMD)
+          .get();
+
+      for (final d in apcheck.docs) {
+        if (d.id == excludeBookingId) continue;
+        final m = d.data();
+        final Map<String, dynamic>? p = (m['amendmentPreview'] as Map<String, dynamic>?);
+        if (p == null) continue;
+
+        String s = p['start'];
+        String e = p['end'];
+
+        final int sM = _minutesOf(s);
+        final int eM = _minutesOf(e);
+
+        if (newS < eM && newE > sM) return {'start': s, 'end': e};
+      }
     } catch (_) {}
     return null; // no overlap found
   }
+//---------------------------------------
+// when confirm is press
+//---------------------------------------
 
-
-
-  // ---------------- CONFIRM: pending edit or accepted→amendment ----------------
   Future<void> _onConfirm() async {
+    //---------------------------------------
+// make validation first
+//---------------------------------------
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a date', style: TextStyle(fontSize: 13.sp))));
       return;
@@ -576,16 +677,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please pick a slot', style: TextStyle(fontSize: 13.sp))));
       return;
     }
-
-    // capacity check
-    final String key4 = _slotKey4FromHHmm(_selectedTime);
-    int cap = _slotCapOverride[key4] ?? _capacity;
-    if (_selectedSeat > cap) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Selected slot is out of range', style: TextStyle(fontSize: 13.sp))));
-      return;
-    }
-
-    // live seat availability check
+//---------------------------------------
+// check of seat is taken or no
+//---------------------------------------
     final bool ok = await _validateSeatAvailable();
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -593,51 +687,63 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       );
       return;
     }
-
+//---------------------------------------
+// get start time and end time
+//---------------------------------------
     final String newStart = _normalizeHHmm(_selectedTime);
     String newEnd = _startToEnd.containsKey(newStart) ? _startToEnd[newStart]! : '';
-    if (newEnd.isEmpty) newEnd = _endForStartFallback(newStart);
     final String newDateYMD = _ymd(_selectedDate!);
     final String newSlotKey = _slotKey4FromHHmm(newStart);
     final int newSeat = _selectedSeat;
 
     try {
-      // read booking once
+      //---------------------------------------
+// get the booking id
+//---------------------------------------
       final doc = await FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId).get();
       if (!doc.exists || doc.data() == null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Booking not found', style: TextStyle(fontSize: 13.sp))));
         return;
       }
       final Map<String, dynamic> b = doc.data()!;
+      //---------------------------------------
+// get the user id
+//---------------------------------------
 
-      // owner
       String userId = (b['userId'] ?? '').toString();
       if (userId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not verify user on booking', style: TextStyle(fontSize: 13.sp))));
         return;
       }
+      //---------------------------------------
+// check the approal and status
+//---------------------------------------
 
-      // compute acceptance
       final String approvalStr = (b['approval'] ?? '').toString().toLowerCase().trim();
       final String statusStr   = (b['status']   ?? '').toString().toLowerCase().trim();
-      final bool isAcceptedUpcoming =
-          (approvalStr == 'accepted' || approvalStr == 'approved') && statusStr == 'upcoming';
+      final bool isAcceptedUpcoming = (approvalStr == 'accepted' && statusStr == 'upcoming');
 
-      // manager (prefer booking, else facility)
+      //---------------------------------------
+// get the manager id
+//---------------------------------------
       String managerId = (b['managerId'] ?? '').toString().trim();
       if (managerId.isEmpty) {
         try {
           final facSnap = await FirebaseFirestore.instance.collection('Facilities').doc(_facilityId).get();
           final fac = facSnap.data();
           if (fac != null) {
-            managerId = (fac['managerId'] ?? fac['managerUID'] ?? fac['managerUid'] ?? '').toString().trim();
+            managerId = (fac['managerId'] ).toString().trim();
           }
         } catch (_) {}
       }
-
+//---------------------------------------
+// get the actor which is the one who make this booking or edit this booking
+//---------------------------------------
       final String actorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-      // ---- overlap guard vs my other bookings on the same day ----
+//---------------------------------------
+// check if there is overlap booking
+//---------------------------------------
       final overlap = await _findOverlapWithMyOtherBookings(
         userId: userId,
         dateYMD: newDateYMD,
@@ -645,6 +751,10 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         newEnd: newEnd,
         excludeBookingId: widget.bookingId,
       );
+      //---------------------------------------
+// if there is overlap
+//---------------------------------------
+
       if (overlap != null) {
         final s = overlap['start']!;
         final e = overlap['end']!;
@@ -658,30 +768,23 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         );
         return;
       }
-
-
+//---------------------------------------
+// if is accepted and upcomig means its request amendment, so user need to enter reason, validate reason as well
+//---------------------------------------
       if (isAcceptedUpcoming) {
-        // ---------- ACCEPTED → create Amendment (required reason) ----------
         final String reason = _reasonCtrl.text.trim();
         if (reason.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter your reason', style: TextStyle(fontSize: 13.sp))));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:
+          Text('Please enter your reason', style: TextStyle(fontSize: 13.sp))));
           return;
         }
-
-        // optional: prevent multiple pending amendments
+//---------------------------------------
+// store new amendment sub collection
+//---------------------------------------
         final amendCol = FirebaseFirestore.instance
             .collection('Bookings').doc(widget.bookingId)
             .collection('Amendments');
 
-        final existingPending = await amendCol.where('approval', isEqualTo: 'pending').limit(1).get();
-        if (existingPending.docs.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('You already have a pending amendment for this booking.', style: TextStyle(fontSize: 13.sp))),
-          );
-          return;
-        }
-
-        // payload mirrors "pending booking" style
         final Map<String, dynamic> data = <String, dynamic>{
           'approval': 'pending',
           'approvalReason': reason,
@@ -695,18 +798,22 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           'managerId': managerId,
           'createdAt': FieldValue.serverTimestamp(),
           'createdBy': actorUid,
-          // keep a snapshot of current accepted booking (for admin diff)
+//---------------------------------------
+// also keep the original one
+//---------------------------------------
           'original': b,
           'seen':false,
         };
 
         final ref = await amendCol.add(data);
-        // write back amendmentId into the doc (optional)
+//---------------------------------------
+// get the amendment id
+//---------------------------------------
         await ref.set({'amendmentId': ref.id}, SetOptions(merge: true));
 
-        
-
-        // Make the parent booking bubble up in admin list and show a red dot
+//---------------------------------------
+// also add some important field into booking id
+//---------------------------------------
         await FirebaseFirestore.instance
             .collection('Bookings')
             .doc(widget.bookingId)
@@ -723,17 +830,22 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           },
         }, SetOptions(merge: true));
 
-        // soft seat placeholder for proposed seat
+//---------------------------------------
+// then set new seat in facility but taken is  = false
+//---------------------------------------
         try {
           await FirebaseFirestore.instance
               .collection('Facilities').doc(_facilityId)
               .collection('Days').doc(newDateYMD)
               .collection('Slots').doc(newSlotKey)
               .collection('Seats').doc(newSeat.toString())
-              .set({'taken': false, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+              .set({'taken': false, 'updatedAt': FieldValue.serverTimestamp()},
+              SetOptions(merge: true));
         } catch (_) {}
 
-        // inbox: treat as "created" pending (amendment pending)
+//---------------------------------------
+// then send amendment pending mails
+//---------------------------------------
         try {
           await NotificationService.sendBookingCreatedMails(
             bookingId: widget.bookingId,     // keep parent bookingId in inbox
@@ -756,7 +868,10 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         return;
       }
 
-      // ---------- PENDING booking → update in place (NO reason) ----------
+//---------------------------------------
+// for pending booking after confrim edit set new value into the database
+//---------------------------------------
+
       final WriteBatch batch = FirebaseFirestore.instance.batch();
       final bookingRef = FirebaseFirestore.instance.collection('Bookings').doc(widget.bookingId);
 
@@ -774,7 +889,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       };
       batch.set(bookingRef, patch, SetOptions(merge: true));
 
-      // placeholder seat doc
+//---------------------------------------
+// also set taken = false in facilities seat
+//---------------------------------------
       final seatRef = FirebaseFirestore.instance
           .collection('Facilities').doc(_facilityId)
           .collection('Days').doc(newDateYMD)
@@ -784,7 +901,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
       await batch.commit();
 
-      // inbox for edit-pending → use "created" pending mail with timing/seat
+//---------------------------------------
+// send prending mails
+//---------------------------------------
       try {
         await NotificationService.sendBookingCreatedMails(
           bookingId: widget.bookingId,
@@ -807,9 +926,13 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     }
   }
 
-  // ---------------- seat availability read (soft check) ----------------
+//---------------------------------------
+// check wether the slot is available
+//---------------------------------------
+
   Future<bool> _validateSeatAvailable() async {
-    if (_selectedDate == null || _selectedTime.isEmpty || _selectedSeat <= 0) return false;
+    if (_selectedDate == null || _selectedTime.isEmpty || _selectedSeat <= 0)
+      return false;
     final ymd = _ymd(_selectedDate!);
     final key4 = _slotKey4FromHHmm(_selectedTime);
     final seatId = _selectedSeat.toString();
@@ -822,23 +945,183 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           .get();
       if (!doc.exists) return true;
       final m = doc.data();
-      if (m == null) return true;
+      if (m == null)
+        return true;
       final v = m['taken'];
-      if (v is bool) return v == false;
-      if (v is String) return !(v.toLowerCase().trim() == 'true' || v == '1' || v == 'yes');
-      if (v is num) return v == 0;
+      if (v is bool)
+        return v == false;
+
       return true;
     } catch (_) {
       return true;
     }
   }
+  //---------------------------------------
+// display seat slot for selected time
+//---------------------------------------
 
-  // ---------------- build ----------------
+  Widget _buildSeatPickerForSelectedTime() {
+    //---------------------------------------
+// makesure time is slected
+//---------------------------------------
+
+    if (_selectedTime.isEmpty || _selectedDate == null) {
+      return const SizedBox.shrink();
+    }
+
+    final String ymd = _ymd(_selectedDate!);
+    final String slotKey4 = _slotKey4FromHHmm(_selectedTime);
+    final String timeLabel = _toAmPmDot(_selectedTime);
+
+    // capacity (allow per-slot override if you keep that map; else just _capacity)
+    final int cap =  _capacity;
+//---------------------------------------
+// use the stream to check the seats
+//---------------------------------------
+
+    final Stream<QuerySnapshot<Map<String, dynamic>>> seatsStream =
+    FirebaseFirestore.instance
+        .collection('Facilities').doc(_facilityId)
+        .collection('Days').doc(ymd)
+        .collection('Slots').doc(slotKey4)
+        .collection('Seats')
+        .snapshots();
+
+    return Container(
+      width: 1.0.sw,
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF5FF),
+        borderRadius: BorderRadius.circular(10.r),
+        border: Border.all(color: Colors.black26, width: 1.w),
+      ),
+      //---------------------------------------
+// display time label above
+//---------------------------------------
+
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(timeLabel, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700)),
+          SizedBox(height: 10.h),
+
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: seatsStream,
+            builder: (context, snap) {
+//---------------------------------------
+// get the taken seat
+//---------------------------------------
+
+              final Set<int> taken = <int>{};
+              if (snap.hasData) {
+                for (final d in snap.data!.docs) {
+
+                  final int idx = int.parse(d.id);
+                  if (idx <= 0) continue;
+
+                  final v = d.data()['taken'];
+                  bool isTaken = false;
+                  if (v is bool) isTaken = v;
+                  if (isTaken)
+                    taken.add(idx);
+                }
+              }
+
+//---------------------------------------
+// while using the stream to rebuild , if sudenly the seat was taken mmake user back to not slected any slot
+//---------------------------------------
+              if (_selectedSeat > 0 && taken.contains(_selectedSeat)) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _selectedSeat = -1);
+                });
+              }
+
+//---------------------------------------
+// start to build the chip
+//--------------------------------------
+              return LayoutBuilder(
+                builder: (context, bc) {
+                  final double gap = 8.w;
+                  final double chipW = (bc.maxWidth - (gap * 2.0)) / 3.0;
+
+                  final List<Widget> chips = <Widget>[];
+                  for (int k = 1; k <= cap; k++) {
+ //---------------------------------------
+// of the seat taken list contain the k number
+//---------------------------------------
+                    final bool isTaken = taken.contains(k);
+ //---------------------------------------
+// if its selected
+//---------------------------------------
+                    final bool isChosen = _selectedSeat == k && !isTaken;
+                    Color fill, border, text;
+                    double bw = isChosen ? 2.0.w : 1.5.w;
+
+                    if (isTaken) {
+                      fill   = const Color(0xFFFFE7E9);
+                      border = const Color(0xFFFF6B7A);
+                      text   = const Color(0xFFB00020);
+                    } else if (isChosen) {
+                      fill   = const Color(0xFF9747FF);
+                      border = const Color(0xFF4A00B8);
+                      text   = Colors.white;
+                    } else {
+                      fill   = const Color(0xFFB779F1);
+                      border = const Color(0xFF6E00D4);
+                      text   = Colors.white;
+                    }
+//---------------------------------------
+// if teh slot is tap, selected seat is tht chip, if tap again will will be k means is selected
+//---------------------------------------
+
+                    final VoidCallback? onTap = isTaken ? null : () {
+                      setState(() => _selectedSeat = isChosen ? -1 : k);
+                    };
+//---------------------------------------
+// add each chip
+//---------------------------------------
+                    chips.add(
+                      ConstrainedBox(
+                        constraints: BoxConstraints.tightFor(width: chipW, height: 40.h),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: onTap,
+                            borderRadius: BorderRadius.circular(20.r),
+                            child: Container(
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: fill,
+                                borderRadius: BorderRadius.circular(20.r),
+                                border: Border.all(color: border, width: bw),
+                              ),
+                              child: Text('Slot $k',
+                                  style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: text)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+//---------------------------------------
+// return teh chip using wrap
+//---------------------------------------
+                  return Wrap(spacing: gap, runSpacing: gap, children: chips);
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     final double sw = 1.0.sw;
-
-
 
     return Scaffold(
       appBar: PreferredSize(
@@ -863,7 +1146,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           ],
         ),
       ),
-
+//---------------------------------------
+// stream builder of booking
+//---------------------------------------
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: _bookingStream,
         builder: (context, bookSnap) {
@@ -876,9 +1161,16 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
           final Map<String, dynamic> bk = bookSnap.data!.data()!;
 
-          // facility id (from booking)
-          String fid = (bk['facilityId'] ?? bk['facilityID'] ?? '').toString();
-          if (_facilityId.isEmpty) _facilityId = fid;
+//---------------------------------------
+// get the booking facility id
+//---------------------------------------
+          String fid = (bk['facilityId'] ).toString();
+          if (_facilityId.isEmpty)
+            _facilityId = fid;
+
+//---------------------------------------
+// get the facility id from facility database
+//---------------------------------------
           if (_facilityStream == null || _facilityStreamForId != fid) {
             _facilityStream = FirebaseFirestore.instance
                 .collection('Facilities')
@@ -887,23 +1179,28 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
             _facilityStreamForId = fid;
           }
 
-          // booking date
+//---------------------------------------
+// get the booking date
+//---------------------------------------
+
           DateTime? bd;
-          final v1 = bk['bookingDate'];
-          final v2 = bk['booking_date'];
-          final v3 = bk['date'];
-          bd = _dateOnly(v1) ?? _dateOnly(v2) ?? _dateOnly(v3);
+          bd = _dateOnly(bk['bookingDate']);
 
-          // start / end
-          final String st = (bk['start'] ?? bk['startTime'] ?? '').toString();
-          final String et = (bk['end']   ?? bk['endTime']   ?? '').toString();
+//---------------------------------------
+// get start adn end time
+//---------------------------------------
+          final String st = (bk['start'] ).toString();
+          final String et = (bk['end'] ).toString();
 
-          // seat
+//---------------------------------------
+// get the seat index
+//---------------------------------------
           String seatText = '-';
-          if (bk['seatIndex'] != null) seatText = bk['seatIndex'].toString();
-          else if (bk['slotIndex'] != null) seatText = bk['slotIndex'].toString();
+          seatText = bk['seatIndex'].toString();
 
-          // initialize one-time values
+//---------------------------------------
+// apply it to original variable then get the amount of booked
+//---------------------------------------
           if (!_initApplied) {
             _origDate = bd;
             _origStartStr = st;
@@ -915,26 +1212,37 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
             _selectedSeat = seatText != '-' ? (int.tryParse(seatText) ?? -1) : -1;
 
             _initApplied = true;
-            _queueLoadIfNeeded();
+//---------------------------------------
+// get how many booked it have
+//---------------------------------------
+            _loadSlotForSelectedDate();
           }
+//---------------------------------------
+// if no facility id
+//---------------------------------------
 
           if (_facilityId.isEmpty) {
             return Center(child: Text('Missing facility info', style: TextStyle(fontSize: 14.sp)));
           }
-
-
-          // compute branch (accepted→amendment or pending edit) for UI
-          final String approvalStr = (bk['approval'] ?? '').toString().toLowerCase().trim();
-          final String statusStr   = (bk['status']   ?? '').toString().toLowerCase().trim();
+//---------------------------------------
+// get sattus and approval
+//---------------------------------------
+          final String approvalStr = (bk['approval'] ).toString().toLowerCase().trim();
+          final String statusStr   = (bk['status'] ).toString().toLowerCase().trim();
+//---------------------------------------
+// check if it is amnedment or not
+//---------------------------------------
           final bool isAcceptedUpcoming =
-              (approvalStr == 'accepted' || approvalStr == 'approved') && statusStr == 'upcoming';
+              (approvalStr == 'accepted' ) && statusStr == 'upcoming';
 
+//---------------------------------------
+// check if the booking slot is same as the original slot, use for when enter edit for the first time
+//---------------------------------------
           final bool sameSlotAsOriginal =
-              _origDate != null &&
-                  _selectedDate != null &&
-                  _sameDay(_origDate!, _selectedDate!) &&
-                  _normalizeHHmm(_origStartStr) == _normalizeHHmm(_selectedTime);
-
+              _origDate != null && _selectedDate != null && _sameDay(_origDate!, _selectedDate!) && _normalizeHHmm(_origStartStr) == _normalizeHHmm(_selectedTime);
+//---------------------------------------
+// get teh facility data
+//---------------------------------------
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: _facilityStream,
             builder: (context, facSnap) {
@@ -944,21 +1252,25 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
               if (!facSnap.hasData || !facSnap.data!.exists) {
                 return Center(child: Text('Facility not found', style: TextStyle(fontSize: 14.sp)));
               }
-
+//---------------------------------------
+// get the facility information
+//---------------------------------------
               final Map<String, dynamic> fac = facSnap.data!.data()!;
               _applyFacilityData(fac);
-              _queueLoadIfNeeded();
+              _loadSlotForSelectedDate();
 
               return SingleChildScrollView(
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    // --- TOP RIGHT DELETE BUTTON ---
+//---------------------------------------
+// have a cancel button at top
+//---------------------------------------
                     Row(mainAxisAlignment: MainAxisAlignment.end, children: <Widget>[_buildDeleteButton()]),
                     SizedBox(height: 10.h),
 
-                    // summary card (current)
+
                     Container(
                       width: sw * 0.95,
                       padding: EdgeInsets.all(14.w),
@@ -967,6 +1279,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                         borderRadius: BorderRadius.circular(14.r),
                         boxShadow: <BoxShadow>[BoxShadow(color: const Color(0x22000000), blurRadius: 8.r, offset: Offset(0, 3.h))],
                       ),
+//---------------------------------------
+// use kv line to display facility , boking date, booking time and slot number
+//---------------------------------------
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
@@ -983,13 +1298,18 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
                     SizedBox(height: 16.h),
 
-                    // month header + calendar
+//---------------------------------------
+// date header and calender
+//---------------------------------------
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
                         Text(DateFormat('MMMM yyyy').format(_selectedDate ?? DateTime.now()),
                             style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600)),
                         SizedBox(width: 8.w),
+//---------------------------------------
+// show calender
+//---------------------------------------
                         SizedBox(
                           width: 28.w,
                           height: 28.w,
@@ -1000,13 +1320,18 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                               final first = DateTime(base.year, base.month, base.day);
                               final last  = first.add(const Duration(days: 6));
                               final initial = _selectedDate ?? first;
-
+//---------------------------------------
+// calender pickable day
+//---------------------------------------
                               final picked = await showDatePicker(
                                 context: context,
                                 initialDate: initial,
                                 firstDate: first,
                                 lastDate: last,
                                 helpText: 'Select date',
+//---------------------------------------
+// slectable day
+//---------------------------------------
                                 selectableDayPredicate: (d) => !d.isBefore(first) && !d.isAfter(last) && _isPickableDay(d),
                               );
                               if (picked != null) {
@@ -1016,7 +1341,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                                   _selectedSeat = -1;
                                   _buildNext6Days();
                                 });
-                                _queueLoadIfNeeded();
+                                _loadSlotForSelectedDate();
                               }
                             },
                             icon: const Icon(Icons.calendar_month),
@@ -1029,19 +1354,24 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
                     SizedBox(height: 10.h),
 
-                    // weekday letters
+//---------------------------------------
+// show next six day and check if it is pickable day
+//---------------------------------------
                     Row(
                       children: List.generate(_dateChoices.length, (i) {
                         final d = _dateChoices[i];
                         final enabled = _isPickableDay(d);
                         final c = enabled ? Colors.black87 : Colors.black38;
-                        return Expanded(child: Center(child: Text(DateFormat('E').format(d)[0], style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600, color: c))));
+                        return Expanded(child: Center
+                          (child: Text(DateFormat('E').format(d)[0], style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w600, color: c))));
                       }),
                     ),
 
                     SizedBox(height: 6.h),
 
-                    // date circles
+//---------------------------------------
+// the date of the six day and do the same as above
+//---------------------------------------
                     Row(
                       children: List.generate(_dateChoices.length, (i) {
                         final d = _dateChoices[i];
@@ -1050,12 +1380,15 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                         final bg = isSelected ? const Color(0xFF9747FF) : Colors.transparent;
                         final fg = isSelected ? Colors.white : (enabled ? Colors.black87 : Colors.black38);
 
+//---------------------------------------
+// when press ,will change the date to selected date, and remove selected slot and seat
+//---------------------------------------
                         return Expanded(
                           child: Center(
                             child: InkWell(
                               onTap: enabled ? () {
                                 setState(() { _selectedDate = d; _selectedTime = ''; _selectedSeat = -1; });
-                                _queueLoadIfNeeded();
+                                _loadSlotForSelectedDate();
                               } : null,
                               borderRadius: BorderRadius.circular(20.r),
                               child: Container(
@@ -1070,12 +1403,17 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                         );
                       }),
                     ),
-
+//---------------------------------------
+// a devider
+//---------------------------------------
                     SizedBox(height: 12.h),
                     Container(width: 1.0.sw, height: 1.h, color: Colors.black12),
                     SizedBox(height: 12.h),
 
-                    // time section title
+//---------------------------------------
+// show time slotips
+//---------------------------------------
+
                     Align(alignment: Alignment.centerLeft, child: Text('Time Slot Available', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700))),
                     SizedBox(height: 6.h),
                     Row(
@@ -1092,8 +1430,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                       ],
                     ),
                     SizedBox(height: 12.h),
-
-                    // time chips
+//---------------------------------------
+// show each time chip
+//---------------------------------------
                     LayoutBuilder(
                       builder: (context, bc) {
                         final double maxW = bc.maxWidth;
@@ -1103,15 +1442,24 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                         final List<Widget> chips = <Widget>[];
                         for (final hhmm in _timeChoices) {
                           final key4 = _slotKey4FromHHmm(hhmm);
-                          int capForThis = _slotCapOverride[key4] ?? _capacity;
+                          int capForThis = _capacity;
                           int booked = _slotBooked[key4] ?? 0;
-                          booked = booked.clamp(0, 1 << 30);
-                          if (capForThis <= 0) capForThis = 1;
 
+//---------------------------------------
+// check if time slot is full
+//---------------------------------------
                           final bool isFull = booked >= capForThis;
+//---------------------------------------
+// check if the time already past for today
+//---------------------------------------
                           final bool isPast = _isTimePastForSelectedDay(hhmm);
-
+//---------------------------------------
+// selected time
+//---------------------------------------
                           final bool selected = _selectedTime == hhmm && !isPast;
+//---------------------------------------
+// allow tap chip must be not full and not pass
+//---------------------------------------
                           final bool allowTap = !isFull && !isPast;
 
                           Color fillColor, borderColor, textColor;
@@ -1133,13 +1481,19 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                             textColor  = Colors.white;
                           }
 
+//---------------------------------------
+//  each of the button
+//---------------------------------------
                           chips.add(
                             ConstrainedBox(
                               constraints: BoxConstraints.tightFor(width: itemW, height: 44.h),
                               child: Material(
                                 color: Colors.transparent,
                                 child: InkWell(
-                                  onTap: allowTap ? () {
+//---------------------------------------
+// check if it is is allow tap only allow set state
+//---------------------------------------
+                                onTap: allowTap ? () {
                                     setState(() { _selectedTime = hhmm; _selectedSeat = -1; });
                                   } : null,
                                   borderRadius: BorderRadius.circular(20.r),
@@ -1150,6 +1504,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                                       borderRadius: BorderRadius.circular(20.r),
                                       border: Border.all(color: borderColor, width: 1.5.w),
                                     ),
+//---------------------------------------
+// display time
+//---------------------------------------
                                     child: Text(_toAmPmDot(hhmm), maxLines: 1, overflow: TextOverflow.ellipsis,
                                         style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: textColor)),
                                   ),
@@ -1158,41 +1515,36 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                             ),
                           );
                         }
-
+//---------------------------------------
+// return all teh chip and wrap it
+//---------------------------------------
                         return Align(alignment: Alignment.centerLeft, child: Wrap(spacing: gap, runSpacing: gap, children: chips));
                       },
                     ),
 
                     SizedBox(height: 16.h),
 
-                    // seat picker for selected time
-                    if (_selectedTime.isNotEmpty && !_isTimePastForSelectedDay(_selectedTime))
+//---------------------------------------
+// display slot picker for selected time
+//---------------------------------------
+                    if (_selectedTime.isNotEmpty)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Align(alignment: Alignment.centerLeft, child: Text('Slot Available', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700))),
                           SizedBox(height: 8.h),
-
-                          _SeatPickerForOneTime(
-                            key: ValueKey('$_facilityId|${_selectedDate == null ? '' : _ymd(_selectedDate!)}|${_slotKey4FromHHmm(_selectedTime)}'),
-                            facilityId: _facilityId,
-                            dateYMD: _selectedDate == null ? '' : _ymd(_selectedDate!),
-                            slotKey4: _slotKey4FromHHmm(_selectedTime),
-                            timeLabel: _toAmPmDot(_selectedTime),
-                            capacity: (() {
-                              final k = _slotKey4FromHHmm(_selectedTime);
-                              return _slotCapOverride[k] ?? _capacity;
-                            })(),
-                            initialSeat: sameSlotAsOriginal ? _parseSeatText(_origSeatText) : 0,
-                            isMyOriginalSeatChecker: (int idx) => false,
-                            onPick: (int idx) { _selectedSeat = idx; },
-                          ),
+//---------------------------------------
+// display the seat picker for each sit
+//---------------------------------------
+                          _buildSeatPickerForSelectedTime(),
                         ],
                       ),
 
                     SizedBox(height: 18.h),
 
-                    // Reason text box ONLY when accepted -> amendment
+//---------------------------------------
+// reason for ammendment
+//---------------------------------------
                     if (isAcceptedUpcoming) ...[
                       Align(alignment: Alignment.centerLeft,
                           child: Text('Reason (required)', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700))),
@@ -1212,6 +1564,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                               filled: true,
                             ),
                           ),
+//---------------------------------------
+// the counter
+//---------------------------------------
                           Positioned(
                             right: 10.w,
                             bottom: 8.h,
@@ -1221,8 +1576,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                       ),
                       SizedBox(height: 18.h),
                     ],
-
-                    // confirm button
+//---------------------------------------
+// confirm button
+//---------------------------------------
                     SizedBox(
                       width: sw * 0.95,
                       height: 48.h,
@@ -1231,6 +1587,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                           backgroundColor: const Color(0xFF9747FF),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28.r)),
                         ),
+//---------------------------------------
+// if it is amendment the user submit amendment, if normal edit, use confirm
+//---------------------------------------
                         onPressed: _onConfirm,
                         child: Text(
                           isAcceptedUpcoming ? 'Submit Amendment' : 'Confirm',
@@ -1245,7 +1604,9 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           );
         },
       ),
-
+//---------------------------------------
+// bottom navigation bar
+//---------------------------------------
       bottomNavigationBar: BottomMenuBar(
         height: 0.07.sh,
         currentIndex: _currentIndex,
@@ -1255,7 +1616,10 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
   }
 }
 
-// ---------------- small ui helper: key:value line ----------------
+//---------------------------------------
+// kv line that display information
+//---------------------------------------
+
 Widget _kvLine({required String label, required String value}) {
   return Padding(
     padding: EdgeInsets.only(bottom: 6.h),
@@ -1269,184 +1633,4 @@ Widget _kvLine({required String label, required String value}) {
   );
 }
 
-// ---------------- seat picker: one time slot using Seats/{idx} stream ----------------
-class _SeatPickerForOneTime extends StatefulWidget {
-  const _SeatPickerForOneTime({
-    Key? key,
-    required this.facilityId,
-    required this.dateYMD,
-    required this.slotKey4,
-    required this.timeLabel,
-    required this.capacity,
-    required this.initialSeat,
-    required this.isMyOriginalSeatChecker,
-    required this.onPick,
-  }) : super(key: key);
 
-  final String facilityId;   // Facilities/{id}
-  final String dateYMD;      // Days/{YYYY-MM-DD}
-  final String slotKey4;     // Slots/{HHmm}
-
-  final String timeLabel;
-  final int capacity;
-  final int initialSeat;
-
-  final bool Function(int) isMyOriginalSeatChecker;
-  final ValueChanged<int> onPick;
-
-  @override
-  State<_SeatPickerForOneTime> createState() => _SeatPickerForOneTimeState();
-}
-
-class _SeatPickerForOneTimeState extends State<_SeatPickerForOneTime>
-    with AutomaticKeepAliveClientMixin {
-
-  int? _chosen;
-
-  @override
-  void initState() {
-    super.initState();
-    _chosen = widget.initialSeat > 0 ? widget.initialSeat : null;
-  }
-
-  @override
-  void didUpdateWidget(covariant _SeatPickerForOneTime oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final idChanged = oldWidget.facilityId != widget.facilityId ||
-        oldWidget.dateYMD != widget.dateYMD ||
-        oldWidget.slotKey4 != widget.slotKey4;
-    if (idChanged) {
-      if (mounted) setState(() { _chosen = null; });
-      return;
-    }
-    if (oldWidget.initialSeat != widget.initialSeat) {
-      if (_chosen == null && widget.initialSeat > 0) {
-        if (mounted) setState(() { _chosen = widget.initialSeat; });
-      }
-    }
-  }
-
-  @override
-  bool get wantKeepAlive => true;
-
-  int _idxFromSeatDocId(String id) {
-    final a = int.tryParse(id);
-    if (a != null) return a;
-    final onlyNum = id.replaceAll(RegExp(r'[^0-9]'), '');
-    return int.tryParse(onlyNum) ?? -1;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-
-    final Stream<QuerySnapshot<Map<String, dynamic>>> seatsStream =
-    FirebaseFirestore.instance
-        .collection('Facilities').doc(widget.facilityId)
-        .collection('Days').doc(widget.dateYMD)
-        .collection('Slots').doc(widget.slotKey4)
-        .collection('Seats')
-        .snapshots(includeMetadataChanges: false);
-
-    return Container(
-      width: 1.0.sw,
-      padding: EdgeInsets.all(12.w),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF5FF),
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: Colors.black26, width: 1.w),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(widget.timeLabel, style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w700)),
-          SizedBox(height: 10.h),
-
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: seatsStream,
-            builder: (context, snap) {
-              final Set<int> takenTrue = <int>{};
-
-              if (snap.hasData) {
-                for (final d in snap.data!.docs) {
-                  final idx = _idxFromSeatDocId(d.id);
-                  if (idx <= 0) continue;
-                  final m = d.data();
-                  final v = m['taken'];
-                  bool hard = false;
-                  if (v is bool) hard = v;
-                  else if (v is String) hard = (v.toLowerCase().trim() == 'true' || v == '1' || v == 'yes');
-                  else if (v is num) hard = v != 0;
-                  if (hard) takenTrue.add(idx);
-                }
-              }
-
-              return LayoutBuilder(
-                builder: (context, bc) {
-                  final gap = 8.w;
-                  final chipW = (bc.maxWidth - (gap * 2.0)) / 3.0;
-
-                  final List<Widget> chips = <Widget>[];
-                  for (int k = 1; k <= widget.capacity; k++) {
-                    final idx = k;
-                    final blocked = takenTrue.contains(idx);
-
-                    bool isChosen = (_chosen != null && _chosen == idx);
-                    if (blocked) isChosen = false;
-
-                    Color fill, border, text;
-                    double bw = 1.5;
-
-                    if (blocked) {
-                      fill = const Color(0xFFFFE7E9);
-                      border = const Color(0xFFFF6B7A);
-                      text = const Color(0xFFB00020);
-                    } else if (isChosen) {
-                      fill = const Color(0xFF9747FF);
-                      border = const Color(0xFF4A00B8);
-                      text = Colors.white;
-                      bw = 2.0;
-                    } else {
-                      fill = const Color(0xFFB779F1);
-                      border = const Color(0xFF6E00D4);
-                      text = Colors.white;
-                    }
-
-                    final onTap = blocked ? null : () {
-                      setState(() { _chosen = idx; });
-                      widget.onPick(idx);
-                    };
-
-                    chips.add(
-                      ConstrainedBox(
-                        constraints: BoxConstraints.tightFor(width: chipW, height: 40.h),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: onTap,
-                            borderRadius: BorderRadius.circular(20.r),
-                            child: Container(
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: fill,
-                                borderRadius: BorderRadius.circular(20.r),
-                                border: Border.all(color: border, width: bw),
-                              ),
-                              child: Text('Slot $idx', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700, color: text)),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Wrap(spacing: gap, runSpacing: gap, children: chips);
-                },
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}

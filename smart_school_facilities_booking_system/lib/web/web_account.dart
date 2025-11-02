@@ -15,18 +15,16 @@ class WebAccount extends StatefulWidget {
 }
 
 class _AdminWebAccountState extends State<WebAccount> {
-  // FIREBASE REFERENCES
+
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? user;
   String? userDocId;
 
-  // SIMPLE UI STATE FLAGS
   bool isLoading = true;
   bool isEditing = false;
 
-  // ACCOUNT INFO
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
   final TextEditingController _imageNameController = TextEditingController();
@@ -37,20 +35,15 @@ class _AdminWebAccountState extends State<WebAccount> {
   String username = 'Loading...';
   String contact = 'Loading...';
   String role = 'Loading...';
-
-  // TIME FORMAT (User setting)
   bool use24HourFormat = true;
 
-  // --- section edit flags ---
   bool _editWorkingHour = false;
   bool _editWorkingDays = false;
   bool _editHolidays = false;
 
-// snapshot for Working Hour cancel
   TimeOfDay? _origStartTime;
   TimeOfDay? _origEndTime;
 
-  // WORKING TIME & DAYS (SystemInformation/Setting)
   TimeOfDay? startTime;
   TimeOfDay? endTime;
   Map<String, bool> workingDays = <String, bool>{
@@ -68,16 +61,13 @@ class _AdminWebAccountState extends State<WebAccount> {
   DateTime _offCalVisibleMonthFirst = DateTime(DateTime.now().year, DateTime.now().month, 1);
   final Set<String> _offDaysYMD = <String>{};
   bool _loadingOffDays = true;
-  Set<String> _offDaysSaved = <String>{};     // snapshot from DB
-  bool _offDirty = false;                     // true if user changed but not applied
+  Set<String> _offDaysSaved = <String>{};
+  bool _offDirty = false;
 
-  // ---- Notification toggles (right column) — removed for Admin layout
-  bool notifAll = true;
-  bool notifNewBooking = true;
-  bool notifPending = true;
-  bool notifIssue = true;
+//---------------------------------------
+// init state run this first
+//---------------------------------------
 
-  //init state
   @override
   void initState() {
     super.initState();
@@ -106,7 +96,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       isLoading = false;
     });
   }
-
+//---------------------------------------
+// load user information
+//---------------------------------------
 
   Future<void> _loadUserInfo(String email) async {
     final QuerySnapshot<Map<String, dynamic>> qs = await _firestore
@@ -129,6 +121,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     final doc = qs.docs.first;
     final data = doc.data();
     userDocId = doc.id;
+//---------------------------------------
+// set user name contact role
+//---------------------------------------
 
     String newUsername = (data['username'] ?? 'N/A').toString();
     String newContact = (data['contact'] ?? 'N/A').toString();
@@ -137,30 +132,22 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     bool newUse24 = data['timeFormat24'] is bool ? (data['timeFormat24'] as bool) : true;
 
-    bool newNotifAll = data['notifAll'] is bool ? (data['notifAll'] as bool) : true;
-    bool newNotifNewBooking = data['notifNewBooking'] is bool ? (data['notifNewBooking'] as bool) : true;
-    bool newNotifPending = data['notifPending'] is bool ? (data['notifPending'] as bool) : true;
-    bool newNotifIssue = data['notifIssue'] is bool ? (data['notifIssue'] as bool) : true;
-
     setState(() {
       username = newUsername;
       contact = newContact;
       role = newRole;
-
       profileImageName = newImageName;
+
       _imageNameController.text = profileImageName;
 
       use24HourFormat = newUse24;
-
-      notifAll = newNotifAll;
-      notifNewBooking = newNotifNewBooking;
-      notifPending = newNotifPending;
-      notifIssue = newNotifIssue;
-
       _usernameController.text = username;
       _contactController.text = contact;
     });
   }
+//---------------------------------------
+// load setting from database
+//---------------------------------------
 
   Future<void> _loadSystemSettings() async {
     final snap = await _firestore.collection('SystemInformation').doc('Setting').get();
@@ -182,6 +169,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     setState(() {
       startTime = (s != null) ? _parseTime(s) : null;
       endTime = (e != null) ? _parseTime(e) : null;
+//---------------------------------------
+// get the working day
+//---------------------------------------
 
       workingDays = <String, bool>{
         'Sunday': sun,
@@ -195,6 +185,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       _originalWorkingDays = Map<String, bool>.from(workingDays);
     });
   }
+//---------------------------------------
+// get all the off day
+//---------------------------------------
 
   Future<void> _loadOffDays() async {
     setState(() => _loadingOffDays = true);
@@ -215,7 +208,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       // all of it will save into the this offdayssaved
       _offDaysSaved = Set<String>.from(tmp);
 
-      // working copy for UI
+//---------------------------------------
+// add the off day to tmp list
+//---------------------------------------
       _offDaysYMD
         ..clear() //clear all old value
         ..addAll(tmp); // add the new off day
@@ -228,7 +223,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
   }
 
-  //End of init
+//---------------------------------------
+// when confirm press show pop up
+//---------------------------------------
 
   Future<bool> _confirmAction(String title, String message) async {
     final bool? res = await showDialog<bool>(
@@ -243,6 +240,9 @@ class _AdminWebAccountState extends State<WebAccount> {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
           ),
+          //---------------------------------------
+// confirm button press return true
+//---------------------------------------
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF0707),
@@ -257,11 +257,16 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
     return res ?? false;
   }
-
+//---------------------------------------
+// asset name from asset folder
+//---------------------------------------
   String _assetFromName(String name) {
     if (name.isEmpty) return '';
     return 'asset/image/$name';
   }
+//---------------------------------------
+// set empty when no profle yet or else place the image
+//---------------------------------------
 
   Widget _profileAvatarFromName(String name, {double size = 60}) {
     final String path = _assetFromName(name);
@@ -279,7 +284,6 @@ class _AdminWebAccountState extends State<WebAccount> {
         child: const Text('empty'),
       );
     }
-
     return Container(
       width: size * 2,
       height: size * 2,
@@ -287,6 +291,9 @@ class _AdminWebAccountState extends State<WebAccount> {
         shape: BoxShape.circle,
         border: Border.all(color: Colors.black12, width: 2),
       ),
+      //---------------------------------------
+// display image
+//---------------------------------------
       clipBehavior: Clip.antiAlias,
       child: Image.asset(
         path,
@@ -295,6 +302,31 @@ class _AdminWebAccountState extends State<WebAccount> {
       ),
     );
   }
+  //---------------------------------------
+// check username exist
+//---------------------------------------
+  Future<bool> _usernameExists(String username, userId) async {
+    final String u = username.trim();
+    if (u.isEmpty) {
+      return false;
+    }
+    try {
+      final qs = await FirebaseFirestore.instance
+          .collection("UserInformation")
+          .where("username", isEqualTo: u)
+          .limit(2)
+          .get();
+
+      for (final d in qs.docs) {
+        if (d.id != userId) return true;
+      }
+      return false;
+  }
+    catch (e) {
+      return false;
+    }
+  }
+
 
 //---------------------------------------
 // save account
@@ -302,8 +334,19 @@ class _AdminWebAccountState extends State<WebAccount> {
   Future<void> _saveAccountInfo() async {
     if (userDocId == null) return;
 
-    final String fname = _imageNameController.text.trim();
+    final bool taken = await _usernameExists(_usernameController.text,userDocId);
+    if (taken == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Username already taken.', style: TextStyle(fontSize: 14.sp))),
+      );
+      setState(() {});
+      return;
+    }
 
+    final String fname = _imageNameController.text.trim();
+//---------------------------------------
+// if image not in image
+//---------------------------------------
     if (fname.isNotEmpty) {
       final bool exists = await _assetExistsInBundle(fname);
       if (!exists) {
@@ -321,12 +364,16 @@ class _AdminWebAccountState extends State<WebAccount> {
       'contact': _contactController.text.trim(),
       'profileImageName': fname,
     };
-
+//---------------------------------------
+// update firebase
+//---------------------------------------
     await _firestore
         .collection('UserInformation')
         .doc(userDocId)
         .set(payload, SetOptions(merge: true));
-
+//---------------------------------------
+// set user name same as the controller
+//---------------------------------------
     setState(() {
       username = _usernameController.text.trim();
       contact = _contactController.text.trim();
@@ -338,7 +385,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       const SnackBar(content: Text('User info updated')),
     );
   }
-
+//---------------------------------------
+// load the image from asset
+//---------------------------------------
   Future<bool> _assetExistsInBundle(String name) async {
     if (name.isEmpty) return false;
     try {
@@ -348,6 +397,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       return false;
     }
   }
+//---------------------------------------
+// pick image from file
+//---------------------------------------
 
   Future<void> _pickImageFileName() async {
     final FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -364,18 +416,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
-  Future<void> _saveTimeFormat(bool value) async {
-    if (userDocId == null) return;
-
-    setState(() {
-      use24HourFormat = value;
-    });
-
-    await _firestore
-        .collection('UserInformation')
-        .doc(userDocId)
-        .set(<String, dynamic>{'timeFormat24': value}, SetOptions(merge: true));
-  }
+//---------------------------------------
+// save the start and end time of the system
+//---------------------------------------
 
   Future<void> _saveSystemTimes() async {
     if (startTime == null || endTime == null) return;
@@ -390,6 +433,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       SetOptions(merge: true),
     );
   }
+//---------------------------------------
+// send passwrod reset email
+//---------------------------------------
 
   Future<void> _sendPasswordReset() async {
     if (user == null || user!.email == null) return;
@@ -399,23 +445,35 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
+  //---------------------------------------
+// log out navigate user to log in page
+//---------------------------------------
+
   Future<void> _logout() async {
     await _auth.signOut();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
+//---------------------------------------
+// parse time for mat to hhmm and get the hour and minute
+//---------------------------------------
 
   TimeOfDay _parseTime(String hhmm) {
     final p = hhmm.split(':');
     return TimeOfDay(hour: int.parse(p[0]), minute: int.parse(p[1]));
   }
+  //---------------------------------------
+// format time to hh:mm
+//---------------------------------------
 
   String _formatTime(TimeOfDay t) {
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
-
+//---------------------------------------
+// convert hour to minute
+//---------------------------------------
   int _timeToMinutes(String hhmm) {
     try {
       final p = hhmm.split(':');
@@ -427,7 +485,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
   }
 
-  // Read facility available time from nested/flat fields
+//---------------------------------------
+// get facility available time
+//---------------------------------------
   Map<String, String> _readFacilityAvailableTimes(Map<String, dynamic> data) {
     String s = '';
     String e = '';
@@ -440,16 +500,27 @@ class _AdminWebAccountState extends State<WebAccount> {
     return <String, String>{'start': s, 'end': e};
   }
 
-  // Check only facilities against new system hours; return list of conflicts
+//---------------------------------------
+// check if tehre is facility available time conflict
+//---------------------------------------
+
   Future<List<String>> _findFacilityConflicts(String newStart, String newEnd) async {
+    //---------------------------------------
+// convert the time to minute
+//---------------------------------------
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
-
+//---------------------------------------
+// get the facilities from database
+//---------------------------------------
     final qs = await _firestore.collection('Facilities').get();
     final List<String> conflicts = <String>[];
 
     for (final d in qs.docs) {
       final m = d.data();
+//---------------------------------------
+// ingnore deletec facilities
+//---------------------------------------
 
       if (m['deleted'] is bool && m['deleted'] == true) continue;
 
@@ -463,24 +534,30 @@ class _AdminWebAccountState extends State<WebAccount> {
 
       final facStart = _timeToMinutes(fs);
       final facEnd = _timeToMinutes(fe);
-
+//---------------------------------------
+// check if they are conflict if yes add to conflicts list then return conflict
+//---------------------------------------
       if (facStart < sysStart || facEnd > sysEnd) {
         conflicts.add(name);
       }
     }
-
     return conflicts;
   }
+//---------------------------------------
+// get all the booking time
+//---------------------------------------
 
   Map<String, String> _readBookingTimes(Map<String, dynamic> m) {
     String s = '';
     String e = '';
-
     s = (m['start'] as String).trim();
     e = (m['end'] as String).trim();
 
     return <String, String>{'start': s, 'end': e};
   }
+//---------------------------------------
+// set to hh :mm format
+//---------------------------------------
 
   String _normalizeToHHmm(String raw) {
     if (raw.isEmpty) return '';
@@ -494,16 +571,19 @@ class _AdminWebAccountState extends State<WebAccount> {
       return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 
   }
-
+//---------------------------------------
+// get the hour to minute
+//---------------------------------------
   int _safeMinutes(String raw) {
     final hhmm = _normalizeToHHmm(raw);
     if (hhmm.isEmpty) return -1;
     return _timeToMinutes(hhmm);
   }
-
+//---------------------------------------
+// read the booking date and parse to date format
+//---------------------------------------
   DateTime? _readBookingDateFromAny(Map<String, dynamic> m) {
     final v = m['bookingDate'];
-    if (v is Timestamp) return v.toDate();
     if (v is String && v.trim().isNotEmpty) {
       try {
         final p = DateTime.tryParse(v.trim());
@@ -518,11 +598,15 @@ class _AdminWebAccountState extends State<WebAccount> {
   Future<List<String>> _findBookingConflicts(String newStart, String newEnd) async {
     final int sysStart = _timeToMinutes(newStart);
     final int sysEnd = _timeToMinutes(newEnd);
-
+//---------------------------------------
+// get today time adn date
+//---------------------------------------
     final DateTime now = DateTime.now();
     final DateTime todayStart = DateTime(now.year, now.month, now.day);
     final DateTime cutoff = todayStart.subtract(const Duration(days: 8));
-
+//---------------------------------------
+// get booking database
+//---------------------------------------
     final QuerySnapshot<Map<String, dynamic>> qs =
     await _firestore.collection('Bookings').get();
 
@@ -530,14 +614,19 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     for (final doc in qs.docs) {
       final Map<String, dynamic> m = doc.data();
-
+//---------------------------------------
+// ignore deleted, rejected and ended booking
+//---------------------------------------
       if (m['deleted'] == true) continue;
       final String approval = m['approval'] .toString().toLowerCase();
       if (approval.contains('reject')) continue;
       final String status = (m['status'] ).toString().toLowerCase();
       if (status == 'ended') continue;
 
-      final DateTime? bDate = _readBookingDateFromAny(m); //parse the bookingDate in to date format
+      //---------------------------------------
+// parse the booking date to date format
+//---------------------------------------
+      final DateTime? bDate = _readBookingDateFromAny(m);
       if (bDate == null) continue;
 
       final DateTime bStart = DateTime(bDate.year, bDate.month, bDate.day);
@@ -547,25 +636,28 @@ class _AdminWebAccountState extends State<WebAccount> {
       final int bStartMin = _safeMinutes(tt['start'] ?? '');
       final int bEndMin = _safeMinutes(tt['end'] ?? '');
       if (bStartMin < 0 || bEndMin < 0) continue;
-
+//---------------------------------------
+// check if it is within the system start and end time, if yes  add into conflict list
+//---------------------------------------
       if (bStartMin < sysStart || bEndMin > sysEnd) {
         conflicts.add(doc.id);
       }
     }
-
     return conflicts;
   }
-
+//---------------------------------------
+// for defacult working days set all to false then set state
+//---------------------------------------
   void _defaultWorkingDays() {
     setState(() {
-      // Go through every key (e.g., 'Mon', 'Tue', ...)
       for (final String k in workingDays.keys.toList()) {
-        // Set that day's value to false (OFF)
         workingDays[k] = false;
       }
     });
   }
-
+//---------------------------------------
+// cancel will revert the original working day to current working day
+//---------------------------------------
   void _cancelWorkingDays() {
     setState(() {
       // revert back to DB snapshot
@@ -573,7 +665,7 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 //---------------------------------------
-// make default for all holiday
+// make default for all holiday, clear the list
 //---------------------------------------
   void _defaultHolidays() {
     setState(() {
@@ -595,6 +687,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     });
   }
 
+  //---------------------------------------
+//when apply working hour, check both must have value
+//---------------------------------------
   Future<void> _applyWorkingHours() async {
     if (startTime == null || endTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -608,6 +703,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     final int sMin = _timeToMinutes(newStartStr);
     final int eMin = _timeToMinutes(newEndStr);
+    //---------------------------------------
+// make sure end time but bigger then start time when turn into minute
+//---------------------------------------
     if (eMin <= sMin) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('End time must be later than start time.')),
@@ -615,7 +713,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       return;
     }
 
-    // ---- facilities conflict ----
+//---------------------------------------
+// check if there is facility conflict
+//---------------------------------------
     final conflictsFacilities = await _findFacilityConflicts(newStartStr, newEndStr);
     if (conflictsFacilities.isNotEmpty) {
       setState(() {
@@ -631,8 +731,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       );
       return;
     }
-
-    // ---- bookings conflict ----
+//---------------------------------------
+// check if there is booking conflict
+//---------------------------------------
     final conflictsBookings = await _findBookingConflicts(newStartStr, newEndStr);
     if (conflictsBookings.isNotEmpty) {
       setState(() {
@@ -648,8 +749,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       );
       return;
     }
-
-    // ---- no conflicts: save and update baseline ----
+//---------------------------------------
+// if not conflict set the state and save the system time
+//---------------------------------------
     await _saveSystemTimes();
     setState(() {
       // new values become the new "original" baseline for future edits
@@ -661,27 +763,41 @@ class _AdminWebAccountState extends State<WebAccount> {
       const SnackBar(content: Text('Working hour saved')),
     );
   }
+//---------------------------------------
+// when apply working day
+//---------------------------------------
 
   Future<void> _applyWorkingDays() async {
-    // write all days at once
+    //---------------------------------------
+// set the working day into database
+//---------------------------------------
     await _firestore.collection('SystemInformation').doc('Setting').set(
       Map<String, dynamic>.from(workingDays),
       SetOptions(merge: true),
     );
 
-    // figure out which days are disabled now
+    //---------------------------------------
+// check which day is disable now
+//---------------------------------------
+
     final Set<String> disabled = workingDays.entries
         .where((e) => e.value == false)
         .map((e) => e.key)
         .toSet();
 
-    // only process days that became disabled , for old one remove it
+//---------------------------------------
+// process teh day that just disable only
+//---------------------------------------
     final Set<String> newlyDisabled = disabled
       ..removeWhere((d) => _originalWorkingDays[d] == false);
 
-    // if nothing new disabled, we can still process, but skip for speed
+    //---------------------------------------
+// get the day taht is newly disable
+//---------------------------------------
     final Set<String> targetDays = newlyDisabled.isEmpty ? disabled : newlyDisabled;
-
+//---------------------------------------
+// if nothing return
+//---------------------------------------
     if (targetDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Working days saved')),
@@ -689,6 +805,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       _originalWorkingDays = Map<String, bool>.from(workingDays);
       return;
     }
+//---------------------------------------
+// if tehre is new disable day,  send out the request mail for update booking
+//---------------------------------------
 
     await _fanOutRequestUpdatesForDaysOfWeek(targetDays);
 
@@ -702,16 +821,23 @@ class _AdminWebAccountState extends State<WebAccount> {
 //---------------------------------------
   Future<void> _applyHolidays() async {
     try {
-      // write the entire working list exactly as shown in UI
+//---------------------------------------
+// set new off day to database
+//---------------------------------------
+
       await _firestore
           .collection('SystemInformation')
           .doc('OffDays')
           .set({'offDays': _offDaysYMD.toList()}, SetOptions(merge: true));
 
-      // notify impacted bookings (your existing helper)
+      //---------------------------------------
+// send out to booking taht is on that off day
+//---------------------------------------
       await _fanOutRequestUpdatesForHolidayDates(_offDaysYMD);
 
-
+//---------------------------------------
+// set state to refresh teh calender
+//---------------------------------------
       setState(() {
         _offDaysSaved = Set<String>.from(_offDaysYMD);
         _offDirty = false;
@@ -727,12 +853,16 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
   }
 
-  // Build weekday name like 'Monday' from DateTime.weekday (1..7 Mon..Sun)
+  //---------------------------------------
+// week day name
+//---------------------------------------
   String _weekdayName(int weekday) {
     const names = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
     return names[weekday - 1];
   }
-
+//---------------------------------------
+// chechk if the booking should be ingnore
+//---------------------------------------
   bool _isBookingIgnored(Map<String, dynamic> m) {
     if (m['deleted'] == true) return true;
     final String approval = (m['approval']).toString().toLowerCase();
@@ -750,29 +880,47 @@ class _AdminWebAccountState extends State<WebAccount> {
     }
     return '';
   }
-
+//---------------------------------------
+// send out notification taht needs update (in teh set week day)
+//---------------------------------------
   Future<void> _fanOutRequestUpdatesForDaysOfWeek(Set<String> disabledDays) async {
     if (disabledDays.isEmpty) return;
-
+//---------------------------------------
+// get the booking is bookings database
+//---------------------------------------
     final qs = await _firestore.collection('Bookings').get();
 
     final List<Future<void>> tasks = [];
 
     for (final doc in qs.docs) {
       final Map<String, dynamic> b = doc.data();
+      //---------------------------------------
+// if the booking should be ignnore then skip
+//---------------------------------------
       if (_isBookingIgnored(b)) continue;
-
+//---------------------------------------
+// get the booking date in date format
+//---------------------------------------
       final DateTime? d = _readBookingDateFromAny(b);
       if (d == null) continue;
 
+//---------------------------------------
+// get the day name for the booking and which contain the off in day
+//---------------------------------------
       final String dayName = _weekdayName(d.weekday);
       if (!disabledDays.contains(dayName)) continue;
-
+//---------------------------------------
+// add the booking to the send email list
+//---------------------------------------
       tasks.add(_emitRequestUpdateForBooking(doc.id, b));
     }
 
     await Future.wait(tasks);
   }
+
+  //---------------------------------------
+// check if there is holiday in the set holiday
+//---------------------------------------
 
   Future<void> _fanOutRequestUpdatesForHolidayDates(Set<String> holidaysYmd) async {
     if (holidaysYmd.isEmpty) return;
@@ -783,7 +931,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     for (final doc in qs.docs) {
       final Map<String, dynamic> b = doc.data();
       if (_isBookingIgnored(b)) continue;
-
+//---------------------------------------
+// get booking date
+//---------------------------------------
       final DateTime? d = _readBookingDateFromAny(b);
       if (d == null) continue;
 
@@ -791,18 +941,22 @@ class _AdminWebAccountState extends State<WebAccount> {
       final String m = d.month.toString().padLeft(2, '0');
       final String da = d.day.toString().padLeft(2, '0');
       final String ymd = '$y-$m-$da';
-
+//---------------------------------------
+// if hiliday same date as booking add to the list
+//---------------------------------------
       if (!holidaysYmd.contains(ymd)) continue;
-
       tasks.add(_emitRequestUpdateForBooking(doc.id, b));
     }
 
     await Future.wait(tasks);
   }
 //---------------------------------------
-// send mail to booking taht have conflict
+// send mail to booking that have conflict
 //---------------------------------------
   Future<void> _emitRequestUpdateForBooking(String bookingId, Map<String, dynamic> b) async {
+    //---------------------------------------
+// get user id, facility id, booking date, end , start, seat index
+//---------------------------------------
     final String userUid = _readFirstStr(b, ['userId']);
     if (userUid.isEmpty) return;
 
@@ -822,7 +976,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       seat = b['seatIndex'].toString();
     }
 
-    // (optional) grab a friendly facility name for UI
+//---------------------------------------
+// also get the facility name
+//---------------------------------------
     String facilityName = '';
     try {
       final snap = await _firestore.collection('Facilities').doc(facilityId).get();
@@ -830,32 +986,28 @@ class _AdminWebAccountState extends State<WebAccount> {
       if (m != null) facilityName = (m['name']).toString();
     } catch (_) {}
 
-    // write the inbox doc under the booking owner
+//---------------------------------------
+// add the new inbox into user database
+//---------------------------------------
     final inboxRef = _firestore
         .collection('UserInformation')
         .doc(userUid)
         .collection('Inbox')
         .doc();
-
     await inboxRef.set({
       'type': 'request_update',
-
-      // add the fields Android checks in _canSee(...)
       'recipientId': userUid,
       'bookedBy': userUid,
       'createdBy': adminUid,
       'managerId': adminUid,
-
-      // keep your existing fields
       'userId': userUid,
       'facilityId': facilityId,
-      'facilityName': facilityName, // optional but useful elsewhere
+      'facilityName': facilityName,
       'bookingId': bookingId,
       'bookingDate': bookingDateStr,
       'start': start,
       'end': end,
       'seatIndex': seat,
-
       'isRead': false,
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -867,15 +1019,12 @@ class _AdminWebAccountState extends State<WebAccount> {
       bookingDateIso: bookingDateStr,
     );
   }
-
   Future<void> sendRequestUpdateMails({
     required String bookingId,
     required String userId,
     required String facilityId,
     required String bookingDateIso,
   }) async {
-    // TODO: hook into your existing "sendRequestUpdateMails" implementation.
-    // Left empty on purpose to avoid changing project-wide behavior.
     return;
   }
 
@@ -885,21 +1034,24 @@ class _AdminWebAccountState extends State<WebAccount> {
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
-
+//---------------------------------------
+// check user role
+//---------------------------------------
     bool isAdmin = false;
     if (role.isNotEmpty) {
       isAdmin = role.toLowerCase() == 'admin';
     }
 
-    bool isManager = role.trim().toLowerCase() == 'manager';
-
-    // get email
-    final String? email = user?.email; // safe access
+//---------------------------------------
+// get user email
+//---------------------------------------
+    final String? email = user?.email;
     String emailStr = email ?? 'N/A';
 
-    //get status log in or log out
-    String statusText = (user != null) ? 'Logged In' : 'Logged Out';
 
+    //---------------------------------------
+// main design 1
+//---------------------------------------
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(70.h),
@@ -910,7 +1062,7 @@ class _AdminWebAccountState extends State<WebAccount> {
 // if is admin build right and left
 //---------------------------------------
           ? SingleChildScrollPane(
-        leftChild: _buildLeftColumn(true,  screenHeight, emailStr, statusText),
+        leftChild: _buildLeftColumn(true,  screenHeight, emailStr),
         rightChild: _buildRightColumn(true),
       )
 //---------------------------------------
@@ -921,7 +1073,7 @@ class _AdminWebAccountState extends State<WebAccount> {
           constraints: BoxConstraints(maxWidth: 520.w),
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
-            child: _buildLeftColumn(false, screenHeight, emailStr, statusText),
+            child: _buildLeftColumn(false, screenHeight, emailStr),
           ),
         ),
       )
@@ -930,7 +1082,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 
-// Simple password rule: min 8 + 1 uppercase + 1 special (match Android)
+//---------------------------------------
+// check strong password
+//---------------------------------------
   bool _isPasswordStrong(String password) {
     final RegExp regex =
     RegExp(r'^(?=.*[A-Z])(?=.*[!@#\$%^&*(),.?":{}|<>]).{8,}$');
@@ -954,7 +1108,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     String? _oldErr;
     String? _newErr;
     String? _confirmErr;
-
+//---------------------------------------
+// show pop up dialog
+//---------------------------------------
     await showDialog<void>( //show pop up
       context: context,
       barrierDismissible: false, // press outside wont close the pop up
@@ -970,6 +1126,9 @@ class _AdminWebAccountState extends State<WebAccount> {
               });
 
               bool ok = true;
+//---------------------------------------
+// validation for empty , and strong password and confirm password
+//---------------------------------------
 
               if (_oldCtrl.text.isEmpty) {
                 _oldErr = "Old password cannot be empty";
@@ -1010,16 +1169,18 @@ class _AdminWebAccountState extends State<WebAccount> {
               }
 
               try {
-                // 1) reauth with OLD password
+                //---------------------------------------
+// save into auth fire store
+//---------------------------------------
                 final cred = EmailAuthProvider.credential(
                   email: user.email!,
                   password: _oldCtrl.text,
                 );
                 await user.reauthenticateWithCredential(cred);
-
-                // 2) update to NEW password
                 await user.updatePassword(_newCtrl.text);
-
+//---------------------------------------
+// update success close pop up
+//---------------------------------------
                 Navigator.of(context).pop(); // close dialog
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text("Password updated successfully", style: TextStyle(fontSize: 12.sp))),
@@ -1048,7 +1209,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                 );
               }
             }
-
+//---------------------------------------
+// pop  up change password design
+//---------------------------------------
             return AlertDialog(
               shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
               title: Text("Change Password", style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600)),
@@ -1059,7 +1222,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Old password
+//---------------------------------------
+// display old password text field
+//---------------------------------------
                       Text("Old Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _oldCtrl,
@@ -1075,8 +1240,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                         ),
                       ),
                       SizedBox(height: 12.h),
-
-                      // New password
+//---------------------------------------
+// new password text field
+//---------------------------------------
                       Text("New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _newCtrl,
@@ -1092,8 +1258,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                         ),
                       ),
                       SizedBox(height: 12.h),
-
-                      // Confirm new password
+//---------------------------------------
+// confirm password text field
+//---------------------------------------
                       Text("Confirm New Password", style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500)),
                       TextField(
                         controller: _confirmCtrl,
@@ -1112,11 +1279,18 @@ class _AdminWebAccountState extends State<WebAccount> {
                   ),
                 ),
               ),
+//---------------------------------------
+// cancel button
+//---------------------------------------
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
                   child: Text("Cancel", style: TextStyle(fontSize: 14.sp)),
                 ),
+//---------------------------------------
+// confirm button
+//---------------------------------------
+
                 ElevatedButton(
                   onPressed: _attemptChange, // start to validate all the password stuff
                   style: ElevatedButton.styleFrom(
@@ -1134,9 +1308,9 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 //---------------------------------------
-// build left list for account page
+// main build 2 left list for account page
 //---------------------------------------
-  Widget _buildLeftColumn(bool isAdmin, double screenHeight, String emailStr, String statusText) {
+  Widget _buildLeftColumn(bool isAdmin, double screenHeight, String emailStr) {
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 520.w),
@@ -1148,7 +1322,7 @@ class _AdminWebAccountState extends State<WebAccount> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
 //---------------------------------------
-// Account setting
+// display Account setting
 //---------------------------------------
                 Text("Account Settings",
                     textAlign: TextAlign.center,
@@ -1165,6 +1339,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
                 Builder(
                   builder: (BuildContext _) {
+//---------------------------------------
+// if in edditing mode allow to pick image button
+//---------------------------------------
                     if (isEditing) {
                       return Form(
                         key: _editFormKey,
@@ -1181,7 +1358,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                               ),
                             ),
                             SizedBox(height: 12.h),
-
+//---------------------------------------
+// display user name text fied
+//---------------------------------------
                             TextFormField(
                               controller: _usernameController,
                               decoration: const InputDecoration(labelText: "Username"),
@@ -1191,7 +1370,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                               },
                             ),
                             SizedBox(height: 12.h),
-
+//---------------------------------------
+// display contact text field
+//---------------------------------------
                             TextFormField(
                               controller: _contactController,
                               keyboardType: TextInputType.number,
@@ -1210,7 +1391,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                               },
                             ),
                             SizedBox(height: 16.h),
-
+//---------------------------------------
+// display save account  button
+//---------------------------------------
                             SizedBox(
                               width: double.infinity,
                               height: 48.h,
@@ -1231,16 +1414,24 @@ class _AdminWebAccountState extends State<WebAccount> {
                           ],
                         ),
                       );
+//---------------------------------------
+// if not in edit mode
+//---------------------------------------
                     } else {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
+//---------------------------------------
+// display user information
+//---------------------------------------
                           _detailRow("Username:", username),
                           _detailRow("Email:", emailStr),
                           _detailRow("Contact:", contact),
                           _detailRow("Role:", role),
-                          _detailRow("Status:", statusText),
                           SizedBox(height: 16.h),
+//---------------------------------------
+// show edit button
+//---------------------------------------
                           SizedBox(
                             width: double.infinity,
                             height: 48.h,
@@ -1254,20 +1445,23 @@ class _AdminWebAccountState extends State<WebAccount> {
                     }
                   },
                 ),
-
                 SizedBox(height: 24.h),
-
+//---------------------------------------
+// below display change password button
+//---------------------------------------
                 SizedBox(
                   width: double.infinity,
                   height: 48.h,
                   child: ElevatedButton(
-                    onPressed: isAdmin
-                        ? _sendPasswordReset            // admin keeps email reset
-                        : _openChangePasswordDialog,     // user/manager get popup with fields
+ //---------------------------------------
+// for admin will send reset password to email, for manager will get the change passwrod pop up
+//---------------------------------------
+                  onPressed: isAdmin
+                        ? _sendPasswordReset
+                        : _openChangePasswordDialog,
                     child: const Text("Change Password"),
                   ),
                 ),
-
                 SizedBox(height: 16.h),
 //---------------------------------------
 // log out pop up
@@ -1286,7 +1480,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                       await _logout();
                     },
 
-                    child: const Text("Log Out"),
+                    child: Text("Log Out", style: TextStyle(color: Colors.white),),
                   ),
                 ),
               ],
@@ -1297,12 +1491,11 @@ class _AdminWebAccountState extends State<WebAccount> {
     );
   }
 //---------------------------------------
-// right column
+// main design 3 right column
 //---------------------------------------
   Widget _buildRightColumn(bool isAdmin) {
       return Center(
         child: ConstrainedBox(
-          // a bit wider so two columns fit nicely
           constraints: BoxConstraints(maxWidth: 1100.w),
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 20.w),
@@ -1311,15 +1504,15 @@ class _AdminWebAccountState extends State<WebAccount> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  // Title centered over both inner columns
+//---------------------------------------
+// display system setting at center
+//---------------------------------------
                   Text(
                     "System Setting",
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 26.sp, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(height: 30.h),
-
-                  // Two-column layout inside the System Setting area
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1330,11 +1523,12 @@ class _AdminWebAccountState extends State<WebAccount> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Working Hour
+//---------------------------------------
+// working hour
+//---------------------------------------
                             Text("Working Hour",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             SizedBox(height: 12.h),
-
                             Row(
                               children: [
                                 Expanded(
@@ -1346,8 +1540,14 @@ class _AdminWebAccountState extends State<WebAccount> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton(
-                                          // DISABLE until Edit is pressed
-                                          onPressed: _editWorkingHour ? () => _pickTime(isStart: true) : null,
+ //---------------------------------------
+// edit working hout button , in edit mode only allow to press or it will show null
+//---------------------------------------
+                                        onPressed: _editWorkingHour ? () => _pickTime(isStart: true) : null,
+//---------------------------------------
+// if no start time display select normally we should ahve already
+//---------------------------------------
+
                                           child: Text((startTime == null) ? "Select" : _formatTime(startTime!)),
                                         ),
                                       ),
@@ -1364,7 +1564,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton(
-                                          // DISABLE until Edit is pressed
+//---------------------------------------
+// this too edit mode only allow to press or it will show null
+//---------------------------------------
                                           onPressed: _editWorkingHour ? () => _pickTime(isStart: false) : null,
                                           child: Text((endTime == null) ? "Select" : _formatTime(endTime!)),
                                         ),
@@ -1374,10 +1576,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             ),
-
                             SizedBox(height: 10.h),
 //---------------------------------------
-// if edit hour is press
+// if edit hour is press also show cancel button
 //---------------------------------------
                             _editWorkingHour ?
                             Row(
@@ -1409,6 +1610,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                       );
                                       if (!ok) return;
                                       await _applyWorkingHours();
+//---------------------------------------
+// after apply set edit working hour to false
+//---------------------------------------
                                       if (!mounted) return;
                                       setState(() => _editWorkingHour = false);
                                     },
@@ -1417,6 +1621,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             )
+//---------------------------------------
+// while still false show edit button
+//---------------------------------------
                                 : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
@@ -1448,15 +1655,24 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(day),
                                   value: v,
+ //---------------------------------------
+// while  edit working days still false set all teh switch to  null
+//---------------------------------------
                                   onChanged: _editWorkingDays
                                       ? (bool nv) => setState(() { workingDays[day] = nv; })
                                       : null,
                                 );
                               }).toList(),
                             ),
+//---------------------------------------
+// while edit working days is  true
+//---------------------------------------
                             _editWorkingDays
                                 ? Row(
                               children: [
+  //---------------------------------------
+// show reset button
+//---------------------------------------
                                 SizedBox(
                                   height: 40.h,
                                   child: OutlinedButton(
@@ -1465,6 +1681,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   ),
                                 ),
                                 SizedBox(width: 8.w),
+//---------------------------------------
+// show cancel button
+//---------------------------------------
                                 SizedBox(
                                   height: 40.h,
                                   child: TextButton(
@@ -1497,6 +1716,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             )
+//---------------------------------------
+// while edit working hour still false
+//---------------------------------------
                                 : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
@@ -1507,14 +1729,11 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ),
                             ),
-
-
                           ],
                         ),
                       ),
 
                       SizedBox(width: 24.w),
-
 //---------------------------------------
 // right side of system setting
 //---------------------------------------
@@ -1522,10 +1741,15 @@ class _AdminWebAccountState extends State<WebAccount> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Pick Holiday
+//---------------------------------------
+// deisplay pick holiday
+//---------------------------------------
                             Text("Pick Off Days (Holidays)",
                                 style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                             SizedBox(height: 10.h),
+//---------------------------------------
+// build teh calender design
+//---------------------------------------
                             _buildOffDaysCalendarCard(),
                             SizedBox(height: 6.h),
                             Text(
@@ -1533,9 +1757,16 @@ class _AdminWebAccountState extends State<WebAccount> {
                               style: TextStyle(fontSize: 11.sp, color: const Color(0xFF6B7280)),
                             ),
                             SizedBox(height: 8.h),
+//---------------------------------------
+// if edit holiday is true
+//---------------------------------------
+
                             _editHolidays
                                 ? Row(
-                              children: [
+//---------------------------------------
+// display reset button
+//---------------------------------------
+                            children: [
                                 SizedBox(
                                   height: 40.h,
                                   child: OutlinedButton(
@@ -1544,7 +1775,10 @@ class _AdminWebAccountState extends State<WebAccount> {
                                   ),
                                 ),
                                 SizedBox(width: 8.w),
-                                SizedBox(
+ //---------------------------------------
+// cancel button
+//---------------------------------------
+                              SizedBox(
                                   height: 40.h,
                                   child: TextButton(
                                     onPressed: () {
@@ -1576,6 +1810,9 @@ class _AdminWebAccountState extends State<WebAccount> {
                                 ),
                               ],
                             )
+ //---------------------------------------
+// if its not in edit mode show edit button
+//---------------------------------------
                                 : Align(
                               alignment: Alignment.centerRight,
                               child: SizedBox(
@@ -1613,13 +1850,21 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
 
-  // NOTE: _pickTime now ONLY sets state; saving happens on _applyWorkingHours()
+//---------------------------------------
+// while pick time is press, show time picker
+//---------------------------------------
+
   Future<void> _pickTime({required bool isStart}) async {
     if (!_editWorkingHour) return;
+    //---------------------------------------
+// default start on 9 and end on 5 but normally we already have time
+//---------------------------------------
     final TimeOfDay initial = isStart
         ? (startTime ?? const TimeOfDay(hour: 9, minute: 0))
         : (endTime ?? const TimeOfDay(hour: 17, minute: 0));
-
+//---------------------------------------
+// time picker display
+//---------------------------------------
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: initial,
@@ -1629,7 +1874,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       ),
     );
     if (picked == null) return;
-
+//---------------------------------------
+// when its picked set state
+//---------------------------------------
     setState(() {
       if (isStart) {
         startTime = picked;
@@ -1652,6 +1899,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       padding: EdgeInsets.all(12.w),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        //---------------------------------------
+// 3 component to build the calender
+//---------------------------------------
         children: <Widget>[
           _buildOffDaysCalendarHeader(),
           SizedBox(height: 8.h),
@@ -1662,7 +1912,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       ),
     );
   }
-
+//---------------------------------------
+// set the label on top calender header
+//---------------------------------------
   Widget _buildOffDaysCalendarHeader() {
     final m = _offCalVisibleMonthFirst;
     final label = '${_monthName(m.month)} ${m.year}';
@@ -1670,18 +1922,26 @@ class _AdminWebAccountState extends State<WebAccount> {
     return Row(
       children: <Widget>[
         Expanded(
-          child: Text(
+          //---------------------------------------
+// show month year and button for next and prev
+//---------------------------------------
+        child: Text(
             label,
             style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
           ),
         ),
+        //---------------------------------------
+// button for prev and next
+//---------------------------------------
         TextButton(onPressed: _prevMonthOffCal, child: Text('Prev', style: TextStyle(fontSize: 12.sp))),
         SizedBox(width: 4.w),
         TextButton(onPressed: _nextMonthOffCal, child: Text('Next', style: TextStyle(fontSize: 12.sp))),
       ],
     );
   }
-
+//---------------------------------------
+// build the week day
+//---------------------------------------
   Widget _buildWeekdayRow() {
     const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
@@ -1699,7 +1959,11 @@ class _AdminWebAccountState extends State<WebAccount> {
               width: cellW,
               child: Center(
                 child: Text(
-                  days[i],
+//---------------------------------------
+// show Sun to Sat
+//---------------------------------------
+
+                days[i],
                   style: TextStyle(
                     fontSize: 11.sp,
                     color: const Color(0xFF6B7280),
@@ -1713,7 +1977,9 @@ class _AdminWebAccountState extends State<WebAccount> {
       },
     );
   }
-
+//---------------------------------------
+// build each cell for calender
+//---------------------------------------
   Widget _buildOffDaysCalendarGrid() {
     if (_loadingOffDays) {
       return SizedBox(
@@ -1737,7 +2003,9 @@ class _AdminWebAccountState extends State<WebAccount> {
         double cellW = (c.maxWidth - totalGapW) / 7.0; //find each column width
         if (cellW < 10.w) cellW = 10.w;
         final gridH = (rows * cellW) + ((rows - 1) * gap); //its s square so width can be use as high, then calculate the whole calender high
-
+//---------------------------------------
+// display calender cell
+//---------------------------------------
         return SizedBox(
           height: gridH,
           child: Column(
@@ -1753,16 +2021,26 @@ class _AdminWebAccountState extends State<WebAccount> {
                     final inMonth = (dayNum >= 1 && dayNum <= days);
                     final DateTime? cellDate =
                     inMonth ? DateTime(f.year, f.month, dayNum) : null;
-
+//---------------------------------------
+// get today date
+//---------------------------------------
                     final todayOnly = DateUtils.dateOnly(DateTime.now());
                     final cellOnly  = (cellDate == null) ? null : DateUtils.dateOnly(cellDate);
+//---------------------------------------
+// disable cell for is before today
+//---------------------------------------
                     final bool isDisabled = (cellOnly == null) ? true : !cellOnly.isAfter(todayOnly);
 
-
                     final String ymd = (cellDate != null) ? _ymd(cellDate) : '';
+//---------------------------------------
+// check if it is holiday
+//---------------------------------------
+
                     final bool isHoliday =
                         cellDate != null && _offDaysYMD.contains(ymd);
-
+//---------------------------------------
+// design each of the cell button
+//---------------------------------------
                     return _offDayCell(
                       width: cellW,
                       height: cellW,
@@ -1821,6 +2099,9 @@ class _AdminWebAccountState extends State<WebAccount> {
         borderRadius: BorderRadius.circular(8.r),
         child: InkWell(
           borderRadius: BorderRadius.circular(8.r),
+          //---------------------------------------
+// only allow to toggle only if its in active day, and is edit holiday mode
+//---------------------------------------
           onTap: (!inMonth || isDisabled || date == null || !_editHolidays)
               ? null
               : () => _toggleOffDay(date),
@@ -1855,6 +2136,10 @@ class _AdminWebAccountState extends State<WebAccount> {
     return '$y-$m-$da';
   }
 
+  //---------------------------------------
+// get the first dat in month then subtract 1 day to get total day for that month
+//---------------------------------------
+
   int _daysInMonth(DateTime firstOfMonth) {
     final firstNext = DateTime(firstOfMonth.year, firstOfMonth.month + 1, 1);
     final lastCurrent = firstNext.subtract(const Duration(days: 1));
@@ -1874,18 +2159,27 @@ class _AdminWebAccountState extends State<WebAccount> {
     ];
     return names[m - 1];
   }
+//---------------------------------------
+// - 1 month
+//---------------------------------------
 
   void _prevMonthOffCal() {
     final f = _offCalVisibleMonthFirst;
     setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month - 1, 1));
   }
+//---------------------------------------
+// + 1 month
+//---------------------------------------
 
   void _nextMonthOffCal() {
     final f = _offCalVisibleMonthFirst;
     setState(() => _offCalVisibleMonthFirst = DateTime(f.year, f.month + 1, 1));
   }
 
-// small helper to compare sets
+//---------------------------------------
+//if both set is same return true to see if wehter it will have new save or not
+//---------------------------------------
+
   bool _setsEqual(Set<String> a, Set<String> b) {
     if (a.length != b.length) return false;
     for (final x in a) {
@@ -1907,6 +2201,9 @@ class _AdminWebAccountState extends State<WebAccount> {
 
     final ymd = _ymd(date);
     final willAdd = !_offDaysYMD.contains(ymd);
+//---------------------------------------
+// if its no holiday add to off day , if it is tehn remove form holiday
+//---------------------------------------
 
     setState(() {
       if (willAdd) {
@@ -1919,7 +2216,10 @@ class _AdminWebAccountState extends State<WebAccount> {
   }
 
 
-  // ------------------- small UI helpers -------------------
+//---------------------------------------
+// display user details nice ly
+//---------------------------------------
+
   Widget _detailRow(String label, String value) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 10.h),

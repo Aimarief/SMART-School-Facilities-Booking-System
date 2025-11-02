@@ -327,7 +327,7 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
     final String t = _titleCtrl.text.trim();
     final String d = _descCtrl.text.trim();
 
-    //---------------------------------------
+//---------------------------------------
 // validate
 //---------------------------------------
     bool hasErr = false;
@@ -453,16 +453,16 @@ class _AndroidReportIssueState extends State<AndroidReportIssue> {
             .doc();
 
         batch.set(inboxRef, {
-          "type": "system_issue", // same type
-          "title": t, // same title
-          "message": d, // same description
-          "username": name, // reporter display name
-          "email": mail, // reporter email
-          "createdBy": user.uid, // reporter uid
-          "recipientId": admin.id, // admin uid (for _canSee)
-          "createdAt": FieldValue.serverTimestamp(), // for sorting
-          "submittedAt": FieldValue.serverTimestamp(), // if you still use it
-          "imageBase64": _pendingBase64 ?? "", // optional image
+          "type": "system_issue",
+          "title": t,
+          "message": d,
+          "username": name,
+          "email": mail,
+          "createdBy": user.uid,
+          "recipientId": admin.id,
+          "createdAt": FieldValue.serverTimestamp(),
+          "submittedAt": FieldValue.serverTimestamp(),
+          "imageBase64": _pendingBase64 ?? "",
           "isRead": false, // mark unread
           "systemIssueId": sysId, // link to central record
         });

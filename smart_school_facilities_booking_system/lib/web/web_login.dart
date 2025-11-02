@@ -24,6 +24,10 @@ class _WebLoginPageState extends State<WebLoginPage> {
   bool _isLoading = false;  // optional, for showing loading indicator
   bool _obscurePassword = true;
 
+  //---------------------------------------
+// validate
+//---------------------------------------
+
   Future<void> _handleLogin() async {
     setState(() {
       _errorMessage = null;
@@ -42,7 +46,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
     }
 
     try {
-      // Sign in with Firebase Auth
+//---------------------------------------
+// sign in with fireauth
+//---------------------------------------
       UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -58,8 +64,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
         return;
       }
 
-      // Fetch user role
-      // Block Manager login if not verified
+//---------------------------------------
+// if manager not verified yet
+//---------------------------------------
       if (!isAdminSelected) {
         await user.reload(); // refresh
         if (!user.emailVerified) {
@@ -72,7 +79,6 @@ class _WebLoginPageState extends State<WebLoginPage> {
         }
       }
 
-// Now fetch user data from Firestore
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('UserInformation')
           .doc(user.uid)
@@ -87,10 +93,13 @@ class _WebLoginPageState extends State<WebLoginPage> {
         return;
       }
 
+      //---------------------------------------
+// get user tole
+//---------------------------------------
       String role = userDoc.get('role');
-
-
-      // Check if the selected role matches
+//---------------------------------------
+// if at admin or manager page log in but role is not correct
+//---------------------------------------
       if ((isAdminSelected && role != 'Admin') ||
           (!isAdminSelected && role != 'Manager')) {
         setState(() {
@@ -108,7 +117,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
       if (!isAdminSelected) {
         await _syncVerifiedFlag();  // update isverified to true in firestore
       }
-
+//---------------------------------------
+// both navigate to home page
+//---------------------------------------
       if (isAdminSelected) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           context.go('/homepage');
@@ -119,7 +130,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
         });
       }
 
-
+//---------------------------------------
+// if not correct email or password
+//---------------------------------------
     } on FirebaseAuthException catch (_) {
       setState(() {
         _errorMessage = "Incorrect email or password.";
@@ -134,6 +147,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
     }
   }
 
+  //---------------------------------------
+// update verified to true in firestore for manager when first time log in
+//---------------------------------------
   Future<void> _syncVerifiedFlag() async {
     await FirebaseAuth.instance.currentUser?.reload(); // refresh Auth user
     final u = FirebaseAuth.instance.currentUser;
@@ -146,7 +162,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
           .update({'isVerified': true});
     }
   }
-
+//---------------------------------------
+// main build
+//---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -155,12 +173,14 @@ class _WebLoginPageState extends State<WebLoginPage> {
           // Background image
           Positioned.fill(
             child: Image.asset(
-              'asset/image/Web_login.png', // <-- your background image
+              'asset/image/Web_login.png',
               fit: BoxFit.cover,
             ),
           ),
 
-          // Footer at bottom
+//---------------------------------------
+// footer
+//---------------------------------------
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
@@ -178,14 +198,16 @@ class _WebLoginPageState extends State<WebLoginPage> {
             ),
           ),
 
-          // Center box, moved slightly upward
+//---------------------------------------
+// center box
+//---------------------------------------
           Align(
             alignment: Alignment(0, -0.4), // 0 =  at the center, -0.4 to move it up a little
             child: Container(
               width: 1177.w,
               height: 637.h,
               decoration: BoxDecoration(
-                color: const Color(0xFFE2CCFF).withOpacity(0.94), // #E2CCFF
+                color: const Color(0xFFE2CCFF).withOpacity(0.94),
                 border: Border.all(
                   color: const Color(0xFF6E00D4), // outline
                   width: 1.w,
@@ -195,8 +217,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
                 children: [
                   SizedBox(height: 20.h),
 
-                  // Toggle buttons
-                  // Toggle buttons using HoverToggleButton widget
+//---------------------------------------
+// toggle button for admin and manager
+//---------------------------------------
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -213,10 +236,12 @@ class _WebLoginPageState extends State<WebLoginPage> {
                     ],
                   ),
 
-
                   SizedBox(height: 20.h),
 
-                  // Content split
+//---------------------------------------
+// show logo
+//---------------------------------------
+
                   Expanded(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -234,14 +259,20 @@ class _WebLoginPageState extends State<WebLoginPage> {
                           ),
                         ),
 
-                        // Middle divider
+//---------------------------------------
+// devider
+//---------------------------------------
+
                         Container(
                           width: 1.w,
                           height: 470.h,
                           color: const Color(0xFF6E00D4),
                         ),
 
-                        // Right: login form
+//---------------------------------------
+// log in form
+//---------------------------------------
+
                         Expanded(
                           flex: 1,
                           child: Padding(
@@ -250,8 +281,10 @@ class _WebLoginPageState extends State<WebLoginPage> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // erro message box
-                                if (_errorMessage != null) ...[
+//---------------------------------------
+// error message box
+//---------------------------------------
+                                if (_errorMessage != null)
                                   Container(
                                     padding: EdgeInsets.all(8.w),
                                     color: Colors.red.shade100,
@@ -269,9 +302,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
                                     ),
                                   ),
                                   SizedBox(height: 12.h),
-                                ],
-
-                                // Email label
+//---------------------------------------
+// email text field
+//---------------------------------------
                                 Text(
                                   "Email",
                                   style: TextStyle(
@@ -299,7 +332,9 @@ class _WebLoginPageState extends State<WebLoginPage> {
 
                                 SizedBox(height: 20.h),
 
-                                // Password label
+//---------------------------------------
+// password text field
+//---------------------------------------
                                 Text(
                                   "Password",
                                   style: TextStyle(
@@ -340,7 +375,10 @@ class _WebLoginPageState extends State<WebLoginPage> {
                                     ),
                                   ),
                                 ),
-                                // Add forget password only for Manager
+//---------------------------------------
+//
+//---------------------------------------
+
                                 if (!isAdminSelected)
                                   Align(
                                     alignment: Alignment.centerRight,

@@ -528,7 +528,6 @@ class _WebNotificationState extends State<WebNotification> {
       final bool isPending =
           approvalLc.contains('pend') || approvalLc.contains('wait');
       final bool isAmendment = ((m['amendmentId'] ?? '').toString().trim().isNotEmpty);
-
 //---------------------------------------
 // set mail title base on type
 //---------------------------------------
@@ -538,6 +537,7 @@ class _WebNotificationState extends State<WebNotification> {
         title = 'System Issue';
       } else if (type == 'approval_status') {
         title = 'Facility Approved';
+
       } else if (type == 'booking_created' && isPending) {
         title = 'Facility pending request' + (isAmendment ? ' (Amendment)' : '');
       } else if (type == 'booking_updated' && isPending) {
@@ -550,7 +550,8 @@ class _WebNotificationState extends State<WebNotification> {
 
       final String facilityName =
       _readFirstStr(m, ['facilityName']);
-      final String bookedUid = _readFirstStr(m, ['bookedBy']);
+      final String bookedUid = _readFirstStr(m, ['bookedBy','bookBy']);
+
 
       String email = '-';
       if (bookedUid.isNotEmpty) {
@@ -572,7 +573,7 @@ class _WebNotificationState extends State<WebNotification> {
       } else if (type == 'approval_status') {
         subtitle = '${facilityName.isEmpty ? '-' : facilityName} is approved';
       } else if ((type == 'booking_created' || type == 'booking_updated') &&
-          (approvalLc.contains('pend') || approvalLc.contains('wait'))) {
+          (approvalLc.contains('pend') )) {
 //---------------------------------------
 // get facility name and id
 //---------------------------------------
@@ -670,7 +671,9 @@ class _WebNotificationState extends State<WebNotification> {
           imgBytes = null;
         }
       }
-
+//---------------------------------------
+// design for system issue
+//---------------------------------------
       return Padding(
         padding: EdgeInsets.all(16.w),
         child: Column(

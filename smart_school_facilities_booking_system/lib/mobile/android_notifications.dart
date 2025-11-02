@@ -204,7 +204,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
   }
 
 //---------------------------------------
-// filter the mail by read or not read and date then add to list
+// get the all inbox mail belong to the user id
 //---------------------------------------
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDate(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
@@ -214,7 +214,9 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     for (final d in docs) {
       final m = d.data();
       if (!_canSee(m, uid)) continue;
-
+//---------------------------------------
+// filter the mail by read or not read and date then add to list
+//---------------------------------------
       final isRead = (m['isRead'] == true);
       if (_filter == 'unread' && isRead) continue;
       if (_filter == 'read' && !isRead) continue;
@@ -340,7 +342,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
 // if booking is updated
 //---------------------------------------
     if (type == 'booking_updated') {
-      // leave “update” titles exactly as you have them
+
       final ap = (m['approval'] ?? '').toString().toLowerCase();
       if (ap == 'pending') return 'Facility pending request';
       return 'Booking updated';
@@ -356,7 +358,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
     return 'Message';
   }
 //---------------------------------------
-// main build
+// main build and main design
 //---------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -557,7 +559,6 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
 //---------------------------------------
 // decide the subtitle
 //---------------------------------------
-
       String subtitle;
 //---------------------------------------
 // for approval type
@@ -701,7 +702,7 @@ class _AndroidNotificationsState extends State<AndroidNotifications> {
 }
 
 //---------------------------------------
-// the whole notification design
+// main build 2 the whole notification design
 //---------------------------------------
 
 class _NotifChip extends StatelessWidget {
@@ -728,6 +729,9 @@ class _NotifChip extends StatelessWidget {
     const Color unreadBg = Color(0xFFE6D6FF);
     const Color readBg   = Color(0xFFF5ECFF);
     final Color bg = isRead ? readBg : unreadBg;
+//---------------------------------------
+// main design 2
+//---------------------------------------
 
     return Material(
       color: bg,

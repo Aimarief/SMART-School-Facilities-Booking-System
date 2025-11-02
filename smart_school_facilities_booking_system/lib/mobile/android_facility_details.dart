@@ -132,7 +132,6 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
         withinMax = false;
       }
     }
-
     if (userCap >= reqCap && withinMax == true) {
       return true;
     } else {
@@ -157,7 +156,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
         .collection('Facilities')
         .doc(widget.facilityId)
         .snapshots();
-
+// main design 1
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: Size.fromHeight(60.h),
@@ -448,7 +447,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                               reasonMsg = 'This facility is currently unavailable'; // fallback
                             }
 //---------------------------------------
-// design for the unavilable box
+// design for the unavailable box
 //---------------------------------------
                             return Container(
                               width: double.infinity,
@@ -729,7 +728,7 @@ class _AndroidFacilityDetailsState extends State<AndroidFacilityDetails> {
                                         ),
                                         onPressed: () {
 //---------------------------------------
-// if capacity did not meet requieement
+// if capacity did not meet requirement
 //---------------------------------------
                                           if (capacityOk == false) {
                                             final String msg = 'Capacity does not meet requirement. ';

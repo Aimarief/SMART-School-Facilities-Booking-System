@@ -362,7 +362,7 @@ class _WebListManagerState extends State<WebListManager> {
     }
   }
 
-  // ---------- Lifecycle ----------
+  //Lifecycle
   @override
   void dispose() {
     _search.dispose();
@@ -471,7 +471,9 @@ class _WebListManagerState extends State<WebListManager> {
             : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
 
-        // filter out soft-deleted
+//---------------------------------------
+// filter out deleted manager
+//---------------------------------------
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> active = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         for (final d in docs) {
           final m = d.data();
@@ -479,25 +481,28 @@ class _WebListManagerState extends State<WebListManager> {
           if (!deleted) active.add(d);
         }
 
-        // search + sort
+//---------------------------------------
+// filtered list will be return
+//---------------------------------------
         final filtered = _applySearchDocs(active);
         final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(filtered)
+ //---------------------------------------
+// sort manager by name
+//---------------------------------------
           ..sort((a, b) => _docName(a).toLowerCase().compareTo(_docName(b).toLowerCase()));
 
         if (sorted.isEmpty) {
           return const _EmptyCenter(text: 'empty');
         }
 
-        // -------- build children with a simple for-loop --------
         final List<Widget> children = <Widget>[];
-
+//---------------------------------------
+// for every manager add into 1 box 1 box
+//---------------------------------------
         for (int i = 0; i < sorted.length; i++) {
-          // take one document
           final doc = sorted[i];
-          // get its data map
           final Map<String, dynamic> m = doc.data();
 
-          // read username
           String nm = '';
           if (m['username'] != null) {
             nm = m['username'].toString();
@@ -509,38 +514,38 @@ class _WebListManagerState extends State<WebListManager> {
               onTap: () {
                 // when tap on a manager -> select it and preload edit fields
                 setState(() {
-                  _selectedId = doc.id;                       // save selected id
-                  _selectedData = m;                           // save selected data
-                  _editNameC.text = nm;                        // preload name
-                  _editContactC.text = (m['contact']).toString();       // preload contact
-                  _editRoleDetailsC.text = (m['roleDetails']).toString(); // preload role details
-                  _mode = 'view';                              // go to view mode
+                  _selectedId = doc.id;
+                  _selectedData = m;
+                  _editNameC.text = nm;
+                  _editContactC.text = (m['contact']).toString();
+                  _editRoleDetailsC.text = (m['roleDetails']).toString();
+                  _mode = 'view';
                 });
               },
             ),
           );
 
-          // add space separator EXCEPT after the last item
+//---------------------------------------
+// add 1 space after each column
+//---------------------------------------
           if (i < sorted.length - 1) {
             children.add(SizedBox(height: 8.h));
           }
         }
-        // -------------------------------------------------------
-
-        // return a normal ListView with the built children
+//---------------------------------------
+// return the children in list view
+//---------------------------------------
         return ListView(
-          physics: const AlwaysScrollableScrollPhysics(), // allow pull even if short
-          children: children,                              // our loop-built widgets
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: children,
         );
       },
     );
   }
 
-
 //---------------------------------------
 // build right panel
 //---------------------------------------
-
   Widget _buildRightPanel() {
     if (_mode == 'add') return _buildAddForm();
 
@@ -642,6 +647,9 @@ class _WebListManagerState extends State<WebListManager> {
     final String roleDetails = (m['roleDetails']).toString();
     final bool isVerified = (m['isVerified'] == true);
 
+    //---------------------------------------
+// manager in edit field
+//---------------------------------------
     if (_mode == 'edit') {
       children.add(_editField(
         'Manager Name',
@@ -653,6 +661,9 @@ class _WebListManagerState extends State<WebListManager> {
           return null;
         },
       ));
+//---------------------------------------
+// when read mode wil be in ro field
+//---------------------------------------
     } else {
       children.add(_roField('Manager Name', name));
     }
@@ -695,6 +706,9 @@ class _WebListManagerState extends State<WebListManager> {
         style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600)));
     children.add(SizedBox(height: 8.h));
 
+    //---------------------------------------
+// get all the facility manager by manager
+//---------------------------------------
     children.add(
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
@@ -711,9 +725,10 @@ class _WebListManagerState extends State<WebListManager> {
 
           final docs = snap.data!.docs;
 
-          // filter out soft-deleted facilities if present
+//---------------------------------------
+// filter out deleted facility
+//---------------------------------------
           final active = docs.where((d) => (d.data()['deleted'] != true)).toList();
-
           if (active.isEmpty) {
             return Padding(
               padding: EdgeInsets.only(top: 6.h),
@@ -808,7 +823,7 @@ class _WebListManagerState extends State<WebListManager> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: children,
     );
-
+// edit form key use to show validation
     if (_mode == 'edit') {
       return Padding(
         padding: EdgeInsets.all(12.w),
@@ -836,6 +851,9 @@ class _WebListManagerState extends State<WebListManager> {
       );
     }
   }
+//---------------------------------------
+// confrim delete pop up
+//---------------------------------------
 
   Future<bool> _confirmDeleteManager() async {
     final bool? res = await showDialog<bool>(
@@ -873,7 +891,7 @@ class _WebListManagerState extends State<WebListManager> {
 
 
 //---------------------------------------
-//the part where it validate the form
+//the part where it validate the form and display the form for each label, for add form
 //---------------------------------------
   Widget _vField(
       String label,
@@ -927,6 +945,9 @@ class _WebListManagerState extends State<WebListManager> {
           children: [
             Text('Add Manager', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
             SizedBox(height: 12.h),
+//---------------------------------------
+// manager name field
+//---------------------------------------
 
             _vField(
               'Manager Name',
@@ -938,6 +959,9 @@ class _WebListManagerState extends State<WebListManager> {
                 return null;
               },
             ),
+//---------------------------------------
+// manager email field
+//---------------------------------------
 
             _vField(
               'Manager Email',
@@ -951,6 +975,10 @@ class _WebListManagerState extends State<WebListManager> {
                 return null;
               },
             ),
+
+            //---------------------------------------
+// manager contact
+//---------------------------------------
 
             _vField(
               'Manager Contact',
@@ -967,7 +995,7 @@ class _WebListManagerState extends State<WebListManager> {
             ),
 
 //---------------------------------------
-// check password
+// manager temp password
 //---------------------------------------
             _vField(
               'Password',
@@ -975,7 +1003,7 @@ class _WebListManagerState extends State<WebListManager> {
               obscure: _hidePwd,
               suffixIcon: IconButton(
                 onPressed: () => setState(() => _hidePwd = !_hidePwd),
-                icon: Icon(_hidePwd ? Icons.visibility : Icons.visibility_off),
+                icon: Icon(_hidePwd ?  Icons.visibility_off: Icons.visibility),
               ),
               validator: (v) {
                 if (v == null) return 'Password cannot be empty';
@@ -986,6 +1014,9 @@ class _WebListManagerState extends State<WebListManager> {
                 return null;
               },
             ),
+//---------------------------------------
+// manager role
+//---------------------------------------
 
             Text('Role', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600)),
             SizedBox(height: 6.h),
@@ -1001,6 +1032,10 @@ class _WebListManagerState extends State<WebListManager> {
               ),
             ),
             SizedBox(height: 14.h),
+
+//---------------------------------------
+// manager role details
+//---------------------------------------
 
             _vField('Role Details', _roleDetailsC),
             Row(
@@ -1022,7 +1057,9 @@ class _WebListManagerState extends State<WebListManager> {
   }
 }
 
-// ---------- Reusable UI parts ----------
+//---------------------------------------
+// box design for left and right panel
+//---------------------------------------
 
 class _Box extends StatelessWidget {
   const _Box({
@@ -1134,6 +1171,9 @@ class _SearchHeader extends StatelessWidget {
     );
   }
 }
+//---------------------------------------
+// tile that build each manager by each manager
+//---------------------------------------
 
 class _ListTileCard extends StatelessWidget {
   const _ListTileCard({Key? key,
@@ -1172,8 +1212,14 @@ class _ListTileCard extends StatelessWidget {
   }
 }
 
+//---------------------------------------
+// place empty at the center
+//---------------------------------------
+
 class _EmptyCenter extends StatelessWidget {
-  const _EmptyCenter({Key? key, required this.text}) : super(key: key);
+  const _EmptyCenter({Key? key,
+    required this.text
+  }) : super(key: key);
 
   final String text;
 

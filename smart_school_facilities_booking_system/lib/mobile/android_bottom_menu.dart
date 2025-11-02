@@ -1,22 +1,24 @@
 import 'package:flutter/material.dart';
 
 class BottomMenuBar extends StatelessWidget {
-  // height = total height of the bar
+
   final double height;
-
-  // currentIndex = selected tab (0..4)
   final int currentIndex;
-
-  // onTabSelected = callback when user taps an icon
   final Function(int) onTabSelected;
 
+  //---------------------------------------
+// the 3 value must be pass into it
+//---------------------------------------
   BottomMenuBar({
     required this.height,
     required this.currentIndex,
     required this.onTabSelected,
   });
 
-  // iconForIndex() = choose icon for each slot (0..4)
+  //---------------------------------------
+// icon for different index
+//---------------------------------------
+
   IconData iconForIndex(int i) {
     if (i == 0) {
       return Icons.calendar_today;
@@ -31,8 +33,10 @@ class BottomMenuBar extends StatelessWidget {
     }
   }
 
-  // _rowIcon() = one icon inside the baseline row
-  // If this is the selected index, we draw it TRANSPARENT to keep spacing.
+//---------------------------------------
+// index and current index
+//--------------------------------------
+
   Widget _rowIcon({
     required int index,
     required int current,
@@ -47,31 +51,37 @@ class BottomMenuBar extends StatelessWidget {
     return Expanded(
       child: Center(
         child: IconButton(
-          onPressed: () {
+          //---------------------------------------
+// ontab mean the index is selected
+//---------------------------------------
+        onPressed: () {
             onTabSelected(index); // tell parent which icon was tapped
           },
           icon: Icon(iconForIndex(index), size: 24, color: c),
-          tooltip: '',
         ),
       ),
     );
   }
+//---------------------------------------
+// main build
+//---------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    // You can tweak these 2 numbers to your taste
-    const double bubbleSize = 48; // circle size (bigger = more visible)
-    const double rise = 17;       // how high the circle+icon move UP (px)
+    //---------------------------------------
+// circle size adn rise
+//---------------------------------------
+    const double bubbleSize = 48;
+    const double rise = 17;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // w  = full width of the bar
-        // slot = width for each of the 5 equal positions
+// w = constraints.maxWidth = total width of the bar.
         double w = constraints.maxWidth;
+// slot = w / 5 = split the bar into 5 equal lanes (one per tab).
         double slot = w / 5;
-
-        // left = x position so the circle centers under the selected slot
         double left;
+
         if (currentIndex == 0) {
           left = (slot * 0) + (slot / 2) - (bubbleSize / 2);
         } else if (currentIndex == 1) {
@@ -84,16 +94,14 @@ class BottomMenuBar extends StatelessWidget {
           left = (slot * 4) + (slot / 2) - (bubbleSize / 2);
         }
 
-        // top = vertical position:
-        // start at vertical center of the bar, then move UP by "rise"
         double top = (height / 2) - (bubbleSize / 2) - rise;
+
 
         return SizedBox(
           height: height,
           child: Stack(
             clipBehavior: Clip.none, // allow circle + glow to go outside a bit
             children: [
-              // 1) Purple background with rounded top corners
               Container(
                 height: height,
                 decoration: const BoxDecoration(
@@ -105,7 +113,9 @@ class BottomMenuBar extends StatelessWidget {
                 ),
               ),
 
-              // 2) ORANGE CIRCLE + GLOW + BLACK ICON (selected) — move together
+//---------------------------------------
+// orange circle and animation
+//---------------------------------------
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOut,
@@ -117,7 +127,9 @@ class BottomMenuBar extends StatelessWidget {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // orange circle with a soft blurry glow around it
+//---------------------------------------
+// orange circle
+//---------------------------------------
                       Container(
                         width: bubbleSize,
                         height: bubbleSize,
@@ -125,13 +137,17 @@ class BottomMenuBar extends StatelessWidget {
                           color: const Color(0xFFFF6F6F), // orange/pink
                           shape: BoxShape.circle,
                           boxShadow: [
-                            // outer soft glow (bigger blur)
+//---------------------------------------
+// make glow with shadow
+//---------------------------------------
                             BoxShadow(
                               color: const Color(0xFFFF6F6F).withOpacity(0.35),
                               blurRadius: 24, // bigger = blurrier
                               spreadRadius: 10,
                             ),
-                            // inner glow for more punch
+//---------------------------------------
+// inner glow
+//---------------------------------------
                             BoxShadow(
                               color: const Color(0xFFFF6F6F).withOpacity(0.25),
                               blurRadius: 12,
@@ -141,7 +157,9 @@ class BottomMenuBar extends StatelessWidget {
                         ),
                       ),
 
-                      // selected icon centered on top (keep it black)
+//---------------------------------------
+// icon for index
+//---------------------------------------
                       Icon(
                         iconForIndex(currentIndex),
                         size: 24,
@@ -152,7 +170,9 @@ class BottomMenuBar extends StatelessWidget {
                 ),
               ),
 
-              // 3) ICON ROW (always on the same baseline, never shifts)
+//---------------------------------------
+// icon possition
+//---------------------------------------
               Positioned.fill(
                 child: Row(
                   children: [

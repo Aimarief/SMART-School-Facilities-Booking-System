@@ -12,20 +12,15 @@ class CategoriesPage extends StatefulWidget {
 }
 
 class _CategoriesPageState extends State<CategoriesPage> {
-  // Top bar time format
-  final bool _use24HourFormat = true;
 
-  // Left search controller
+  final bool _use24HourFormat = true;
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // Selection for the category
   String? _selectedCatId;
   String _selectedCatName = '';
 
-  //when enter default to view mode
   String _mode = 'view';
 
-  // Form controllers
   final TextEditingController _newCtrl = TextEditingController();
   final TextEditingController _editCtrl = TextEditingController();
   final TextEditingController _viewCtrl = TextEditingController();
@@ -76,8 +71,11 @@ class _CategoriesPageState extends State<CategoriesPage> {
       }
 
       bool deleted = false;
+//---------------------------------------
+// ingnore deleted
+//---------------------------------------
 
-        if (data['deleted'] == true) { // check if it is deleted
+        if (data['deleted'] == true) {
           deleted = true;
         } else {
           deleted = false;
@@ -85,9 +83,12 @@ class _CategoriesPageState extends State<CategoriesPage> {
 
       String nm = '';
         nm = data['name'].toString().toLowerCase();
+//---------------------------------------
+// ignore same id name
+//---------------------------------------
 
       bool sameId = false;
-      if (ignoreId == null) { // if same id and same name allows update too
+      if (ignoreId == null) {
         sameId = false;
       } else {
         if (d.id == ignoreId) {
@@ -121,6 +122,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
       );
       return;
     }
+//---------------------------------------
+// check if category already exist
+//---------------------------------------
 
     if (await _categoryNameExists(name)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,7 +132,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
       );
       return;
     }
-
+//---------------------------------------
+// if no then add to database
+//---------------------------------------
     try {
       final docRef = await FirebaseFirestore.instance
           .collection('FacilitiesCategory')
@@ -138,7 +144,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'available':true,
       });
-
+//---------------------------------------
+// set to view mode and viewing the category id
+//---------------------------------------
       setState(() {
         _selectedCatId = docRef.id;
         _selectedCatName = name;
@@ -164,6 +172,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (_selectedCatId == null) {
       return;
     }
+//---------------------------------------
+// cannot empty
+//---------------------------------------
 
     final String newName = _clean(_editCtrl.text);
     if (newName.isEmpty) {
@@ -172,6 +183,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
       );
       return;
     }
+//---------------------------------------
+// check if it is already exist
+//---------------------------------------
 
     if (await _categoryNameExists(newName, ignoreId: _selectedCatId)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -179,14 +193,18 @@ class _CategoriesPageState extends State<CategoriesPage> {
       );
       return;
     }
-
+//---------------------------------------
+// update the name in firebase
+//---------------------------------------
     try {
       await FirebaseFirestore.instance
           .collection('FacilitiesCategory')
           .doc(_selectedCatId)
           .update({'name': newName});
 
-
+//---------------------------------------
+// set to view mode
+//---------------------------------------
       setState(() {
         _selectedCatName = newName;
         _viewCtrl.text = newName;
@@ -222,11 +240,18 @@ class _CategoriesPageState extends State<CategoriesPage> {
           'Are you sure you want to delete this category?',
           style: TextStyle(fontSize: 14.sp),
         ),
+//---------------------------------------
+// cancel button
+//---------------------------------------
+
         actions: [
           TextButton(
             onPressed: () { Navigator.of(context).pop(false); },
             child: Text('Cancel', style: TextStyle(fontSize: 14.sp)),
           ),
+//---------------------------------------
+// confirm button
+//---------------------------------------
           ElevatedButton(
             onPressed: () { Navigator.of(context).pop(true); },
             style: ElevatedButton.styleFrom(
@@ -254,7 +279,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
     if (_selectedCatId == null) {
       return;
     }
-
+//---------------------------------------
+// get the slected id
+//---------------------------------------
     try {
       final facSnap = await FirebaseFirestore.instance
           .collection('Facilities')
@@ -268,6 +295,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         );
         return;
       }
+//---------------------------------------
+// set deleted to true
+//---------------------------------------
 
       await FirebaseFirestore.instance
           .collection('FacilitiesCategory')
@@ -293,7 +323,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
 //---------------------------------------
 // Main build
 //---------------------------------------
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -322,7 +351,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // LEFT BOX
+//---------------------------------------
+// left box
+//---------------------------------------
                               _Box(
                                 width: 460.w,
                                 height: 965.h,
@@ -345,7 +376,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
                                 child: _buildLeftList(),
                               ),
                               SizedBox(width: 24.w),
-                              // RIGHT BOX
+//---------------------------------------
+// rigth box
+//---------------------------------------
+
                               _Box(
                                 width: 1200.w,
                                 height: 965.h,
@@ -371,9 +405,13 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
 //---------------------------------------
-// The left side of the list
+// main build 2 The left side of the list
 //---------------------------------------
   Widget _buildLeftList() {
+    //---------------------------------------
+// get the dream for category
+//---------------------------------------
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('FacilitiesCategory')
@@ -385,7 +423,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         }
 
         final docs = snapshot.data!.docs;
-
+//---------------------------------------
+//  get the search string anc compare with the category name
+//---------------------------------------
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered =
         <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         final String q = _clean(_searchCtrl.text).toLowerCase();
@@ -394,7 +434,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         while (i < docs.length) {
           final d = docs[i];
           final data = d.data();
-
+//---------------------------------------
+// ingnore deleted category
+//--------------------------------------
           bool del = false;
           if (data.containsKey('deleted')) {
             if (data['deleted'] == true) {
@@ -410,7 +452,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
           } else {
             nm = '';
           }
-
+//---------------------------------------
+// check if the key word match
+//---------------------------------------
           bool matches;
           if (q.isEmpty) {
             matches = true;
@@ -422,7 +466,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
               matches = false;
             }
           }
-
+//---------------------------------------
+// if match adn not deleted add into filterd list
+//---------------------------------------
           if (!del) {
             if (matches) {
               filtered.add(d);
@@ -434,7 +480,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         if (filtered.isEmpty) {
           return _EmptyCenter(text: 'No categories found');
         }
-
+//---------------------------------------
+// list the category
+//---------------------------------------
         final List<Widget> children = [];
         for (int i = 0; i < filtered.length; i++) {
           final d = filtered[i];
@@ -459,6 +507,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
             children.add(SizedBox(height: 8.h)); // separator after each item except last
           }
         }
+//---------------------------------------
+// return the the list
+//---------------------------------------
 
         return ListView(
           children: children,
@@ -468,7 +519,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
 //---------------------------------------
-// The right side of the list make decision which mode is it in
+// main build for the right side of the list make decision which mode is it in
 //---------------------------------------
 
   Widget _buildRightPanelChild() {
@@ -493,7 +544,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
 //---------------------------------------
-// Add category form
+// main design Add category form
 //---------------------------------------
   Widget _panelAdd() {
     return Column(
@@ -505,13 +556,18 @@ class _CategoriesPageState extends State<CategoriesPage> {
 
         Text('Name', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600)),
         SizedBox(height: 6.h),
+//---------------------------------------
+// text box
+//---------------------------------------
         TextFormField(
           controller: _newCtrl,
           style: TextStyle(fontSize: 15.sp),
           decoration: _commonInputDecoration(),
         ),
         SizedBox(height: 14.h),
-
+//---------------------------------------
+// confirm add button
+//---------------------------------------
         Row(
           children: [
             ElevatedButton(
@@ -521,7 +577,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
             SizedBox(width: 10.w),
             OutlinedButton(
               onPressed: () {
-                // cancel add → go back to view (no selection change)
+ //---------------------------------------
+// cancel button
+//---------------------------------------
                 setState(() {
                   _mode = 'view';
                 });
@@ -535,7 +593,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   }
 
 //---------------------------------------
-// View only form
+// main design for View mdoe
 //---------------------------------------
 
   Widget _panelView() {
@@ -549,8 +607,10 @@ class _CategoriesPageState extends State<CategoriesPage> {
         Text('Name', style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500)), // small label
         SizedBox(height: 6.h),
         TextFormField(
-          // Use ValueKey so the field refreshes when the value changes
-          key: ValueKey<String>('view|name|$_selectedCatName'),
+          //---------------------------------------
+// display name but read only
+//---------------------------------------
+        key: ValueKey<String>('view|name|$_selectedCatName'),// view|name is just key to identify them without them after new name is place, it cant switch to other category
           initialValue: _selectedCatName,             // put the text once (no controller)
           enabled: false,                             // disabled = greyed out, not editable
           decoration: const InputDecoration(
@@ -558,15 +618,21 @@ class _CategoriesPageState extends State<CategoriesPage> {
             border: OutlineInputBorder(),
           ),
         ),
+
         SizedBox(height: 12.h),
 
-        // Buttons: Edit + Close
+//---------------------------------------
+// edit and cancel button
+//---------------------------------------
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
+ //---------------------------------------
+// close button
+//---------------------------------------
+
             TextButton(
               onPressed: () {
-                // Close: clear selection
                 setState(() {
                   _selectedCatId = null;
                   _selectedCatName = '';
@@ -575,10 +641,13 @@ class _CategoriesPageState extends State<CategoriesPage> {
               },
               child: const Text('Close'),
             ),
+ //---------------------------------------
+// edit button
+//---------------------------------------
             SizedBox(width: 8.w),
             ElevatedButton(
               onPressed: () {
-                // go to edit mode and preload text
+
                 setState(() {
                   _mode = 'edit';
                   _editCtrl.text = _selectedCatName;
@@ -594,9 +663,8 @@ class _CategoriesPageState extends State<CategoriesPage> {
 
 
 //---------------------------------------
-// Edit form
+// main design for Edit form
 //---------------------------------------
-
   Widget _panelEdit() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,7 +675,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
 
         Text('Name', style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600)),
         SizedBox(height: 6.h),
-        // Editable field (same sizing/styling as add)
+        //---------------------------------------
+//  text field for edit the category
+//---------------------------------------
         TextFormField(
           controller: _editCtrl,
           style: TextStyle(fontSize: 17.sp),
@@ -615,7 +685,9 @@ class _CategoriesPageState extends State<CategoriesPage> {
         ),
         SizedBox(height: 14.h),
 
-        // Buttons aligned right: Delete · Cancel · Confirm (same as facilities)
+//---------------------------------------
+// delete button
+//---------------------------------------
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -629,16 +701,23 @@ class _CategoriesPageState extends State<CategoriesPage> {
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Delete'),
             ),
+//---------------------------------------
+// cancel button
+//---------------------------------------
+
             SizedBox(width: 8.w),
             TextButton(
               onPressed: () {
-                // cancel edit → back to view
                 setState(() {
                   _mode = 'view';
                 });
               },
               child: const Text('Cancel'),
             ),
+//---------------------------------------
+// confirm button
+//---------------------------------------
+
             SizedBox(width: 8.w),
             ElevatedButton(
               onPressed: _saveEdit,
@@ -661,7 +740,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
 }
 
 //---------------------------------------
-// class to design left and right box
+// main design 1 class to design left and right box
 //---------------------------------------
 
 class _Box extends StatelessWidget {
@@ -686,7 +765,10 @@ class _Box extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<Widget> head = <Widget>[];
-    if (header != null) { //if there is header add the search header, if no will leave space because detials part dun have header
+    //---------------------------------------
+// if there is header , build header
+//---------------------------------------
+    if (header != null) {
       head.add(header!);
       head.add(SizedBox(height: 8.h));
     }
@@ -700,6 +782,9 @@ class _Box extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       padding: EdgeInsets.all(12.w),
+      //---------------------------------------
+// display title
+//---------------------------------------
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -721,7 +806,9 @@ class _Box extends StatelessWidget {
   }
 }
 
-
+//---------------------------------------
+// search header
+//---------------------------------------
 
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
@@ -742,7 +829,10 @@ class _SearchHeader extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: TextField(
+          //---------------------------------------
+// text field to taip, and set state when change
+//---------------------------------------
+        child: TextField(
             controller: controller,
             onChanged: onChanged,
             textInputAction: TextInputAction.search,
@@ -758,8 +848,11 @@ class _SearchHeader extends StatelessWidget {
           ),
         ),
         SizedBox(width: 8.w),
+//---------------------------------------
+// add new category button
+//---------------------------------------
         SizedBox(
-          height: 40.h, // to match search height
+          height: 40.h,
           width: 40.h,
           child: OutlinedButton(
             onPressed: onAdd,
@@ -771,7 +864,9 @@ class _SearchHeader extends StatelessWidget {
     );
   }
 }
-
+//---------------------------------------
+// design for each category chip
+//---------------------------------------
 class _ListTileCard extends StatelessWidget {
   const _ListTileCard({Key? key,
     required this.label,
@@ -786,6 +881,9 @@ class _ListTileCard extends StatelessWidget {
     return Material(
       color: Colors.white.withOpacity(.9),
       borderRadius: BorderRadius.circular(8),
+      //---------------------------------------
+// each of the button for category chip
+//---------------------------------------
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
@@ -794,7 +892,10 @@ class _ListTileCard extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
+//---------------------------------------
+// category name
+//---------------------------------------
+              child: Text(
                   label,
                   style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w500),
                   overflow: TextOverflow.ellipsis,

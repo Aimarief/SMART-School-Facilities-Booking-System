@@ -275,39 +275,6 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         .snapshots();
   }
 
-//---------------------------------------
-// get all the approval
-//---------------------------------------
-
-  String _readApproval(Map<String, dynamic> m) {
-    String val = m['approval']?.toString() ?? '';
-    return val;
-  }
-
-  String _readFacilityId(Map<String, dynamic> m) {
-    String id = m['facilityId']?.toString() ?? '';
-    if (id.isEmpty) { id = m['facilityID']?.toString() ?? ''; }
-    if (id.isEmpty) { id = m['facilityDocId']?.toString() ?? ''; }
-    return id;
-  }
-
-  String _readStartStr(Map<String, dynamic> m) {
-    String s = m['start']?.toString() ?? '';
-    if (s.isEmpty) { s = m['startTime']?.toString() ?? ''; }
-    return s;
-  }
-
-  String _readEndStr(Map<String, dynamic> m) {
-    String s = m['end']?.toString() ?? '';
-    if (s.isEmpty) { s = m['endTime']?.toString() ?? ''; }
-    return s;
-  }
-
-  int _readSeatIndex(Map<String, dynamic> m) {
-    // take value → toString only if not null → tryParse → if null then -1
-    return int.tryParse(m['seatIndex']?.toString() ?? '') ?? -1;
-  }
-
   //---------------------------------------
 // save the facility name to cache
 //---------------------------------------
@@ -390,7 +357,6 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
 
     String badge = '';
     Color badgeColor = Colors.grey;
-
     if (approval.toLowerCase() == 'pending') {
       badge = 'Pending';
       badgeColor = Colors.amber;
@@ -446,7 +412,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     if (seatIndex >= 0) {
       slotText = 'Slot: $seatIndex';
     }
-
+//---------------------------------------
+// daily weekly slot main design
+//---------------------------------------
     return Container(
       width: 1.0.sw,
       margin: EdgeInsets.symmetric(vertical: 6.h),
@@ -580,10 +548,9 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     for (int i = 0; i < list.length; i = i + 1) {
       out.add(_bookingCardForDay(list[i], day));
     }
-    //---------------------------------------
+//---------------------------------------
 // if empty show something like devider
 //---------------------------------------
-
     if (list.isEmpty) {
       out.add(Container(
         width: 1.0.sw,
@@ -594,8 +561,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
     return out;
   }
-
-  //---------------------------------------
+//---------------------------------------
 // whole daily agenda body
 //---------------------------------------
   Widget _dailyAgendaBody(AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap) {
@@ -621,7 +587,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
 
 //---------------------------------------
-// add booking into the list
+// get and add booking into the list
 //---------------------------------------
 
     final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
@@ -646,7 +612,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     items.sort((a, b) {
       final int sa = _parse24ToMinutes(a['start']);
       final int sb = _parse24ToMinutes(b['start']);
-      if (sa < sb) { return -1; } else { if (sa > sb) { return 1; } else { return 0; } }
+      return sa.compareTo(sb);
     });
 
 //---------------------------------------
@@ -657,7 +623,11 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     for (int i = 0; i < hourMarks.length; i = i + 1) {
       buckets[hourMarks[i]] = <Map<String, dynamic>>[];
     }
-
+//hourMarks = [480, 540, 600] → 08:00, 09:00, 10:00
+// Booking 09:30–11:00 → st=570, en=660
+// Check 08:00–09:00 [480,540): 570 < 540 is false → no
+// Check 09:00–10:00 [540,600): 570 < 600 and 660 > 540 → yes → goes into buckets[540]
+// Check 10:00–11:00 [600,660): 570 < 660 and 660 > 600 → yes → goes into buckets[600]
     for (int i = 0; i < items.length; i = i + 1) {
       final Map<String, dynamic> m = items[i];
       final int st = _parse24ToMinutes(m['start']);
@@ -667,10 +637,14 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         final int hStart = hm;
         final int hEnd = hm + 60;
 //---------------------------------------
-// check if there is time overlap
+// check if there is time overlap like start time before the end and end time after the start
 //---------------------------------------
         if (st < hEnd && en > hStart) {
-          (buckets[hm] ??= <Map<String, dynamic>>[]).add(m);
+          if (buckets[hm] == null) {
+            buckets[hm] = <Map<String, dynamic>>[];
+          }
+          buckets[hm]!.add(m);
+
         }
       }
     }
@@ -691,10 +665,12 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
 //---------------------------------------
 
   Widget _weeklyAgendaBody(AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap) {
-    final List<DateTime> days = _weekDates(_selectedDate);
-
     //---------------------------------------
 // get the 7 days
+//---------------------------------------
+    final List<DateTime> days = _weekDates(_selectedDate);
+    //---------------------------------------
+// get the date on the week
 //---------------------------------------
     final Map<String, List<Map<String, dynamic>>> byDay = <String, List<Map<String, dynamic>>>{};
     for (int i = 0; i < days.length; i = i + 1) {
@@ -710,7 +686,6 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         final Map<String, dynamic> m = docs[i].data();
         final String approval = m['approval'];
         if (approval.toLowerCase() == 'rejected') {
-          // skip
         } else {
 //---------------------------------------
 // add the booking within the day into the list
@@ -722,36 +697,34 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         }
       }
     }
-
 //---------------------------------------
-// sort the start time booking day
+// sort the start time for the booking day
 //---------------------------------------
     for (int i = 0; i < days.length; i = i + 1) {
-      final String k = _dateKey(days[i]);
-      final List<Map<String, dynamic>>? lst = byDay[k];
+      final String k = _dateKey(days[i]);// make "day key"
+      final List<Map<String, dynamic>>? lst = byDay[k];// get list for that day
       if (lst != null) {
+        // compare start times using compareTo for simpler code
         lst.sort((a, b) {
           final int sa = _parse24ToMinutes(a['start']);
           final int sb = _parse24ToMinutes(b['start']);
-          if (sa < sb) { return -1; } else { if (sa > sb) { return 1; } else { return 0; } }
+          return sa.compareTo(sb);
         });
       }
     }
-
 //---------------------------------------
-// list the day and booking
+// list the day and booking for weekly,
 //---------------------------------------
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, _bottomSafePadding(context)),
       itemCount: days.length,
       itemBuilder: (context, index) {
-        final DateTime d = days[index];
-        final String k = _dateKey(d);
-        List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
-        if (byDay.containsKey(k)) {
-          final List<Map<String, dynamic>>? tmp = byDay[k];
-          if (tmp != null) { items = tmp; } else { items = <Map<String, dynamic>>[]; }
-        }
+        final DateTime d = days[index];// for each day
+        final String k = _dateKey(d);// get the booking for that day
+//---------------------------------------
+// for each day, if no booking send back empty list, if have then send all booking on that day
+//---------------------------------------
+        final List<Map<String, dynamic>> items = byDay[k] ?? <Map<String, dynamic>>[];
         return _weeklyDaySection(d, items);
       },
     );

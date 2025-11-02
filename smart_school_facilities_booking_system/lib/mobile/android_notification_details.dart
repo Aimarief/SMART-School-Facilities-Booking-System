@@ -264,7 +264,6 @@ class _AndroidNotificationDetailsState extends State<AndroidNotificationDetails>
                       ((inbox['end'] ?? '').toString().trim().isNotEmpty) ||
                       (inbox['seatIndex'] != null);
 
-
 //---------------------------------------
 // the content design
 //---------------------------------------
@@ -479,7 +478,8 @@ class _AndroidNotificationDetailsState extends State<AndroidNotificationDetails>
  //---------------------------------------
 // request update text
 //---------------------------------------
-                                    ? 'The facility your for current booking date ${(inbox['bookingDate'] ?? '').toString()} are disable and require you to change or create a new booking if nessacery.'
+                                    ? 'The facility your for current booking date ${(inbox['bookingDate'] ?? '').toString()} '
+                                    'are disable and require you to change or create a new booking if nessacery.'
 //---------------------------------------
 // deleted text
 //---------------------------------------

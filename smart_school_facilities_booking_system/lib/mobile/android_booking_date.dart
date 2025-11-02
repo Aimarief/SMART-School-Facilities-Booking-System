@@ -299,13 +299,22 @@ class _Booking_DateState extends State<Booking_Date> {
     return null;
   }
 
-// Disable if (today) and we are within lead time of start
+// check if selected day is today, then take now minute compare if it is
+// bigger than the start time - 3hour then its within 3 hour cannot be book
   bool _isSlotTooSoon(String startHHMM) {
+    // if not today, never “too soon”
     if (!_isTodaySelected()) return false;
+
+    // convert both times to minutes from midnight
     final now = DateTime.now();
-    final int nowMin = (now.hour * 60) + now.minute;
-    final int startMin = _timeToMinutes(startHHMM);
-    return nowMin >= (startMin - _leadDisableMinutes);
+    final int nowMin   = now.hour * 60 + now.minute;//13:20 -> 800
+    final int startMin = _timeToMinutes(startHHMM);//15:00 -> 900
+
+    // minutes until slot starts
+    final int gap = startMin - nowMin;//900 - 800 = 100
+
+    // “too soon” if gap is <= lead window (180 = 3 hours)
+    return gap <= _leadDisableMinutes; // 100 <= 180 -> true
   }
 
 
@@ -653,7 +662,9 @@ class _Booking_DateState extends State<Booking_Date> {
                   Row(
                     children: List<Widget>.generate(_next7.length, (int i) {
                       final DateTime d = _next7[i];
-
+//---------------------------------------
+// set the selected to selected date
+//---------------------------------------
                       final bool isSelected = d.year == _selected.year && d.month == _selected.month && d.day == _selected.day;
 
                       final bool enabled = _isWeekdayAllowed(d);
@@ -667,7 +678,6 @@ class _Booking_DateState extends State<Booking_Date> {
 //---------------------------------------
 // if it is enable date will turn colour to selected , if not do nothing
 //---------------------------------------
-
                           onTap: enabled
                                 ? () {
                               setState(() {
@@ -740,7 +750,7 @@ class _Booking_DateState extends State<Booking_Date> {
                   SizedBox(height: 12.h),
 
 //---------------------------------------
-// if the picked day is not allowed day( normally wont happend )
+// if the picked day is not allowed day( normally wont unless the day is the off day)
 //---------------------------------------
                   if (!_isWeekdayAllowed(_selected))
                     Container(
@@ -793,12 +803,12 @@ class _Booking_DateState extends State<Booking_Date> {
                             final String s = (m['start']).toString(); // "08:00"
 
                             if (s.isNotEmpty) {
-                              final String key = _slotKey4(s);          // "0800"
+                              final String key = _slotKey4(s); // "0800"
                               final int booked = _bookedByKey[key] ?? 0; // booked count (default 0)
-                              final int capForThis = _facilityCapacity; // capacity override or facility cap
-
-                              final bool isTooSoon = _isSlotTooSoon(s); // 3h lock
+                              final int capForThis = _facilityCapacity; //  facility cap
                               final bool isFull = booked >= capForThis;
+                              final bool isTooSoon = _isSlotTooSoon(s); // 3h lock
+
                               final bool isPicked = _pickedStarts.contains(s);
 
                               // decide colors/styles
@@ -808,7 +818,7 @@ class _Booking_DateState extends State<Booking_Date> {
                               double borderWidth = 1.5;
                               double opacity = 1.0;
 //---------------------------------------
-// already within 3 hour
+// already within 3 hour and past the time
 //---------------------------------------
                               if (isTooSoon) {
                                 fillColor = Colors.grey.shade300;
@@ -855,6 +865,9 @@ class _Booking_DateState extends State<Booking_Date> {
                                     child: InkWell(
                                       onTap: () {
                                         setState(() {
+//---------------------------------------
+// after each time slot is picked , it will add to the list, if press the picked one it will remove again from the list
+//---------------------------------------
                                           if (isPicked) {
                                             _pickedStarts.remove(s);
                                           } else {

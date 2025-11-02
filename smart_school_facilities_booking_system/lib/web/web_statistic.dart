@@ -47,43 +47,54 @@ class WebStatistic extends StatefulWidget {
 class _WebStatisticState extends State<WebStatistic> {
 
   final bool _use24HourFormat = true;
-  final String _bookingDateField = 'bookingDate';   // STRING date
+  final String _bookingDateField = 'bookingDate';// STRING date
   final String _statusField = 'status';
   final String _endedValue = 'ended';
-  final String _facilityIdField = 'facilityId';     // used for bars
-  final String _userIdField = 'userId';             // used for pie #1
-  final String _ratedField = 'rated';               // used for pie #2
+  final String _facilityIdField = 'facilityId';// used for bars
+  final String _userIdField = 'userId';// used for pie #1
+  final String _ratedField = 'rated';// used for pie #2
 
   final String _colBookings   = 'Bookings';
   final String _colFacilities = 'Facilities';
   final String _colCategories = 'FacilitiesCategory';
   final String _colUsers      = 'UserInformation';
 
-  late DateTime _fromDate;         // from
-  late DateTime _toDate;           // to
+  late DateTime _fromDate;// from
+  late DateTime _toDate;// to
   bool _loading = true;
 
-  String _groupBy = 'Day';         // 'Day' or 'Month'
+  String _groupBy = 'Day'; // 'Day' or 'Month'
 
   final List<_Point> _linePoints = <_Point>[];
   final List<String> _xLabels = <String>[];
 
-  // ---------- data for bar charts ----------
+//---------------------------------------
+// data for bar chart
+//---------------------------------------
+
   final List<_BarDatum> _topFacilityBars = <_BarDatum>[];
   final List<_BarDatum> _topCategoryBars = <_BarDatum>[];
 
-  // ---------- data for pie charts ----------
+//---------------------------------------
+// data for pie chart
+//---------------------------------------
+
   int _countStudent = 0;
   int _countLecturer = 0;
   int _countRated = 0;
   int _countNotRated = 0;
-  // total user
+//---------------------------------------
+// total user
+//---------------------------------------
   int _totalAdmin = 0;
   int _totalManager = 0;
   int _totalLecturer = 0;
   int _totalStudent = 0;
 
-  // ---------- data for rating bars ----------
+//---------------------------------------
+// data for rating bar
+//---------------------------------------
+
   final List<_BarDoubleDatum> _topHighestAvg = <_BarDoubleDatum>[];
   final List<_BarDoubleDatum> _topLowestAvg  = <_BarDoubleDatum>[];
 
@@ -123,7 +134,10 @@ class _WebStatisticState extends State<WebStatistic> {
   }
 
 
-  // ---------- open date range picker ----------
+//---------------------------------------
+// date range picker
+//---------------------------------------
+
   Future<void> _pickDateRange() async {
 //---------------------------------------
 // show range picker for date
@@ -142,8 +156,7 @@ class _WebStatisticState extends State<WebStatistic> {
     if (range == null) return;
 
     final DateTime start = DateTime(range.start.year, range.start.month, range.start.day);
-    final DateTime endExclusive =
-    DateTime(range.end.year, range.end.month, range.end.day).add(const Duration(days: 1));
+    final DateTime endExclusive = DateTime(range.end.year, range.end.month, range.end.day).add(const Duration(days: 1));
 //---------------------------------------
 // set state to rebuild Ui base on date
 //---------------------------------------
@@ -181,7 +194,7 @@ class _WebStatisticState extends State<WebStatistic> {
     if (_groupBy == 'Day') {
       DateTime d = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
 //---------------------------------------
-// add 1 day by 1 day into the list with value 0 and add into x
+// add 1 day by 1 day into bucket line and anchors list
 //---------------------------------------
       while (d.isBefore(_toDate)) {
         bucketLine[_dayKey(d)] = 0;
@@ -211,21 +224,18 @@ class _WebStatisticState extends State<WebStatistic> {
 //---------------------------------------
 // for bar
 //---------------------------------------
-
     final Map<String, int> facilityCount = <String, int>{};
     final Set<String> facilityIdsSeen = <String>{};
 
 //---------------------------------------
 // for pie
 //---------------------------------------
-
     final List<String> userIdsForCount = <String>[]; // per booking
     final Set<String> userIdsUnique = <String>{};    // unique user fetch
 
  //---------------------------------------
 // get the booking date
 //---------------------------------------
-
     for (final doc in qs.docs) {
       final data = doc.data();
       final String? raw = data[_bookingDateField]?.toString();
@@ -239,7 +249,7 @@ class _WebStatisticState extends State<WebStatistic> {
       if (dt.isBefore(_fromDate) || !dt.isBefore(_toDate)) continue;
 
 //---------------------------------------
-// make it to the correct format
+// for each booking on that day, add the key in bucketlince by 1 to get total booking on that day
 //---------------------------------------
       final String lineKey = (_groupBy == 'Day') ? _dayKey(dt) : _monthKey(dt);
       if (bucketLine.containsKey(lineKey)) {
@@ -247,11 +257,14 @@ class _WebStatisticState extends State<WebStatistic> {
       }
 
 //---------------------------------------
-// plus one facility into the list for pie chart
+// add one facility in the key to get total book for that facility
 //---------------------------------------
       final String? fid = data[_facilityIdField]?.toString();
       if (fid != null && fid.isNotEmpty) {
         facilityCount[fid] = (facilityCount[fid] ?? 0) + 1;
+//---------------------------------------
+// add the facility id to the list
+//---------------------------------------
         facilityIdsSeen.add(fid);
       }
 
@@ -276,9 +289,8 @@ class _WebStatisticState extends State<WebStatistic> {
     }
 
 //---------------------------------------
-// start to get x point and y point data for line chart
+// base on the anchors length, get the count for each bucket line key then add to y value, then add x label
 //---------------------------------------
-
     int x = 0;
     for (final DateTime a in anchors) {
       final String key = (_groupBy == 'Day') ? _dayKey(a) : _monthKey(a);
@@ -291,23 +303,18 @@ class _WebStatisticState extends State<WebStatistic> {
 //---------------------------------------
 // declare list for facility id and category id for bar chart for bar chart
 //---------------------------------------
-
     final Map<String, String> facilityNameById = <String, String>{};
     final Map<String, String> categoryIdByFid  = <String, String>{};
 //---------------------------------------
-// convert previous list data do the correct facility name along with category id
+// get the facility name and category id for each data in facilityIdSeen list
 //---------------------------------------
-
     for (final String fid in facilityIdsSeen) {
       try {
         final fdoc = await FirebaseFirestore.instance.collection(_colFacilities).doc(fid).get();
         if (fdoc.exists) {
           final data = fdoc.data()!;
-          facilityNameById[fid] = (data['name'] ?? fid).toString();
-          categoryIdByFid[fid]  = (data['categoryId'] ?? 'unknown').toString();
-        } else {
-          facilityNameById[fid] = fid;
-          categoryIdByFid[fid]  = 'unknown';
+          facilityNameById[fid] = (data['name']).toString();
+          categoryIdByFid[fid]  = (data['categoryId']).toString();
         }
       } catch (_) {
         facilityNameById[fid] = fid;
@@ -323,24 +330,37 @@ class _WebStatisticState extends State<WebStatistic> {
     final int takeF = math.min(5, sortedFacilities.length);
     for (int i = 0; i < takeF; i++) {
       final e = sortedFacilities[i];
+      //---------------------------------------
+// key is the facility id which helps to get facility name
+//---------------------------------------
       final String label = facilityNameById[e.key] ?? e.key;
+//---------------------------------------
+// add each point to the bar chart, value means the value of the key so is amount of booking
+//---------------------------------------
       _topFacilityBars.add(_BarDatum(_shorten(label, 14), e.value));
     }
 
 //---------------------------------------
 // sort top 5 catogory
 //---------------------------------------
-
     final Map<String, int> categoryCount = <String, int>{};
     for (final MapEntry<String, int> e in facilityCount.entries) {
       final String fid = e.key;
       final int cnt = e.value;
       final String catId = categoryIdByFid[fid] ?? 'unknown';
+      //---------------------------------------
+// each of the catid will be added with the amount of facility
+//---------------------------------------
       categoryCount[catId] = (categoryCount[catId] ?? 0) + cnt;
     }
-
+//---------------------------------------
+// sort each of the categories
+//---------------------------------------
     final List<MapEntry<String, int>> sortedCats = categoryCount.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    //---------------------------------------
+// take only the top 5
+//---------------------------------------
     final int takeC = math.min(5, sortedCats.length);
     for (int i = 0; i < takeC; i++) {
       final e = sortedCats[i];
@@ -354,19 +374,24 @@ class _WebStatisticState extends State<WebStatistic> {
           catName = (cdoc.data()!['name'] ?? e.key).toString();
         }
       } catch (_) {}
+      //---------------------------------------
+// add it to bardatum which each the each of the bar in barchart
+//---------------------------------------
       _topCategoryBars.add(_BarDatum(_shorten(catName, 14), e.value));
     }
 
 //---------------------------------------
-// get the role from the previous list and get how many student and how many lecturer
+// get the role userIdsUnique list and get how many student and how many lecturer
 //---------------------------------------
-
     final Map<String, String> roleByUserId = <String, String>{};
     for (final String uid in userIdsUnique) {
       try {
         final udoc = await FirebaseFirestore.instance.collection(_colUsers).doc(uid).get();
         if (udoc.exists) {
           final role = (udoc.data()!['role'] ?? '').toString();
+          //---------------------------------------
+// get the role for each uid
+//---------------------------------------
           roleByUserId[uid] = role;
         }
       } catch (_) {}
@@ -380,13 +405,16 @@ class _WebStatisticState extends State<WebStatistic> {
         lecturers++;
       }
     }
+    //---------------------------------------
+// got the student adn lecturer count
+//---------------------------------------
     _countStudent = students;
     _countLecturer = lecturers;
 
 //---------------------------------------
 // get the rating from subcollection facility and get the date of rating
+// first get all facility first
 //---------------------------------------
-
     final QuerySnapshot<Map<String, dynamic>> allFacilities =
     await FirebaseFirestore.instance.collection(_colFacilities).get();
 
@@ -394,7 +422,9 @@ class _WebStatisticState extends State<WebStatistic> {
     for (final doc in allFacilities.docs) {
       final String fid = doc.id;
       final String fname = (doc.data()['name'] ?? fid).toString();
-
+//---------------------------------------
+// get rating within the date range
+//---------------------------------------
       try {
         final QuerySnapshot<Map<String, dynamic>> ratings = await FirebaseFirestore.instance
             .collection(_colFacilities)
@@ -415,6 +445,9 @@ class _WebStatisticState extends State<WebStatistic> {
             cnt += 1;
           }
         }
+//---------------------------------------
+// get the avarage then add to rating barchart for each point
+//---------------------------------------
         if (cnt > 0) {
           final double avg = sum / cnt;
           averages.add(_BarDoubleDatum(_shorten(fname, 14), avg));
@@ -426,7 +459,6 @@ class _WebStatisticState extends State<WebStatistic> {
 //---------------------------------------
 // then sort top highest adn top lowest rating
 //---------------------------------------
-
     averages.sort((a, b) => b.value.compareTo(a.value)); // desc
     final int takeHi = math.min(5, averages.length);
     _topHighestAvg.addAll(averages.take(takeHi));
@@ -562,6 +594,9 @@ class _WebStatisticState extends State<WebStatistic> {
               padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
+ //---------------------------------------
+// display date tools at top
+//---------------------------------------
                 children: <Widget>[
               _dateRow(),
               SizedBox(height: 12.h),
@@ -848,9 +883,9 @@ class _WebStatisticState extends State<WebStatistic> {
 //---------------------------------------
 // set the y axis bar, step which mean y axis point number, then we can get top line and get the max y
 //---------------------------------------
-    int step = ((highest + 3) ~/ 4);
+    int step = ((highest + 3) ~/ 4);// get each y axis
     if (step < 1) step = 1;
-    final int topLine = step * 4;
+    final int topLine = step * 4; // *4 to get highest point
     final double layoutMaxY = (topLine + step).toDouble();
     final double gridInterval = step.toDouble();
 
@@ -901,7 +936,7 @@ class _WebStatisticState extends State<WebStatistic> {
                             children: [
                               Expanded(
 //---------------------------------------
-// build the bar chart
+// build the line chart
 //---------------------------------------
                               child: SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
@@ -1328,6 +1363,9 @@ class _WebStatisticState extends State<WebStatistic> {
 //---------------------------------------
 // tow selection data
 //---------------------------------------
+ //---------------------------------------
+// this section show student and not rated
+//---------------------------------------
                     PieChartSectionData(
                       color: aColor,
                       value: aCount.toDouble(),
@@ -1339,6 +1377,9 @@ class _WebStatisticState extends State<WebStatistic> {
                         color: Colors.white,
                       ),
                     ),
+ //---------------------------------------
+// tow selection data this section show lecturer and rated
+//---------------------------------------
                     PieChartSectionData(
                       color: bColor,
                       value: bCount.toDouble(),

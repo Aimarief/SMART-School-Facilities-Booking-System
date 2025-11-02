@@ -125,26 +125,19 @@ class _WebViewRatingState extends State<WebViewRating> {
         final String q = _clean(_searchCtrl.text).toLowerCase();
         final List<QueryDocumentSnapshot<Map<String, dynamic>>> filtered =
         <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
         int i = 0;
         while (i < docs.length) {
           final d = docs[i];
           final m = d.data();
-
 //---------------------------------------
 // filter deleted = true
 //---------------------------------------
           bool del;
-          if (m.containsKey('deleted') && m['deleted'] != null) {
             if (m['deleted'] == true) {
               del = true;
             } else {
               del = false;
             }
-          } else {
-            del = false;
-          }
-
           String nm;
           if (m.containsKey('name') && m['name'] != null) {
             nm = m['name'].toString();
@@ -274,10 +267,6 @@ class _WebViewRatingState extends State<WebViewRating> {
                     final v = mm['rating'];
                     if (v is int) {
                       total = total + v.toDouble();
-                    } else {
-                      if (v is double) {
-                        total = total + v;
-                      }
                     }
                   }
                   k = k + 1;
@@ -286,7 +275,6 @@ class _WebViewRatingState extends State<WebViewRating> {
 //---------------------------------------
 // count the average rating
 //---------------------------------------
-
               double avg;
               if (count > 0) {
                 avg = total / count;
@@ -335,7 +323,6 @@ class _WebViewRatingState extends State<WebViewRating> {
 //---------------------------------------
 // show review list
 //---------------------------------------
-
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: ratingStream,
             builder: (context, snap) {
@@ -347,28 +334,24 @@ class _WebViewRatingState extends State<WebViewRating> {
 
               final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
               (snap.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]).toList();
-
  //---------------------------------------
 // sort by date
 //---------------------------------------
               docs.sort((a, b) {
                 final ma = a.data();
                 final mb = b.data();
-
                 int ta;
                 if (ma.containsKey('createdAt') && ma['createdAt'] is Timestamp) {
                   ta = (ma['createdAt'] as Timestamp).millisecondsSinceEpoch;
                 } else {
                   ta = 0;
                 }
-
                 int tb;
                 if (mb.containsKey('createdAt') && mb['createdAt'] is Timestamp) {
                   tb = (mb['createdAt'] as Timestamp).millisecondsSinceEpoch;
                 } else {
                   tb = 0;
                 }
-
                 return tb.compareTo(ta);
               });
 //---------------------------------------
@@ -397,14 +380,12 @@ class _WebViewRatingState extends State<WebViewRating> {
                   } else {
                     userId = '';
                   }
-
                   String review;
                   if (m.containsKey('review') && m['review'] is String) {
                     review = m['review'];
                   } else {
                     review = '';
                   }
-
                   double rating = 0.0;
                   if (m.containsKey('rating')) {
                     final v = m['rating'];
@@ -414,7 +395,6 @@ class _WebViewRatingState extends State<WebViewRating> {
                       if (v is double) {
                         rating = v;
                       }
-
                     }
                   }
                   if (rating < 0) {
@@ -516,7 +496,6 @@ class _WebViewRatingState extends State<WebViewRating> {
 //---------------------------------------
 // design for displaying each review and person
 //---------------------------------------
-
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

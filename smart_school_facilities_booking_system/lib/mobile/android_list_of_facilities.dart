@@ -86,7 +86,6 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 //---------------------------------------
 // press favourite will toggle yes and no
 //---------------------------------------
-
   Future<void> _toggleFavorite(String facilityId) async {
     final col = _favColForCurrentUser();
     if (col == null) return;
@@ -94,7 +93,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
     final ref = col.doc(facilityId);
     final snap = await ref.get();
 //---------------------------------------
-// if the facility exist then remove it (normally wont meet this )
+// if the facility exist in the favourite list then remove it
 //---------------------------------------
     if (snap.exists) {
       await ref.delete();
@@ -279,7 +278,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       } else {
         maxB = 0;
       }
-// ----- compute rank: 0 if fits, 1 if does NOT fit (lower rank = better) -----
+//compute rank: 0 if fits, 1 if does NOT fit (lower rank = better or above)
       int rankA;
       if (_fitsCapacity(userCap, reqA, maxA)) {
         rankA = 0;
@@ -292,15 +291,15 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
       } else {
         rankB = 1;
       }
-// ----- Rule 1: items that fit come first -----
+//Rule 1: items that fit come first
       if (rankA != rankB) {
         return rankA.compareTo(rankB);
       }
-// ----- Rule 2: among same "fit" status, smaller reqCap first -----
+// Rule 2: among same "fit" status, smaller reqCap first
       if (reqA != reqB) {
         return reqA.compareTo(reqB);
       }
-// ----- Rule 3: if still tied, sort by name A→Z  -----
+//Rule 3: if still tied, sort by name A→Z
       String nameA;
       if (a['name'] is String) {
         nameA = a['name'];
@@ -528,7 +527,8 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 // if teh search is not empty but also does not have the seach key word
 //---------------------------------------
                         if (q.isNotEmpty == true) {
-                          if (name.toLowerCase().contains(q) == false) continue;
+                          if (name.toLowerCase().contains(q) == false)
+                            continue;
                         }
 //---------------------------------------
 // get the image
@@ -773,7 +773,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 
                           children.add(SizedBox(height: 12.h));
 //---------------------------------------
-// list all facility
+// list all facility which isFav is false
 //---------------------------------------
                           children.add(_sectionHeader(title: 'All Facilities', count: others.length));
                           for (final Map<String, dynamic> item in others) {
