@@ -86,7 +86,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
       setState(() => _reasonLen = len.clamp(0, 99));
     });
 
-    _loadFacilityThenChain();
+    _loadFacilityInformation();
   }
 
   @override
@@ -129,7 +129,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
 // load the facility info and manager info
 //---------------------------------------
 
-  Future<void> _loadFacilityThenChain() async {
+  Future<void> _loadFacilityInformation() async {
     await _loadFacilityOnce();
     await _loadManagerOnce();
   }
@@ -532,7 +532,7 @@ class _ConfirmBookingState extends State<ConfirmBooking> {
         final String start = _normalizeHHmm(raw);
         final String slotKey = _slotKey4FromHHmm(start);
 //---------------------------------------
-// get the end time again sot the start
+// get the end time again using the start
 //---------------------------------------
         String end = _lookupEndFromFacilityByStart(start);
         if (end.isEmpty)

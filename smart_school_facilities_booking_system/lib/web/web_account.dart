@@ -158,13 +158,13 @@ class _AdminWebAccountState extends State<WebAccount> {
     final s = data['start'] is String ? data['start'] as String : null;
     final e = data['end'] is String ? data['end'] as String : null;
 
-    bool sun = data['Sunday'] is bool ? data['Sunday'] as bool : false;
-    bool mon = data['Monday'] is bool ? data['Monday'] as bool : false;
-    bool tue = data['Tuesday'] is bool ? data['Tuesday'] as bool : false;
-    bool wed = data['Wednesday'] is bool ? data['Wednesday'] as bool : false;
-    bool thu = data['Thursday'] is bool ? data['Thursday'] as bool : false;
-    bool fri = data['Friday'] is bool ? data['Friday'] as bool : false;
-    bool sat = data['Saturday'] is bool ? data['Saturday'] as bool : false;
+    bool sun = data['Sunday'];
+    bool mon = data['Monday'] ;
+    bool tue = data['Tuesday'] ;
+    bool wed = data['Wednesday'];
+    bool thu = data['Thursday'] ;
+    bool fri = data['Friday'] ;
+    bool sat = data['Saturday'] ;
 
     setState(() {
       startTime = (s != null) ? _parseTime(s) : null;
@@ -1541,7 +1541,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                                         width: double.infinity,
                                         child: ElevatedButton(
  //---------------------------------------
-// edit working hout button , in edit mode only allow to press or it will show null
+// edit working hout button , in edit mode only allow to press or it will show null (start button)
 //---------------------------------------
                                         onPressed: _editWorkingHour ? () => _pickTime(isStart: true) : null,
 //---------------------------------------
@@ -1565,7 +1565,7 @@ class _AdminWebAccountState extends State<WebAccount> {
                                         width: double.infinity,
                                         child: ElevatedButton(
 //---------------------------------------
-// this too edit mode only allow to press or it will show null
+// this too edit mode only allow to press or it will show null (end button)
 //---------------------------------------
                                           onPressed: _editWorkingHour ? () => _pickTime(isStart: false) : null,
                                           child: Text((endTime == null) ? "Select" : _formatTime(endTime!)),

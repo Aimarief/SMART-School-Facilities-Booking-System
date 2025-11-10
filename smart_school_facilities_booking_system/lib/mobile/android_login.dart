@@ -221,8 +221,7 @@ class _LoginInformationState extends State<LoginInformation> {
 //---------------------------------------
 
     try {
-      final UserCredential cred = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: loginEmail, password: password);
+      final UserCredential cred = await FirebaseAuth.instance.signInWithEmailAndPassword(email: loginEmail, password: password);
 
       final User? u = cred.user;
       if (u == null) {

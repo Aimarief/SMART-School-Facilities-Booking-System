@@ -94,7 +94,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
       }
 
       //---------------------------------------
-// get user tole
+// get user role
 //---------------------------------------
       String role = userDoc.get('role');
 //---------------------------------------
@@ -376,7 +376,7 @@ class _WebLoginPageState extends State<WebLoginPage> {
                                   ),
                                 ),
 //---------------------------------------
-//
+// for manager
 //---------------------------------------
 
                                 if (!isAdminSelected)

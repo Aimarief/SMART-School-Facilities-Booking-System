@@ -65,9 +65,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
 
   final Map<String, int> _slotBooked = <String, int>{};
-  final Map<String, int> _slotCapOverride = <String, int>{};
 
-  String _loadedKey = '';
 
   Set<int> _offWeekdays = <int>{};
   Set<String> _offDatesYmd = <String>{};
@@ -147,17 +145,6 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     return '$h.$mm $suf';
   }
 
-  //---------------------------------------
-// convert minute to hh mm
-//---------------------------------------
-
-  String _minutesToHHmm(int mins) {
-    int h = mins ~/ 60;
-    int m = mins % 60;
-    h = h.clamp(0, 23);
-    m = m.clamp(0, 59);
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-  }
 
   //---------------------------------------
 // change (may not need this)
@@ -207,7 +194,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 //---------------------------------------
 // get all the weeky day off
 //---------------------------------------
-  void _applyWeekdayBooleansFromMap(Map<String, dynamic> m) {
+  void _applyWeekdayOff(Map<String, dynamic> m) {
     void add(String k, int wd) {
       if (!m.containsKey(k)) return;
       final v = m[k];
@@ -228,16 +215,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     add('Monday', 1); add('Tuesday', 2); add('Wednesday', 3);
     add('Thursday', 4); add('Friday', 5); add('Saturday', 6); add('Sunday', 7);
   }
-//---------------------------------------
-//
-//---------------------------------------
 
-  String _normalizeYmdString(String s) {
-    final t = s.trim();
-    final d = DateTime.tryParse(t);
-    if (d == null) return t;
-    return _ymd(d);
-  }
 //---------------------------------------
 // load not working day
 //---------------------------------------
@@ -254,7 +232,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       if (ds.exists) {
         final m = ds.data();
         if (m != null) {
-          _applyWeekdayBooleansFromMap(m);
+          _applyWeekdayOff(m);
         }
       }
     } catch (_) {}
@@ -321,7 +299,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
     });
 
 //---------------------------------------
-// make sure no duplicate time
+// add each time slot start and end into list
 //---------------------------------------
     int j = 0;
     while (j < slots.length) {
@@ -333,7 +311,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
       final String ns = _normalizeHHmm(startHHmm); // "09:00" -> "0900"
       final String ne = _normalizeHHmm(endHHmm); // "10:00" -> "1000"
 
-      if (_startToEnd.containsKey(ns) == false) { // avoid duplicates
+      if (_startToEnd.containsKey(ns) == false) {
 //---------------------------------------
 // keep end time also in list
 //---------------------------------------
@@ -882,8 +860,8 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
         'start': newStart,
         'end': newEnd,
         'seatIndex': newSeat,
-        'approval': 'pending',          // keep pending (all bookings require approval)
-        'seen': false,
+        'approval': 'pending', // keep pending (all bookings require approval)
+        'seen': false, // set the seen back to false
         'userSeen': false,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -1235,11 +1213,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
           final bool isAcceptedUpcoming =
               (approvalStr == 'accepted' ) && statusStr == 'upcoming';
 
-//---------------------------------------
-// check if the booking slot is same as the original slot, use for when enter edit for the first time
-//---------------------------------------
-          final bool sameSlotAsOriginal =
-              _origDate != null && _selectedDate != null && _sameDay(_origDate!, _selectedDate!) && _normalizeHHmm(_origStartStr) == _normalizeHHmm(_selectedTime);
+
 //---------------------------------------
 // get teh facility data
 //---------------------------------------
@@ -1416,19 +1390,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
 
                     Align(alignment: Alignment.centerLeft, child: Text('Time Slot Available', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700))),
                     SizedBox(height: 6.h),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Icon(Icons.info_outline, size: 16.sp, color: Colors.black54),
-                        SizedBox(width: 6.w),
-                        Expanded(
-                          child: Text('Choose more than 1 slots is allowed',
-                            style: TextStyle(fontSize: 12.5.sp, color: Colors.black54, fontWeight: FontWeight.w600),
-                            softWrap: true,
-                          ),
-                        ),
-                      ],
-                    ),
+
                     SizedBox(height: 12.h),
 //---------------------------------------
 // show each time chip
@@ -1444,6 +1406,7 @@ class _AndroidEditBookingState extends State<AndroidEditBooking> {
                           final key4 = _slotKey4FromHHmm(hhmm);
                           int capForThis = _capacity;
                           int booked = _slotBooked[key4] ?? 0;
+
 
 //---------------------------------------
 // check if time slot is full

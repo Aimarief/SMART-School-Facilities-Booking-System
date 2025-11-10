@@ -440,8 +440,7 @@ class _HomepageState extends State<Homepage> {
                     final dayNum = cellIndex - lead + 1;
 
                     final inMonth = dayNum >= 1 && dayNum <= days;
-                    DateTime? cellDate =
-                    inMonth ? DateTime(f.year, f.month, dayNum) : null;
+                    DateTime? cellDate = inMonth ? DateTime(f.year, f.month, dayNum) : null;
                     final isSelected = (cellDate != null && _filterByDate)
                         ? _isSameYMD(cellDate, _selectedDate)
                         : false;
@@ -1038,6 +1037,9 @@ class _HomepageState extends State<Homepage> {
                 tmp.add(facDocs[i]);
               }
             }
+            //---------------------------------------
+// if no filter by facility for manager
+//---------------------------------------
             facDocs = tmp;
           }
 
@@ -1051,7 +1053,7 @@ class _HomepageState extends State<Homepage> {
           });
 
 //---------------------------------------
-// get the slot of the facility and store in like dictionary id : slot
+// get the slot of the facility and store in like id = slot available
 //---------------------------------------
           final Map<String, int> slotsByFid = <String, int>{};
           for (int i = 0; i < facDocs.length; i++) {
@@ -1074,7 +1076,7 @@ class _HomepageState extends State<Homepage> {
               }
 
               //---------------------------------------
-// get year month and date and store in list
+// get year month and date and store in list (date month year = i)
 //---------------------------------------
               final Map<String, int> dayIndexByYMD = <String, int>{};
               for (int i = 0; i < days.length; i++) {
@@ -1091,7 +1093,7 @@ class _HomepageState extends State<Homepage> {
               }
 
 //---------------------------------------
-//   for each facility , get the available slot
+//   for each facility , get the available slot from that fac id
 //---------------------------------------
               final Map<_RowKey, Map<int, List<Map<String, dynamic>>>> grid = <_RowKey, Map<int, List<Map<String, dynamic>>>>{};
               for (int i = 0; i < facDocs.length; i++) {
@@ -1111,7 +1113,7 @@ class _HomepageState extends State<Homepage> {
                     dayBuckets[di] = <Map<String, dynamic>>[];
                   }
 //---------------------------------------
-// for each key store the date
+// for each rk store 7 empty list
 //---------------------------------------
                   grid[rk] = dayBuckets;
                 }
@@ -1142,7 +1144,7 @@ class _HomepageState extends State<Homepage> {
                 final DateTime startInclusive = days.first;
                 final DateTime endInclusive = days.last;
 //---------------------------------------
-// if not in the day range, continue
+// if not in the day range list, continue
 //---------------------------------------
                 if (dayOnly.isBefore(startInclusive) || dayOnly.isAfter(endInclusive)) continue;
 
@@ -1204,7 +1206,7 @@ class _HomepageState extends State<Homepage> {
               );
 
 //---------------------------------------
-// build each of the column, base on the facDoc that already filter by category, by name
+// build each of the row, base on the facDoc that already filter by category, by name
 //---------------------------------------
               final List<Widget> blocks = <Widget>[];
               for (int idx = 0; idx < facDocs.length; idx++) {
@@ -1214,7 +1216,7 @@ class _HomepageState extends State<Homepage> {
 //---------------------------------------
                 final String facilityName = (facDocs[idx].data()['name'] ?? '').toString();
 //---------------------------------------
-// get the available slot
+// get the available slot from that fid
 //---------------------------------------
                 final int slots = slotsByFid[fid] ?? 1;
 //---------------------------------------

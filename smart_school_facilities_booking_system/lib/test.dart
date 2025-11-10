@@ -154,6 +154,8 @@ TextField(
 //---------------------------------------
 // Text Form Field
 //---------------------------------------
+Color(0xFFFBFBFF) white
+
 
 final GlobalKey<FormState> _formKey = GlobalKey<FormState>(); // (form handle)
 final TextEditingController _email = TextEditingController();  // (email text)
@@ -716,6 +718,65 @@ showDialog(
   ),
 );
 
+stream builder
+/
+Widget name;
+name = StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+  stream: FirebaseFirestore.instance
+      .collection('UserInformation')
+      .doc((_userId ?? '').isEmpty ? 'none' : _userId)
+      .snapshots(),
+  builder: (context, snap) {
+    // your requested waiting UI
+    if (snap.connectionState == ConnectionState.waiting) {
+      return Container(
+        width: 1.sw,
+        height: 60.h,
+        alignment: Alignment.center,
+        child: Text('Loading...', style: TextStyle(fontSize: 14.sp)),
+      );
+    }
+
+    final data  = snap.data?.data();
+    final name  = (data?['username'] ?? '...').toString();
+    return Text('booked by $name', style: TextStyle(fontSize: 12.sp));
+  },
+);
+
+void
+Future<void> markBookingSeen(String bookingId) async {           // Future<void> for no value
+  final ref = FirebaseFirestore.instance                         // get db
+      .collection('Bookings')                                    // go to collection
+      .doc(bookingId);                                           // choose document
+
+  await ref.set(                                                 // write data
+    {'seen': true},                                              // set field
+    SetOptions(merge: true),                                     // merge to keep others
+  );                                                             // done
+}
+
+
+future builder
+ Widget name;
+    name = FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: FirebaseFirestore.instance.collection('UserInformation')
+            .doc((_userId ?? '').isEmpty ? 'none' : _userId)
+            .get(),
+        builder: (context, snap) {
+          final data = snap.data?.data();
+
+          final String name = data?['username']?? "...";
+          return Text('booked by $name');
+        });
+
+
+to add id to list after object
+can do like -> items.add({...m, 'id': d.id}); but then have to remove it when need to add to database using -> final toSave = Map.of(item)..remove('id');
+
 
  */
+
+
+
+
 

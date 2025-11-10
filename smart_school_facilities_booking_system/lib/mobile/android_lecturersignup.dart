@@ -687,15 +687,13 @@ class _SignupInformationState extends State<SignupInformation> {
   }
 
 //---------------------------------------
-// build the form
+// main build for the form
 //---------------------------------------
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         SizedBox(height: 20.h),
-
-
         Container(
           width: 0.9.sw,
           padding: EdgeInsets.all(20.w),

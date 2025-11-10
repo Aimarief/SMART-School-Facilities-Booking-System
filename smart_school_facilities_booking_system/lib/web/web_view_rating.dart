@@ -502,12 +502,18 @@ class _WebViewRatingState extends State<WebViewRating> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  //---------------------------------------
+// design image
+//---------------------------------------
                   ClipRRect(
                     borderRadius: BorderRadius.circular(40.r),
                     child: _userAvatar(userId),
                   ),
                   SizedBox(width: 12.w),
                   Expanded(
+                    //---------------------------------------
+// display name and rating
+//---------------------------------------
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -525,6 +531,9 @@ class _WebViewRatingState extends State<WebViewRating> {
                 ],
               ),
               SizedBox(height: 8.h),
+              //---------------------------------------
+// design for review and date
+//---------------------------------------
               Text(
                 review,
                 style: TextStyle(fontSize: 13.sp, color: Colors.black87),

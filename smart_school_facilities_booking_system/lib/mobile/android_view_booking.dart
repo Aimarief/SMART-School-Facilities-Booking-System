@@ -245,26 +245,6 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     return '';
   }
 
-  //---------------------------------------
-// read the time
-//---------------------------------------
-  DateTime? _readDateTime(Map<String, dynamic> m, List<String> keys) {
-
-    for (int i = 0; i < keys.length; i++) {
-      final String k = keys[i];
-      if (m.containsKey(k)) {
-        final dynamic v = m[k];
-
-        if (v is Timestamp) {
-          return v.toDate();
-        }
-        if (v is DateTime) {
-          return v;
-        }
-      }
-    }
-    return null;
-  }
 
 //---------------------------------------
 // read teh date
@@ -344,13 +324,6 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
     }
 
     return null;
-  }
-
-//---------------------------------------
-// get the approval text
-//---------------------------------------
-  String _approvalText(dynamic approvalValue) {
-        return approvalValue.toString().toLowerCase();
   }
 
 //---------------------------------------
@@ -632,7 +605,7 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                         children: [
                           Icon(Icons.event_seat, size: 18.w, color: Colors.black54),
   //---------------------------------------
-// display slot
+// display slot which is seat
 //---------------------------------------
                           Text(
                             "Slot : ",
@@ -649,7 +622,8 @@ class _AndroidViewBookingState extends State<AndroidViewBooking> {
                         ],
                       ),
 
-                      SizedBox(height: 8.h),
+
+
 //---------------------------------------
 // display teh chip some have 2 some have 1 base on the approval
 //---------------------------------------

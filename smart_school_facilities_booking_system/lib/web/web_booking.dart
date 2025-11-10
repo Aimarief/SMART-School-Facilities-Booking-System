@@ -7,6 +7,7 @@ import 'package:smart_school_facilities_booking_system/booking_service.dart';
 import 'web_top_bar.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+
 class WebBooking extends StatefulWidget {
   const WebBooking({Key? key}) : super(key: key);
   @override
@@ -443,6 +444,7 @@ class _BookingRightPanel extends StatelessWidget {
         _row('Location', loc),
         _row('Description', det),
         _row('Duration per slot (hours)', dur),
+
         const SizedBox(height: 16),
         if (facId.trim().isNotEmpty && facId != '-')
           _MakeBookingSection(
@@ -1477,7 +1479,7 @@ class _MakeBookingSectionState extends State<_MakeBookingSection> {
 //---------------------------------------
 // bring u to place that display time slot
 //---------------------------------------
-                _slotWrap(),
+                  _slotWrap(),
 
               if (_loadingFacility || _loadingDayBooked) ...[
                 const SizedBox(height: 10),

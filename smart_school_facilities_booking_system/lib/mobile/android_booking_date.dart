@@ -83,18 +83,18 @@ class _Booking_DateState extends State<Booking_Date> {
 //---------------------------------------
 // get all the slot belongs to this facility
 //---------------------------------------
-    _bootstrap();
+    _getSlot();
   }
 
 //---------------------------------------
 // loads data
 //---------------------------------------
 
-  Future<void> _bootstrap() async {
+  Future<void> _getSlot() async {
     await _loadWeekdayRules();
     await _loadOffDays();
     await _loadFacilityOnce();
-    if (mounted) _startSlotsListenerForSelectedDay();
+    if (mounted) _slotForSelectedDay();
   }
 
   @override
@@ -426,7 +426,7 @@ class _Booking_DateState extends State<Booking_Date> {
     }
   }
 
-  void _startSlotsListenerForSelectedDay() {
+  void _slotForSelectedDay() {
 
     _slotsSub?.cancel();
 
@@ -542,9 +542,9 @@ class _Booking_DateState extends State<Booking_Date> {
       setState(() {
         _selected = DateTime(picked.year, picked.month, picked.day);
         _next7 = List<DateTime>.generate(7, (i) => _today.add(Duration(days: i)));
-        _pickedStarts.clear();
+        _pickedStarts.clear();// remove all time slot that is picked
       });
-      _startSlotsListenerForSelectedDay(); // switch listener to new day
+      _slotForSelectedDay(); // switch listener to new day
     }
   }
 
@@ -684,7 +684,7 @@ class _Booking_DateState extends State<Booking_Date> {
                                 _selected = d;
                                 _pickedStarts.clear();
                               });
-                              _startSlotsListenerForSelectedDay();
+                              _slotForSelectedDay();// get the booked
                             }
                                 : null,
                             borderRadius: BorderRadius.circular(20.r),

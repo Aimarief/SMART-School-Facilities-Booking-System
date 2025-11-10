@@ -540,7 +540,7 @@ class _SignupInformationState extends State<SignupInformation> {
 
 
 //---------------------------------------
-// build for sign up form
+// main build for sign up form
 //---------------------------------------
 
   @override

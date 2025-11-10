@@ -209,7 +209,7 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
           if (data.containsKey('review')) {
             if (data['review'] != null) { review = data['review'].toString(); }
           }
-          // pick createdAt to show in UI (do NOT change it in DB later)
+          // pick createdAt to show in UI
           if (data.containsKey('createdAt')) {
             final dynamic v = data['createdAt'];
             if (v is Timestamp) {
@@ -490,8 +490,8 @@ class _AndroidMakeRatingState extends State<AndroidMakeRating> {
                       decoration: InputDecoration(
                         hintText: 'Write your review here...',
                         hintStyle: TextStyle(fontSize: 13.sp, color: Colors.black45),
-                        contentPadding: EdgeInsets.all(12.w),     // keep hint top-left
-                        border: InputBorder.none,                 // border drawn by Container
+                        contentPadding: EdgeInsets.all(12.w),
+                        border: InputBorder.none,
                       ),
                       onChanged: (v) {
                         if (_reviewError.isNotEmpty == true) {

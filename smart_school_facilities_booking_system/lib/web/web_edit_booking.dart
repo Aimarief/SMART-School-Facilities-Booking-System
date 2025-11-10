@@ -478,7 +478,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
     updated['slotKey'] = _selectedSlotKey;
     updated['seatIndex'] = seatIndex1Based;
     updated['start'] = _normalizeHHmm(selStart);
-    updated['end'] = selEndForCheck; // always a normalized, non-empty end
+    updated['end'] = selEndForCheck;
 
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -887,7 +887,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
 //---------------------------------------
 
   Widget _legendBox(Color c, String label) {
-    // add border when the swatch is white so it’s visible on lilac
+    // add border when the swatch is white so it’s visible
     BoxDecoration deco;
     if (c == _cAvailBg) {
       deco = BoxDecoration(color: c, border: Border.all(color: _cAvailBrd), borderRadius: BorderRadius.circular(4.r));
@@ -926,6 +926,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
         spacing: 8.w,
         runSpacing: 8.h,
         children: [
+          //the custom time
           for (int i = 0; i < _timeSlots.length; i++)
             _slotBox(_timeSlots[i]),
         ],
@@ -1415,7 +1416,7 @@ class _WebEditBookingState extends State<WebEditBooking> {
       _seatTaken.clear();
     });
 //---------------------------------------
-// get the slot of the facility
+// get the slot of the booked from facility in database
 //---------------------------------------
     try {
       final QuerySnapshot<Map<String, dynamic>> snap = await FirebaseFirestore.instance

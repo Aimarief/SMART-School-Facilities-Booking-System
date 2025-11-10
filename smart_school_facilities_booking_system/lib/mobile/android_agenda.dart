@@ -349,7 +349,6 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     final String approval = m['approval'];
     final String facilityId = m['facilityId'];
     final int seatIndex = m['seatIndex'];
-
     final String startStr = m['start'];
     final String endStr   = m['end'];
     final int stMin = _parse24ToMinutes(startStr);
@@ -387,11 +386,12 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     String badgeText = badge;
     if (badgeText.isEmpty) { badgeText = '-'; }
 
-    // get facility name (cached) and build the card
+
+    // get facility name  and build the card
     return FutureBuilder<String>(
-      future: _getFacilityName(facilityId),     // async name lookup
+      future: _getFacilityName(facilityId),     //  name lookup
       builder: (context, snap) {
-        // if not done yet → show "..."; if done but null → '-'
+        // if not done yet show "..."; if done but null → '-'
         String nm;
         if (snap.connectionState == ConnectionState.done) {
           final String? v = snap.data;
@@ -412,11 +412,14 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     if (seatIndex >= 0) {
       slotText = 'Slot: $seatIndex';
     }
+
+
 //---------------------------------------
 // daily weekly slot main design
 //---------------------------------------
     return Container(
       width: 1.0.sw,
+      constraints: BoxConstraints(minHeight: 48.h),
       margin: EdgeInsets.symmetric(vertical: 6.h),
       padding: EdgeInsets.all(12.w),
       decoration: BoxDecoration(
@@ -473,6 +476,10 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
                     color: const Color(0xFF777777),
                   ),
                 ),
+                SizedBox(height: 2.h),
+
+
+
               ],
             ),
           ),
@@ -518,7 +525,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
           SizedBox(
             width: 72.w,
             child: Text(
-              _formatHourLabel(hourMin),
+              _formatHourLabel(hourMin),// am / pm
               style: TextStyle(
                 fontSize: 12.sp,
                 color: const Color(0xFF666666),
@@ -576,7 +583,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     }
 
     //---------------------------------------
-// build hour from start to end
+// build hour from start to end mark
 //---------------------------------------
 
     final List<int> hourMarks = <int>[];
@@ -595,6 +602,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
       final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = snap.data!.docs;
       for (int i = 0; i < docs.length; i = i + 1) {
         final Map<String, dynamic> m = docs[i].data();
+
         final String approval = m['approval'];
 //---------------------------------------
 // ingnore rejected booking
@@ -602,6 +610,7 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
         if (approval.toLowerCase() == 'rejected') {
         } else {
           items.add(m);
+
         }
       }
     }
@@ -623,16 +632,16 @@ class _AndroidAgendaState extends State<AndroidAgenda> {
     for (int i = 0; i < hourMarks.length; i = i + 1) {
       buckets[hourMarks[i]] = <Map<String, dynamic>>[];
     }
-//hourMarks = [480, 540, 600] → 08:00, 09:00, 10:00
-// Booking 09:30–11:00 → st=570, en=660
-// Check 08:00–09:00 [480,540): 570 < 540 is false → no
-// Check 09:00–10:00 [540,600): 570 < 600 and 660 > 540 → yes → goes into buckets[540]
-// Check 10:00–11:00 [600,660): 570 < 660 and 660 > 600 → yes → goes into buckets[600]
+//hourMarks = [480, 540, 600] = 08:00, 09:00, 10:00
+// Booking 09:30–11:00 = st=570, en=660
+// Check 08:00–09:00 [480,540): 570 < 540 is false = no
+// Check 09:00–10:00 [540,600): 570 < 600 and 660 > 540 = yes , goes into buckets[540]
+// Check 10:00–11:00 [600,660): 570 < 660 and 660 > 600 = yes , goes into buckets[600]
     for (int i = 0; i < items.length; i = i + 1) {
       final Map<String, dynamic> m = items[i];
       final int st = _parse24ToMinutes(m['start']);
       final int en = _parse24ToMinutes(m['end']);
-      for (int j = 0; j < hourMarks.length; j = j + 1) {
+      for (int j = 0; j < hourMarks.length; j = j + 1) { // compare every mark for each booking
         final int hm = hourMarks[j];
         final int hStart = hm;
         final int hEnd = hm + 60;

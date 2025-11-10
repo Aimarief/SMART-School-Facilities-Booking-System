@@ -2746,9 +2746,11 @@ class _FacilityRightPanelState extends State<FacilityRightPanel> {
                                   Icon(Icons.access_time,
                                       size: 14.sp, color: Colors.black87),
                                   SizedBox(width: 6.w),
+
 //---------------------------------------
 // from when to when, convert the minute back to hour
 //---------------------------------------
+
                                   Text(
                                     '${_showHHMM(s)} – ${_showHHMM(e)}',
                                     style: TextStyle(

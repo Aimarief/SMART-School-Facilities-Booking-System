@@ -479,7 +479,7 @@ class _WebNotificationState extends State<WebNotification> {
 //---------------------------------------
         final docs = snap.data!.docs;
         if (docs.isEmpty) return Center(child: Text('No notifications', style: TextStyle(fontSize: 14.sp)));
-
+// group by date first
         final groups = _groupByDate(docs);
         if (groups.isEmpty) return Center(child: Text('No notifications', style: TextStyle(fontSize: 14.sp)));
 
@@ -566,11 +566,15 @@ class _WebNotificationState extends State<WebNotification> {
 //---------------------------------------
 // subtitle for the title
 //---------------------------------------
+
       String subtitle;
+
       if (type == 'system_issue') {
         final reporterEmail = (m['email'] ?? '-').toString();
         subtitle = '$reporterEmail has reported an issue';
+
       } else if (type == 'approval_status') {
+
         subtitle = '${facilityName.isEmpty ? '-' : facilityName} is approved';
       } else if ((type == 'booking_created' || type == 'booking_updated') &&
           (approvalLc.contains('pend') )) {
@@ -763,8 +767,8 @@ class _WebNotificationState extends State<WebNotification> {
 // show each of the item beside image
 //---------------------------------------
               Expanded(
-                child: _summaryColumn(
-                  children: [
+                child: _summaryColumn(// each of the spacing
+                  children: [// each of the box
                     _summaryLine(icon: Icons.event_seat, labelLower: 'slot', value: seat),
                     _summaryLine(icon: Icons.calendar_today_outlined, labelLower: 'date', value: dateStr),
                     _summaryLine(icon: Icons.schedule, labelLower: 'time', value: timeFancy),

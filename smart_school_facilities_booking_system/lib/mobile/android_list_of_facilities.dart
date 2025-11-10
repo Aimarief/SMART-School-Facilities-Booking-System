@@ -481,7 +481,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 
                         final String id = d.id;
                         activeFacilityIds.add(id);
-
+//---------------------------------------
+// get the facility name
+//---------------------------------------
                         String name;
                         if (data.containsKey('name') && data['name'] is String) {
                           name = data['name'];
@@ -491,7 +493,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
 
                         String? categoryName;
 //---------------------------------------
-// get the category name for that facility is
+// get the category name for that facility id
 //---------------------------------------
                         if (data.containsKey('categoryId') && data['categoryId'] is String) {
                           final String cid = data['categoryId'];
@@ -512,7 +514,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             }
                           }
                         }
-
+//---------------------------------------
+// if there is selected category
+//---------------------------------------
                         if (_selectedCategory != null) {
                           final String sel = _selectedCategory!.toLowerCase();
                           String cat;
@@ -711,7 +715,9 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                             } else {
                               catName = '';
                             }
-
+//---------------------------------------
+// add favourite facility in favourite list, add facility into category list it belongs
+//---------------------------------------
                             if (favoriteIds.contains(id) == true) {
                               favList.add(m);
                             } else {
@@ -1126,7 +1132,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8.r),
-                    child: _buildFacilityImage(imagePath),
+                    child: _buildFacilityImage(imagePath),//image
                   ),
                   SizedBox(width: 10.w),
                   Expanded(
@@ -1135,7 +1141,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          name,
+                          name,//name
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700),
@@ -1156,7 +1162,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                                   Icon(active ? Icons.check_circle : Icons.cancel, size: 16.sp, color: availColor),
                                   SizedBox(width: 6.w),
                                   Text(
-                                    availText,
+                                    availText,// avalable
                                     style: TextStyle(fontSize: 12.sp, color: availColor, fontWeight: FontWeight.w600),
                                   ),
                                 ],
@@ -1181,7 +1187,7 @@ class _AndroidListOfFacilitiesState extends State<AndroidListOfFacilities> {
                                   Icon(Icons.person, size: 16.sp, color: Colors.black87),
                                   SizedBox(width: 6.w),
                                   Text(
-                                    _formatCapacityText(reqCap, maxCap),
+                                    _formatCapacityText(reqCap, maxCap),//capacity
                                     style: TextStyle(fontSize: 13.sp, color: Colors.black87, fontWeight: FontWeight.w600),
                                   ),
                                 ],
